@@ -1,24 +1,35 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { usePlatform } from '@/context/PlatformContext'
+import { useStudio } from '@/context/StudioContext'
 import { useAIGeneration } from '@/hooks/use-ai-generation'
-import {
-  ModuleHeader,
-  EmptyState,
-  AcademyPanel,
-  GenerationMetaBar,
-  Field,
-  inputClass,
-  GenerateButton,
-} from '@/components/marketing/Shared'
-import {
-  BrandAsset,
-  BrandAssetType,
-  BrandProfile,
-  ResearchAnswer,
-  InterviewAnswer,
-} from '@/types/platform'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Label } from '@/components/ui/label'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Compass,
   Sparkles,
@@ -31,161 +42,310 @@ import {
   ChevronDown,
   ChevronRight,
   FileText,
+  Pencil,
+  Save,
+  RotateCcw,
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  Loader2,
+  XCircle,
+  Clock,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import {
+  BrandAsset,
+  BrandAssetType,
+  BrandProfile,
+  ResearchAnswer,
+  InterviewAnswer,
+} from '@/types/platform'
 
-const RESEARCH_GROUPS: {
+/* =====================================================================
+   DEFINIÇÕES — Pesquisa Completa (8 grupos, 42 campos)
+   ===================================================================== */
+
+type FieldType = 'text' | 'textarea' | 'select'
+
+interface FieldDef {
+  key: string
+  label: string
+  placeholder?: string
+  type?: FieldType
+  options?: string[]
+}
+
+interface ResearchGroupDef {
   group: number
   title: string
-  fields: { key: string; label: string; hint?: string }[]
-}[] = [
+  fields: FieldDef[]
+}
+
+const RESEARCH_GROUPS: ResearchGroupDef[] = [
   {
     group: 1,
-    title: '1. Trajetória e credenciais',
+    title: 'Trajetória e Credenciais',
     fields: [
-      { key: 'anos_mercado', label: 'Anos no mercado' },
-      { key: 'modelo_atendimento', label: 'Modelo de atendimento' },
-      { key: 'formacao', label: 'Formação' },
-      { key: 'certificacoes', label: 'Certificações' },
-      { key: 'premios', label: 'Prêmios e reconhecimentos' },
+      { key: 'nome_completo', label: 'Nome completo', placeholder: 'Ex: João da Silva' },
+      { key: 'formacao', label: 'Formação acadêmica', placeholder: 'Ex: MBA em Marketing' },
+      {
+        key: 'certificacoes',
+        label: 'Certificações',
+        placeholder: 'Ex: Google Ads, Meta Blueprint',
+      },
+      { key: 'tempo_atuacao', label: 'Tempo de atuação no mercado', placeholder: 'Ex: 7 anos' },
+      {
+        key: 'linkedin',
+        label: 'Link do LinkedIn/currículo',
+        placeholder: 'https://linkedin.com/in/...',
+      },
     ],
   },
   {
     group: 2,
-    title: '2. O que você vende',
+    title: 'Esteira de Ofertas',
     fields: [
       {
-        key: 'esteira_precos',
-        label: 'Descrição da esteira com preços',
-        hint: 'Essencial — alimenta funis e conteúdo',
+        key: 'oferta_entrada',
+        label: 'Oferta de entrada (isca)',
+        placeholder: 'Ex: E-book gratuito',
       },
-      { key: 'tipos_produto', label: 'Tipos de produto/serviço' },
+      {
+        key: 'oferta_principal',
+        label: 'Oferta principal (core)',
+        placeholder: 'Ex: Mentoria de 8 semanas',
+      },
+      { key: 'upsell_1', label: 'Upsell 1', placeholder: 'Ex: Acesso à comunidade' },
+      { key: 'upsell_2', label: 'Upsell 2', placeholder: 'Ex: Sessões 1:1 mensais' },
+      { key: 'oferta_premium', label: 'Oferta premium', placeholder: 'Ex: Done-for-you anual' },
     ],
   },
   {
     group: 3,
-    title: '3. Negócio e números',
+    title: 'Negócio e Números',
     fields: [
-      { key: 'ticket_medio', label: 'Ticket médio' },
-      { key: 'faturamento', label: 'Faturamento mensal' },
-      { key: 'clientes_atendidos', label: 'Clientes atendidos' },
-      { key: 'recorrencia', label: 'Recorrência' },
-      { key: 'casos_sucesso', label: 'Casos de sucesso' },
+      { key: 'faturamento', label: 'Faturamento mensal aproximado', placeholder: 'Ex: R$ 50.000' },
+      { key: 'ticket_medio', label: 'Ticket médio atual', placeholder: 'Ex: R$ 3.500' },
+      { key: 'clientes_ativos', label: 'Número de clientes ativos', placeholder: 'Ex: 42' },
+      { key: 'cac', label: 'Custo de aquisição (CAC)', placeholder: 'Ex: R$ 480' },
+      { key: 'ltv', label: 'Lifetime value (LTV)', placeholder: 'Ex: R$ 12.000' },
+      {
+        key: 'meta_12m',
+        label: 'Meta de faturamento em 12 meses',
+        placeholder: 'Ex: R$ 200.000/mês',
+      },
     ],
   },
   {
     group: 4,
-    title: '4. Cliente ideal',
+    title: 'Cliente Ideal',
     fields: [
-      { key: 'faixa_etaria', label: 'Faixa etária' },
-      { key: 'genero', label: 'Gênero' },
-      { key: 'profissao', label: 'Profissão' },
-      { key: 'classe_social', label: 'Classe social' },
-      { key: 'localizacao', label: 'Localização' },
-      { key: 'momento_vida', label: 'Momento de vida' },
-      { key: 'estado_emocional', label: 'Estado emocional' },
+      { key: 'idade_ideal', label: 'Idade do cliente ideal', placeholder: 'Ex: 28-42 anos' },
+      { key: 'genero', label: 'Gênero predominante', placeholder: 'Ex: Feminino' },
+      { key: 'renda_media', label: 'Renda média', placeholder: 'Ex: R$ 8.000+' },
+      {
+        key: 'dores',
+        label: 'Principais dores',
+        type: 'textarea',
+        placeholder: 'O que mais aflige seu cliente…',
+      },
+      {
+        key: 'objecoes',
+        label: 'Objeções mais comuns',
+        type: 'textarea',
+        placeholder: 'Ex: "está caro", "não tenho tempo"…',
+      },
+      {
+        key: 'consome_conteudo',
+        label: 'Onde consome conteúdo',
+        placeholder: 'Ex: Instagram, YouTube, podcasts',
+      },
     ],
   },
   {
     group: 5,
-    title: '5. Mercado e concorrência',
+    title: 'Mercado e Concorrência',
     fields: [
-      { key: 'concorrentes', label: 'Concorrentes' },
-      { key: 'perfis_admirados', label: 'Perfis admirados' },
-      { key: 'perfis_rejeitados', label: 'Perfis rejeitados' },
-      { key: 'cliches_mentiras', label: 'Clichês e mentiras do nicho' },
+      {
+        key: 'concorrentes',
+        label: 'Principais concorrentes diretos',
+        placeholder: 'Liste 2-5 nomes',
+      },
+      {
+        key: 'dif_concorrente_a',
+        label: 'Diferencial vs concorrente A',
+        placeholder: 'O que você faz melhor que o A…',
+      },
+      {
+        key: 'dif_concorrente_b',
+        label: 'Diferencial vs concorrente B',
+        placeholder: 'O que você faz melhor que o B…',
+      },
+      {
+        key: 'tendencias',
+        label: 'Tendências do mercado',
+        type: 'textarea',
+        placeholder: 'Para onde o mercado caminha…',
+      },
+      {
+        key: 'oportunidades',
+        label: 'Oportunidades não exploradas',
+        type: 'textarea',
+        placeholder: 'Lacunas que ninguém atende…',
+      },
     ],
   },
   {
     group: 6,
-    title: '6. Vocabulário e visual',
+    title: 'Vocabulário e Visual',
     fields: [
-      { key: 'palavras_marca', label: 'Palavras da marca' },
-      { key: 'palavras_proibidas', label: 'Palavras proibidas' },
-      { key: 'estilo_visual', label: 'Estilo visual' },
-      { key: 'referencia_pinterest', label: 'Referência/Pinterest' },
+      {
+        key: 'palavras_usa',
+        label: 'Palavras que a marca USA',
+        placeholder: 'Ex: método, transformação, clareza',
+      },
+      {
+        key: 'palavras_nunca',
+        label: 'Palavras que a marca NUNCA usa',
+        placeholder: 'Ex: mágico, fácil, segredo',
+      },
+      {
+        key: 'cores_marca',
+        label: 'Cores da marca',
+        placeholder: 'Ex: violeta #7C5CFC, ciano #22D3EE',
+      },
+      {
+        key: 'estilo_visual',
+        label: 'Estilo visual',
+        type: 'select',
+        options: ['Minimalista', 'Bold', 'Elegante', 'Orgânico', 'Futurista'],
+      },
+      {
+        key: 'referencias_visuais',
+        label: 'Referências visuais (links)',
+        placeholder: 'https://pinterest.com/...',
+      },
     ],
   },
   {
     group: 7,
-    title: '7. Como você trabalha',
+    title: 'Processo e Garantias',
     fields: [
-      { key: 'processo', label: 'Processo' },
-      { key: 'preco', label: 'Preço' },
-      { key: 'prazo_medio', label: 'Prazo médio' },
-      { key: 'garantias', label: 'Garantias' },
+      { key: 'etapa_1', label: 'Etapa 1 do processo', placeholder: 'Primeiro passo do método' },
+      { key: 'etapa_2', label: 'Etapa 2 do processo', placeholder: 'Segundo passo' },
+      { key: 'etapa_3', label: 'Etapa 3 do processo', placeholder: 'Terceiro passo' },
+      { key: 'etapa_4', label: 'Etapa 4 do processo', placeholder: 'Quarto passo' },
+      { key: 'etapa_5', label: 'Etapa 5 do processo', placeholder: 'Quinto passo' },
     ],
   },
   {
     group: 8,
-    title: '8. Provas e autoridade',
+    title: 'Provas e Autoridade',
     fields: [
-      { key: 'numeros_impacto', label: 'Números de impacto' },
-      { key: 'depoimentos', label: 'Depoimentos e frases de clientes' },
+      {
+        key: 'depoimentos',
+        label: 'Depoimentos de clientes',
+        type: 'textarea',
+        placeholder: 'Frases reais de clientes…',
+      },
+      {
+        key: 'cases',
+        label: 'Cases de sucesso',
+        type: 'textarea',
+        placeholder: 'Antes/depois com números…',
+      },
+      { key: 'midia', label: 'Aparições na mídia', placeholder: 'Ex: Podcast X, portal Y' },
+      {
+        key: 'redes_seguidores',
+        label: 'Redes sociais com seguidores',
+        placeholder: 'Ex: IG 45k, YT 12k',
+      },
+      {
+        key: 'selos_premiacoes',
+        label: 'Selos e premiações',
+        placeholder: 'Ex: Top 10 Marketing 2024',
+      },
     ],
   },
 ]
 
-const INTERVIEW_GUIDES: { code: string; tema: string; duracao: string; objetivo: string }[] = [
+const TOTAL_RESEARCH_FIELDS = RESEARCH_GROUPS.reduce((s, g) => s + g.fields.length, 0) // 42
+
+/* =====================================================================
+   DEFINIÇÕES — Entrevista Guiada (8 etapas)
+   ===================================================================== */
+
+interface InterviewStepDef {
+  code: string
+  title: string
+  prompt: string
+}
+
+const INTERVIEW_STEPS: InterviewStepDef[] = [
   {
     code: 'G1',
-    tema: 'A origem',
-    duracao: '5-8 min',
-    objetivo: 'Capturar história real e motivação.',
+    title: 'Origem',
+    prompt: 'Como você começou nesse mercado? Conte sua história de origem.',
   },
   {
     code: 'G2',
-    tema: 'O caso que transformou',
-    duracao: '5-8 min',
-    objetivo: 'Extrair caso antes/depois.',
+    title: 'Caso de Transformação',
+    prompt:
+      'Descreva o caso de um cliente que passou por uma transformação real com seu trabalho. O que ele vivia antes e depois?',
   },
   {
     code: 'G3',
-    tema: 'O cliente que não serve',
-    duracao: '3-5 min',
-    objetivo: 'Definir anti-ICP e aprendizados.',
+    title: 'Anti-cliente',
+    prompt: 'Quem NÃO é seu cliente ideal? Quem você não atenderia mesmo que pagasse?',
   },
   {
     code: 'G4',
-    tema: 'A raiva do mercado',
-    duracao: '3-5 min',
-    objetivo: 'Mapear inimigo narrativo e crenças.',
+    title: 'Raiva do Mercado',
+    prompt: 'O que te irrita no seu mercado? O que você faria diferente de todo mundo?',
   },
   {
     code: 'G5',
-    tema: 'A voz do cliente',
-    duracao: '3-5 min',
-    objetivo: 'Preservar linguagem real de compra.',
+    title: 'Voz do Cliente',
+    prompt:
+      'Como seus clientes descrevem o problema que você resolve? Use as palavras exatas que eles usam.',
   },
   {
     code: 'G6',
-    tema: 'A personalidade da marca',
-    duracao: '3-5 min',
-    objetivo: 'Definir arquétipos por analogia.',
+    title: 'Personalidade da Marca',
+    prompt: 'Se sua marca fosse uma pessoa, como ela se vestiria, falaria e agiria em uma festa?',
   },
-  { code: 'G7', tema: 'O legado', duracao: '3-5 min', objetivo: 'Direção de longo prazo.' },
+  {
+    code: 'G7',
+    title: 'Legado',
+    prompt:
+      'Daqui a 10 anos, qual legado você quer ter deixado? O que as pessoas dirão sobre você?',
+  },
   {
     code: 'G8',
-    tema: 'Livre — o que mais importa',
-    duracao: '2-5 min',
-    objetivo: 'Capturar lacunas não cobertas.',
+    title: 'Resposta Livre',
+    prompt:
+      'Tem algo mais que você gostaria de registrar sobre sua marca, sua visão ou qualquer coisa que não perguntamos?',
   },
 ]
+
+/* =====================================================================
+   DEFINIÇÕES — 13 Ativos de Marca
+   ===================================================================== */
 
 const ASSET_DEFS: { type: BrandAssetType; layer: BrandAsset['layer']; title: string }[] = [
   { type: 'posicionamento', layer: 'quem_voce_e', title: 'Posicionamento' },
   { type: 'promessa', layer: 'quem_voce_e', title: 'Promessa' },
   { type: 'arquetipo', layer: 'quem_voce_e', title: 'Arquétipo' },
-  { type: 'inimigo_narrativo', layer: 'quem_voce_e', title: 'Inimigo narrativo' },
-  { type: 'tom_de_voz', layer: 'como_voce_fala', title: 'Tom de voz' },
+  { type: 'inimigo_narrativo', layer: 'quem_voce_e', title: 'Inimigo Narrativo' },
+  { type: 'tom_de_voz', layer: 'como_voce_fala', title: 'Tom de Voz' },
   { type: 'vocabulario', layer: 'como_voce_fala', title: 'Vocabulário' },
-  { type: 'storytelling', layer: 'como_voce_fala', title: 'Storytelling de origem' },
-  { type: 'stack_de_prova', layer: 'como_voce_prova', title: 'Stack de prova' },
-  { type: 'identidade_visual', layer: 'como_voce_prova', title: 'Identidade visual' },
-  { type: 'pilares_de_conteudo', layer: 'como_voce_publica', title: 'Pilares de conteúdo' },
-  { type: 'linha_editorial', layer: 'como_voce_publica', title: 'Linha editorial' },
-  { type: 'bio_taglines', layer: 'como_voce_publica', title: 'Bio e taglines' },
-  { type: 'oferta_principal', layer: 'como_voce_vende', title: 'Oferta principal' },
+  { type: 'storytelling', layer: 'como_voce_fala', title: 'Storytelling de Origem' },
+  { type: 'stack_de_prova', layer: 'como_voce_prova', title: 'Stack de Prova' },
+  { type: 'identidade_visual', layer: 'como_voce_prova', title: 'Identidade Visual' },
+  { type: 'pilares_de_conteudo', layer: 'como_voce_publica', title: 'Pilares de Conteúdo' },
+  { type: 'linha_editorial', layer: 'como_voce_publica', title: 'Linha Editorial' },
+  { type: 'bio_taglines', layer: 'como_voce_publica', title: 'Bio e Taglines' },
+  { type: 'oferta_principal', layer: 'como_voce_vende', title: 'Oferta Principal' },
 ]
 
 const LAYER_LABELS: Record<BrandAsset['layer'], string> = {
@@ -204,23 +364,101 @@ const LAYER_ORDER: BrandAsset['layer'][] = [
   'como_voce_vende',
 ]
 
+const VOICE_OPTIONS = [
+  'Autoridade',
+  'Inspirador',
+  'Combativo',
+  'Técnico',
+  'Próximo',
+  'Provocador',
+  'Mistura personalizada',
+]
+
+const TOM_LABELS: Record<string, string> = {
+  Autoridade: 'Direto, confiante e fundamentado em expertise.',
+  Inspirador: 'Eleva, motiva e conecta com propósito.',
+  Combativo: 'Confronta o status quo e desperta ação.',
+  Técnico: 'Preciso, metodológico e didático.',
+  Próximo: 'Acolhedor, conversacional e empático.',
+  Provocador: 'Quebra padrões, provoca reflexão e polariza.',
+  'Mistura personalizada': 'Combinação personalizada de tons.',
+}
+
+/* =====================================================================
+   HOOK — Autosave com debounce (2s)
+   ===================================================================== */
+
+function useDebouncedSave(key: string, data: unknown, delay = 2000) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [savedAt, setSavedAt] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(() => {
+      try {
+        localStorage.setItem(key, JSON.stringify(data))
+        setSavedAt(new Date().toISOString())
+      } catch {
+        /* ignore */
+      }
+    }, delay)
+    return () => {
+      if (timer.current) clearTimeout(timer.current)
+    }
+  }, [key, data, delay])
+
+  return { savedAt }
+}
+
+/* =====================================================================
+   COMPONENTE PRINCIPAL
+   ===================================================================== */
+
 export default function Posicionamento() {
   const { brandProfile, setBrandBase, setResearch, setInterview, setAssets, setGenerationMeta } =
     usePlatform()
-  const { generate } = useAIGeneration()
-  const [mode, setMode] = useState<
-    'simplificado' | 'completo' | 'entrevista' | 'ativos' | 'academy'
-  >('simplificado')
+  const { setBrandOS } = useStudio()
+  const { generateBrandOS } = useAIGeneration()
+
+  const [tab, setTab] = useState<'base' | 'pesquisa' | 'entrevista'>('base')
+
+  // Geração
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [progressLabel, setProgressLabel] = useState('')
-  const [expandedLayer, setExpandedLayer] = useState<BrandAsset['layer'] | null>('quem_voce_e')
+  const [genStatus, setGenStatus] = useState<
+    'idle' | 'queued' | 'running' | 'completed' | 'failed'
+  >('idle')
+  const [confirmOpen, setConfirmOpen] = useState(false)
+
+  // Rascunho local da pesquisa completa (separado do PlatformContext p/ debounce próprio)
+  // Na verdade usamos o PlatformContext como fonte de verdade; o autosave aqui é extra.
+  const researchDraft = brandProfile.research
+  const interviewDraft = brandProfile.interview
+
+  useDebouncedSave('lumen_posicionamento_research_draft', researchDraft)
+  useDebouncedSave('lumen_posicionamento_interview_draft', interviewDraft)
 
   const base = brandProfile.base
   const updateBase = (key: keyof typeof base, value: string) =>
     setBrandBase({ ...base, [key]: value })
 
-  // Research helpers
+  // ---- Base essencial: contagem de preenchidos ----
+  const baseFields: { key: keyof typeof base }[] = [
+    { key: 'niche' },
+    { key: 'subniche' },
+    { key: 'service' },
+    { key: 'audience' },
+    { key: 'result' },
+    { key: 'differential' },
+    { key: 'voice' },
+    { key: 'mainOffer' },
+  ]
+  const baseFilled = baseFields.filter((f) => base[f.key]?.trim()).length
+  const canGenerate = baseFilled >= 5
+  const missingCount = Math.max(0, 5 - baseFilled)
+
+  // ---- Pesquisa: helpers ----
   const getResearch = (group: number, fieldKey: string) =>
     brandProfile.research.find((r) => r.group === group && r.fieldKey === fieldKey)?.value || ''
   const setResearchValue = (group: number, fieldKey: string, value: string) => {
@@ -230,8 +468,25 @@ export default function Posicionamento() {
     const updated: ResearchAnswer[] = value ? [...others, { group, fieldKey, value }] : others
     setResearch(updated)
   }
+  const researchFilledTotal = brandProfile.research.length
 
-  // Interview helpers
+  const restoreResearchDraft = () => {
+    try {
+      const saved = localStorage.getItem('lumen_posicionamento_research_draft')
+      if (saved) {
+        const parsed: ResearchAnswer[] = JSON.parse(saved)
+        setResearch(parsed)
+        toast.success('Rascunho da pesquisa restaurado!')
+      } else {
+        toast.info('Nenhum rascunho salvo encontrado.')
+      }
+    } catch {
+      toast.error('Não foi possível restaurar o rascunho.')
+    }
+  }
+
+  // ---- Entrevista: helpers ----
+  const [interviewStep, setInterviewStep] = useState(0)
   const getInterview = (code: string) =>
     brandProfile.interview.find((i) => i.guideCode === code)?.transcript || ''
   const setInterviewValue = (code: string, value: string) => {
@@ -242,496 +497,972 @@ export default function Posicionamento() {
       : others
     setInterview(updated)
   }
+  const interviewsCompleted = INTERVIEW_STEPS.filter((s) => getInterview(s.code).trim()).length
 
-  const interviewsCompleted = INTERVIEW_GUIDES.filter((g) => getInterview(g.code).trim()).length
-  const researchFilled = brandProfile.research.length
-
-  const requiredBaseOk = base.service && base.audience && base.result && base.differential
-
-  const handleGenerate = async (full: boolean) => {
-    if (!requiredBaseOk) {
-      toast.error('Preencha os campos obrigatórios da base essencial.')
-      return
+  const restoreInterviewDraft = () => {
+    try {
+      const saved = localStorage.getItem('lumen_posicionamento_interview_draft')
+      if (saved) {
+        const parsed: InterviewAnswer[] = JSON.parse(saved)
+        setInterview(parsed)
+        toast.success('Rascunho da entrevista restaurado!')
+      } else {
+        toast.info('Nenhum rascunho salvo encontrado.')
+      }
+    } catch {
+      toast.error('Não foi possível restaurar o rascunho.')
     }
-    setLoading(true)
-    setProgress(0)
-    const res = await generate(
-      full ? 'brand_os_completo' : 'brand_os_simplificado',
-      (pct, label) => {
-        setProgress(pct)
-        setProgressLabel(label)
-      },
-      1800,
-    )
-    // Monta os 13 ativos simulados
-    const nicheTxt = base.niche || 'seu nicho'
-    const assets: BrandAsset[] = ASSET_DEFS.map((def) => ({
-      type: def.type,
-      layer: def.layer,
-      title: def.title,
-      content: generateAssetContent(
-        def.type,
-        base,
-        full ? brandProfile.research : [],
-        full ? brandProfile.interview : [],
-      ),
-    }))
-    setAssets(assets)
-    setGenerationMeta({
-      lastGeneratedAt: new Date().toISOString(),
-      lastModel: res.contextVersion >= 0 ? 'lumen-ia-v3' : 'lumen-ia-v3',
-      lastDurationMs: res.durationMs,
-    })
-    setLoading(false)
-    setProgress(0)
-    setProgressLabel('')
-    setMode('ativos')
-    toast.success(
-      `Arquitetura de marca gerada! ${assets.length} ativos criados com Brand OS v${res.contextVersion + 1}.`,
-    )
-  }
-
-  const handleExport = () => {
-    const md = buildExportMarkdown(brandProfile)
-    const blob = new Blob([md], { type: 'text/markdown' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'lumen-brand-os-arquitetura.md'
-    a.click()
-    URL.revokeObjectURL(url)
-    toast.success('Arquitetura do Brand OS exportada!')
   }
 
   const hasAssets = brandProfile.assets.length > 0
 
-  const subTabs = [
-    { id: 'simplificado', label: 'Base essencial', icon: Compass },
-    { id: 'completo', label: 'Formulário completo', icon: ClipboardList },
-    { id: 'entrevista', label: 'Entrevista guiada', icon: Mic },
-    { id: 'ativos', label: `Ativos de marca (${brandProfile.assets.length})`, icon: Sparkles },
-    { id: 'academy', label: 'Academy', icon: FileText },
-  ] as const
+  /* ----------------------------------------------------------------
+     Geração Brand OS
+     ---------------------------------------------------------------- */
+  const runGeneration = async () => {
+    setLoading(true)
+    setGenStatus('queued')
+    setProgress(0)
+    setProgressLabel('Enfileirando job…')
+
+    // pequena espera para refletir o estado "queued"
+    await new Promise((r) => setTimeout(r, 400))
+    setGenStatus('running')
+
+    const res = await generateBrandOS((pct, label) => {
+      setProgress(pct)
+      setProgressLabel(label)
+    }, 2400)
+
+    if (res.failed) {
+      setGenStatus('failed')
+      setLoading(false)
+      toast.error('Falha na geração do Brand OS. Tente novamente.')
+      return
+    }
+
+    // Monta os 13 ativos
+    const assets: BrandAsset[] = ASSET_DEFS.map((def) => ({
+      type: def.type,
+      layer: def.layer,
+      title: def.title,
+      content: generateAssetContent(def.type, base, brandProfile.research, brandProfile.interview),
+    }))
+    setAssets(assets)
+    setGenerationMeta({
+      lastGeneratedAt: new Date().toISOString(),
+      lastModel: 'lumen-ia-v3',
+      lastDurationMs: res.durationMs,
+    })
+
+    // Sincroniza versão resumida no StudioContext para os geradores do estúdio
+    const nicho = base.niche?.trim() || '[Preencha este dado]'
+    const tomVoz = base.voice?.trim() || TOM_LABELS['Autoridade']
+    const publico = base.audience?.trim() || '[Preencha este dado]'
+    const pilaresAsset = assets.find((a) => a.type === 'pilares_de_conteudo')
+    const linhaAsset = assets.find((a) => a.type === 'linha_editorial')
+    const promessaAsset = assets.find((a) => a.type === 'promessa')
+    setBrandOS({
+      brandName: nicho,
+      niche: nicho,
+      promise: promessaAsset?.content || '[Preencha este dado]',
+      voice: tomVoz,
+      audience: publico,
+      contentPillars: extractPillars(pilaresAsset?.content || ''),
+      editorialLine: linhaAsset?.content || '',
+      activeVersion: res.contextVersion + 1,
+      generatedAt: new Date().toISOString(),
+    })
+
+    setGenStatus('completed')
+    setLoading(false)
+    setProgress(0)
+    setProgressLabel('')
+    toast.success(`Brand OS gerado! ${assets.length} ativos criados (v${res.contextVersion + 1}).`)
+  }
+
+  const handleGenerateClick = () => {
+    if (!canGenerate) {
+      toast.error(`Preencha mais ${missingCount} campo(s) da Base Essencial para gerar.`)
+      return
+    }
+    setConfirmOpen(true)
+  }
+
+  const confirmGenerate = async () => {
+    setConfirmOpen(false)
+    await runGeneration()
+  }
+
+  const retryGeneration = () => {
+    runGeneration()
+  }
+
+  const handleExportAll = () => {
+    const md = buildExportMarkdown(brandProfile)
+    downloadFile('lumen-brand-os-arquitetura.md', md, 'text/markdown')
+    toast.success('Arquitetura do Brand OS exportada!')
+  }
+
+  const handleRegenerateAsset = (type: BrandAssetType) => {
+    const def = ASSET_DEFS.find((d) => d.type === type)!
+    const newContent = generateAssetContent(
+      type,
+      base,
+      brandProfile.research,
+      brandProfile.interview,
+    )
+    const updated = brandProfile.assets.map((a) =>
+      a.type === type ? { ...a, content: newContent } : a,
+    )
+    setAssets(updated)
+    toast.success(`"${def.title}" regenerado.`)
+  }
+
+  const handleSaveAsset = (type: BrandAssetType, content: string) => {
+    const updated = brandProfile.assets.map((a) => (a.type === type ? { ...a, content } : a))
+    setAssets(updated)
+    toast.success('Ativo salvo.')
+  }
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto space-y-6 animate-fade-in">
-      <ModuleHeader
-        title="Módulo 1 — Posicionamento (Brand OS)"
-        description="A fonte única de verdade da marca. Alimenta todos os geradores de IA da plataforma com contexto coerente."
-        icon={<Compass className="w-5 h-5" />}
-        accent="#7C5CFC"
-        actions={
-          hasAssets && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExport}
-              className="border-white/10 text-xs gap-1.5"
-            >
-              <Download className="w-3.5 h-3.5" /> Exportar arquitetura
-            </Button>
-          )
-        }
-      />
-
-      {/* Sub-abas */}
-      <div className="flex flex-wrap gap-1.5 p-1 bg-[#0e0e15] rounded-xl border border-white/5">
-        {subTabs.map((t) => {
-          const Icon = t.icon
-          const active = mode === t.id
-          return (
-            <button
-              key={t.id}
-              onClick={() => setMode(t.id as typeof mode)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                active
-                  ? 'bg-[#7C5CFC] text-white shadow-lg shadow-[#7C5CFC]/25'
-                  : 'text-[#9494A8] hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              {t.label}
-            </button>
-          )
-        })}
-      </div>
-
-      {/* Escolha de profundidade (banner) */}
-      {mode === 'simplificado' && !hasAssets && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="rounded-2xl bg-gradient-to-br from-[#1C1C27] to-[#14141C] border border-[#7C5CFC]/30 p-5 space-y-3">
-            <Badge className="bg-[#7C5CFC]/20 text-[#7C5CFC] border-[#7C5CFC]/30">Rápida</Badge>
-            <h3 className="text-base font-bold text-white">Versão simplificada</h3>
-            <p className="text-xs text-[#9494A8]">
-              Somente a base essencial. A IA supre lacunas com suposições. Geração mais rápida,
-              porém mais genérica.
-            </p>
+    <TooltipProvider delayDuration={300}>
+      <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto space-y-6 animate-fade-in">
+        {/* Header */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border bg-[#7C5CFC]1a border-[#7C5CFC]33 text-[#7C5CFC]">
+                <Compass className="w-5 h-5" />
+              </div>
+              <div>
+                <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+                  Brand OS — Posicionamento de Marca
+                </h1>
+                <p className="text-xs sm:text-sm text-[#9494A8] max-w-2xl">
+                  A fonte única de verdade da sua marca. Defina o posicionamento, gere os 13 ativos
+                  de marca e alimente todos os geradores de IA do LUMEN Studio com contexto
+                  coerente.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              {hasAssets ? (
+                <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 gap-1.5">
+                  <CheckCircle2 className="w-3 h-3" />
+                  Brand OS ativo • v{brandProfile.activeVersion}
+                </Badge>
+              ) : (
+                <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 gap-1.5">
+                  <AlertTriangle className="w-3 h-3" />
+                  Brand OS pendente
+                </Badge>
+              )}
+              {brandProfile.base.niche && (
+                <Badge className="bg-white/5 text-[#9494A8] border-white/10">
+                  {brandProfile.base.niche}
+                  {brandProfile.base.subniche ? ` • ${brandProfile.base.subniche}` : ''}
+                </Badge>
+              )}
+              <Badge className="bg-white/5 text-[#9494A8] border-white/10">
+                Base: {baseFilled}/8
+              </Badge>
+            </div>
           </div>
-          <div className="rounded-2xl bg-gradient-to-br from-[#1C1C27] to-[#14141C] border border-[#22D3EE]/30 p-5 space-y-3">
-            <Badge className="bg-[#22D3EE]/20 text-[#22D3EE] border-[#22D3EE]/30">Profunda</Badge>
-            <h3 className="text-base font-bold text-white">Versão completa</h3>
-            <p className="text-xs text-[#9494A8]">
-              Base + formulário estruturado + 8 transcrições de entrevista. Mais profunda e
-              personalizada.
-            </p>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setMode('completo')}
-              className="border-[#22D3EE]/30 text-[#22D3EE] hover:bg-[#22D3EE]/10 text-xs gap-1.5"
-            >
-              Ir para formulário completo →
-            </Button>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {hasAssets && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportAll}
+                className="border-white/10 text-xs gap-1.5"
+              >
+                <Download className="w-3.5 h-3.5" /> Exportar arquitetura
+              </Button>
+            )}
+            {/* Botão Gerar Brand OS — acessível de qualquer aba */}
+            {canGenerate ? (
+              <Button
+                size="sm"
+                onClick={handleGenerateClick}
+                disabled={loading}
+                className="bg-gradient-to-r from-[#7C5CFC] to-[#6A48E0] hover:from-[#6A48E0] hover:to-[#5835D8] text-white font-semibold text-xs px-4 py-2.5 rounded-xl shadow-lg shadow-[#7C5CFC]/25 gap-1.5"
+              >
+                {loading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4" />
+                )}
+                {loading ? 'Gerando…' : 'Gerar Brand OS'}
+              </Button>
+            ) : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button
+                      size="sm"
+                      disabled
+                      className="bg-gradient-to-r from-[#7C5CFC] to-[#6A48E0] text-white font-semibold text-xs px-4 py-2.5 rounded-xl gap-1.5 opacity-60 cursor-not-allowed"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      Gerar Brand OS
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent className="bg-[#1C1C27] text-white border-white/10 text-xs">
+                  Faltam {missingCount} campo(s) na Base Essencial (mín. 5 de 8)
+                </TooltipContent>
+              </Tooltip>
+            )}
           </div>
         </div>
-      )}
 
-      {/* Base essencial */}
-      {mode === 'simplificado' && (
-        <div className="space-y-4">
-          <div className="rounded-2xl bg-[#14141C] border border-white/5 p-5 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Field label="Nicho de mercado">
-                <input
-                  className={inputClass}
-                  value={base.niche}
-                  onChange={(e) => updateBase('niche', e.target.value)}
-                  placeholder="Ex: Marketing digital"
-                />
-              </Field>
-              <Field label="Subnicho">
-                <input
-                  className={inputClass}
-                  value={base.subniche}
-                  onChange={(e) => updateBase('subniche', e.target.value)}
-                  placeholder="Ex: Tráfego pago para infoprodutos"
-                />
-              </Field>
+        {/* Barra de progresso de geração */}
+        {loading && (
+          <div className="rounded-xl bg-[#14141C] border border-white/5 p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-white flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-[#7C5CFC]" />
+                {progressLabel || 'Processando…'}
+              </span>
+              <Badge className="bg-[#7C5CFC]/20 text-[#7C5CFC] border-[#7C5CFC]/30 text-[10px]">
+                {genStatus === 'queued' ? 'Na fila' : 'Processando'}
+              </Badge>
             </div>
-            <Field label="Serviço que oferece" required hint="Essencial para funis e conteúdo">
-              <textarea
-                className={inputClass}
-                rows={2}
-                value={base.service}
-                onChange={(e) => updateBase('service', e.target.value)}
-                placeholder="Descreva o serviço principal que você entrega…"
+            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-[#7C5CFC] to-[#22D3EE] transition-all duration-300"
+                style={{ width: `${progress}%` }}
               />
-            </Field>
-            <Field label="Público-alvo" required>
-              <textarea
-                className={inputClass}
-                rows={2}
-                value={base.audience}
-                onChange={(e) => updateBase('audience', e.target.value)}
-                placeholder="Quem é o cliente ideal que você atende…"
-              />
-            </Field>
-            <Field label="Resultado que entrega" required>
-              <textarea
-                className={inputClass}
-                rows={2}
-                value={base.result}
-                onChange={(e) => updateBase('result', e.target.value)}
-                placeholder="Que transformação o cliente obtém…"
-              />
-            </Field>
-            <Field label="Diferencial" required>
-              <textarea
-                className={inputClass}
-                rows={2}
-                value={base.differential}
-                onChange={(e) => updateBase('differential', e.target.value)}
-                placeholder="O que torna sua oferta única…"
-              />
-            </Field>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Field label="Tom de voz">
-                <textarea
-                  className={inputClass}
-                  rows={2}
-                  value={base.voice}
-                  onChange={(e) => updateBase('voice', e.target.value)}
-                  placeholder="Como sua marca fala…"
+            </div>
+          </div>
+        )}
+
+        {/* Estado de falha com retry */}
+        {genStatus === 'failed' && !loading && (
+          <div className="rounded-xl bg-red-500/10 border border-red-500/30 p-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <XCircle className="w-4 h-4 text-red-400" />
+              <span className="text-xs text-red-300">
+                A geração do Brand OS falhou. Verifique os dados e tente novamente.
+              </span>
+            </div>
+            <Button
+              size="sm"
+              onClick={retryGeneration}
+              className="bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30 text-xs gap-1.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Tentar novamente
+            </Button>
+          </div>
+        )}
+
+        {/* Tabs */}
+        <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
+          <TabsList className="bg-[#0e0e15] border border-white/5 rounded-xl p-1 h-auto">
+            <TabsTrigger
+              value="base"
+              className="data-[state=active]:bg-[#7C5CFC] data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-[#7C5CFC]/25 text-[#9494A8] hover:text-white text-xs gap-1.5 rounded-lg"
+            >
+              <Compass className="w-3.5 h-3.5" /> Base Essencial
+            </TabsTrigger>
+            <TabsTrigger
+              value="pesquisa"
+              className="data-[state=active]:bg-[#7C5CFC] data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-[#7C5CFC]/25 text-[#9494A8] hover:text-white text-xs gap-1.5 rounded-lg"
+            >
+              <ClipboardList className="w-3.5 h-3.5" /> Pesquisa Completa
+            </TabsTrigger>
+            <TabsTrigger
+              value="entrevista"
+              className="data-[state=active]:bg-[#7C5CFC] data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-[#7C5CFC]/25 text-[#9494A8] hover:text-white text-xs gap-1.5 rounded-lg"
+            >
+              <Mic className="w-3.5 h-3.5" /> Entrevista Guiada
+            </TabsTrigger>
+          </TabsList>
+
+          {/* ============ ABA 1 — BASE ESSENCIAL ============ */}
+          <TabsContent value="base" className="space-y-4 mt-4">
+            <div className="rounded-2xl bg-[#14141C] border border-white/5 p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-white">8 campos essenciais da marca</h3>
+                <Badge
+                  className={
+                    baseFilled >= 5
+                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[10px]'
+                      : 'bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px]'
+                  }
+                >
+                  {baseFilled}/8 preenchidos
+                </Badge>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <EssentialField label="Nicho" filled={!!base.niche?.trim()}>
+                  <Input
+                    className={fieldInputClass(!!base.niche?.trim())}
+                    value={base.niche}
+                    onChange={(e) => updateBase('niche', e.target.value)}
+                    placeholder="Ex: Marketing digital"
+                  />
+                </EssentialField>
+                <EssentialField label="Subnicho" filled={!!base.subniche?.trim()}>
+                  <Input
+                    className={fieldInputClass(!!base.subniche?.trim())}
+                    value={base.subniche}
+                    onChange={(e) => updateBase('subniche', e.target.value)}
+                    placeholder="Ex: Tráfego pago para infoprodutos"
+                  />
+                </EssentialField>
+              </div>
+
+              <EssentialField label="Serviço principal" filled={!!base.service?.trim()}>
+                <Input
+                  className={fieldInputClass(!!base.service?.trim())}
+                  value={base.service}
+                  onChange={(e) => updateBase('service', e.target.value)}
+                  placeholder="Ex: Mentoria de tráfego pago de 8 semanas"
                 />
-              </Field>
-              <Field label="Oferta principal">
-                <textarea
-                  className={inputClass}
+              </EssentialField>
+
+              <EssentialField label="Público-alvo" filled={!!base.audience?.trim()}>
+                <Textarea
+                  className={fieldInputClass(!!base.audience?.trim())}
+                  rows={2}
+                  value={base.audience}
+                  onChange={(e) => updateBase('audience', e.target.value)}
+                  placeholder="Quem é o cliente ideal que você atende…"
+                />
+              </EssentialField>
+
+              <EssentialField label="Resultado entregue" filled={!!base.result?.trim()}>
+                <Textarea
+                  className={fieldInputClass(!!base.result?.trim())}
+                  rows={2}
+                  value={base.result}
+                  onChange={(e) => updateBase('result', e.target.value)}
+                  placeholder="Que transformação o cliente obtém…"
+                />
+              </EssentialField>
+
+              <EssentialField label="Diferencial competitivo" filled={!!base.differential?.trim()}>
+                <Textarea
+                  className={fieldInputClass(!!base.differential?.trim())}
+                  rows={2}
+                  value={base.differential}
+                  onChange={(e) => updateBase('differential', e.target.value)}
+                  placeholder="O que torna sua oferta única…"
+                />
+              </EssentialField>
+
+              <EssentialField label="Tom de voz" filled={!!base.voice?.trim()}>
+                <Select value={base.voice} onValueChange={(v) => updateBase('voice', v)}>
+                  <SelectTrigger className={fieldInputClass(!!base.voice?.trim()) + ' h-9'}>
+                    <SelectValue placeholder="Selecione o tom de voz…" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#1C1C27] border-white/10 text-white">
+                    {VOICE_OPTIONS.map((v) => (
+                      <SelectItem key={v} value={v} className="text-xs">
+                        {v}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {base.voice && (
+                  <p className="text-[10px] text-[#9494A8] mt-1">{TOM_LABELS[base.voice]}</p>
+                )}
+              </EssentialField>
+
+              <EssentialField label="Oferta principal" filled={!!base.mainOffer?.trim()}>
+                <Textarea
+                  className={fieldInputClass(!!base.mainOffer?.trim())}
                   rows={2}
                   value={base.mainOffer}
                   onChange={(e) => updateBase('mainOffer', e.target.value)}
-                  placeholder="Sua oferta principal…"
+                  placeholder="Descreva sua oferta principal em detalhes…"
                 />
-              </Field>
+              </EssentialField>
             </div>
-          </div>
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            <GenerateButton
-              onClick={() => handleGenerate(false)}
-              loading={loading}
-              progress={progress}
-              progressLabel={progressLabel}
-              disabled={!requiredBaseOk}
-              label="Gerar pela base simplificada"
-            />
-            <Button
-              variant="outline"
-              onClick={() => handleGenerate(true)}
-              disabled={loading || !requiredBaseOk}
-              className="border-[#22D3EE]/30 text-[#22D3EE] hover:bg-[#22D3EE]/10 text-xs gap-1.5"
-            >
-              <RefreshCw className="w-3.5 h-3.5" /> Regenerar com formulário + entrevista
-            </Button>
-          </div>
-          {!requiredBaseOk && (
-            <p className="text-[11px] text-amber-400">
-              Preencha os campos obrigatórios (*): serviço, público-alvo, resultado e diferencial.
-            </p>
-          )}
-          {hasAssets && brandProfile.lastGeneratedAt && (
-            <GenerationMetaBar
-              contextVersion={brandProfile.activeVersion}
-              generatedAt={brandProfile.lastGeneratedAt}
-              model={brandProfile.lastModel}
-              durationMs={brandProfile.lastDurationMs}
-            />
-          )}
-        </div>
-      )}
-
-      {/* Formulário completo */}
-      {mode === 'completo' && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-[#9494A8]">
-              {researchFilled} campo(s) preenchido(s). Salvamento automático.
-            </p>
-            <span className="text-[10px] text-[#9494A8]">
-              O grupo "O que você vende" é essencial.
-            </span>
-          </div>
-          {RESEARCH_GROUPS.map((g) => (
-            <div key={g.group} className="rounded-2xl bg-[#14141C] border border-white/5 p-4">
-              <h3 className="text-sm font-bold text-white mb-3">{g.title}</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {g.fields.map((f) => (
-                  <Field key={f.key} label={f.label} hint={f.hint}>
-                    <input
-                      className={inputClass}
-                      value={getResearch(g.group, f.key)}
-                      onChange={(e) => setResearchValue(g.group, f.key, e.target.value)}
-                      placeholder="…"
-                    />
-                  </Field>
-                ))}
-              </div>
-            </div>
-          ))}
-          <div className="flex items-center gap-3">
-            <GenerateButton
-              onClick={() => handleGenerate(true)}
-              loading={loading}
-              progress={progress}
-              progressLabel={progressLabel}
-              disabled={!requiredBaseOk}
-              label="Gerar arquitetura completa"
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Entrevista guiada */}
-      {mode === 'entrevista' && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between rounded-xl bg-[#14141C] border border-white/5 p-3">
-            <p className="text-xs text-[#9494A8]">
-              Orientação: grave fora, transcreva e cole o texto. {interviewsCompleted}/8 guias
-              preenchidos.
-            </p>
-            <Badge
-              className={
-                interviewsCompleted === 8
-                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                  : 'bg-white/5 text-[#9494A8] border-white/10'
-              }
-            >
-              {interviewsCompleted === 8 ? 'Pronto para gerar' : `${interviewsCompleted}/8`}
-            </Badge>
-          </div>
-          {INTERVIEW_GUIDES.map((g) => {
-            const txt = getInterview(g.code)
-            const wc = txt.trim() ? txt.trim().split(/\s+/).length : 0
-            return (
-              <div
-                key={g.code}
-                className="rounded-2xl bg-[#14141C] border border-white/5 p-4 space-y-2"
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <Button
+                onClick={handleGenerateClick}
+                disabled={loading}
+                className="bg-gradient-to-r from-[#7C5CFC] to-[#6A48E0] hover:from-[#6A48E0] hover:to-[#5835D8] text-white font-semibold text-xs px-4 py-2.5 rounded-xl shadow-lg shadow-[#7C5CFC]/25 gap-1.5"
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-[#7C5CFC]/20 text-[#7C5CFC] border-[#7C5CFC]/30">
-                      {g.code}
-                    </Badge>
-                    <div>
-                      <h4 className="text-sm font-bold text-white">{g.tema}</h4>
-                      <p className="text-[11px] text-[#9494A8]">
-                        {g.duracao} • {g.objetivo}
-                      </p>
-                    </div>
-                  </div>
-                  <span className="text-[10px] text-[#9494A8]">{wc} palavras</span>
+                {loading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4" />
+                )}
+                {loading ? 'Gerando…' : 'Gerar Brand OS'}
+              </Button>
+              {!canGenerate && (
+                <p className="text-[11px] text-amber-400">
+                  Preencha mais {missingCount} campo(s) para habilitar a geração (mínimo 5 de 8).
+                </p>
+              )}
+            </div>
+
+            {hasAssets && brandProfile.lastGeneratedAt && (
+              <GenerationMeta
+                version={brandProfile.activeVersion}
+                generatedAt={brandProfile.lastGeneratedAt}
+                model={brandProfile.lastModel}
+                durationMs={brandProfile.lastDurationMs}
+              />
+            )}
+          </TabsContent>
+
+          {/* ============ ABA 2 — PESQUISA COMPLETA ============ */}
+          <TabsContent value="pesquisa" className="space-y-4 mt-4">
+            {/* Progresso geral */}
+            <div className="rounded-2xl bg-gradient-to-br from-[#1C1C27] to-[#14141C] border border-white/5 p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-white">Progresso geral da pesquisa</h3>
+                  <p className="text-[11px] text-[#9494A8]">
+                    {researchFilledTotal}/{TOTAL_RESEARCH_FIELDS} campos preenchidos
+                  </p>
                 </div>
-                <textarea
-                  className={inputClass}
-                  rows={3}
-                  value={txt}
-                  onChange={(e) => setInterviewValue(g.code, e.target.value)}
-                  placeholder="Cole aqui a transcrição da entrevista…"
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={restoreResearchDraft}
+                  className="border-white/10 text-xs gap-1.5"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" /> Restaurar rascunho
+                </Button>
+              </div>
+              <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-[#7C5CFC] to-[#22D3EE] transition-all duration-500"
+                  style={{
+                    width: `${(researchFilledTotal / TOTAL_RESEARCH_FIELDS) * 100}%`,
+                  }}
                 />
               </div>
-            )
-          })}
-          <GenerateButton
-            onClick={() => handleGenerate(true)}
-            loading={loading}
-            progress={progress}
-            progressLabel={progressLabel}
-            disabled={!requiredBaseOk}
-            label="Gerar com base + entrevista"
-          />
-        </div>
-      )}
+              <p className="text-[10px] text-[#9494A8]/70 flex items-center gap-1">
+                <Clock className="w-3 h-3" /> Salvamento automático a cada 2 segundos.
+              </p>
+            </div>
 
-      {/* Ativos de marca */}
-      {mode === 'ativos' && (
-        <div className="space-y-4">
-          {!hasAssets ? (
-            <EmptyState
-              icon={<Sparkles className="w-6 h-6" />}
-              title="Nenhum ativo de marca gerado ainda"
-              description="Preencha a base essencial e gere a arquitetura para criar os 13 ativos de marca que alimentam todos os módulos."
-              action={
+            <Accordion type="multiple" defaultValue={['g-1']} className="space-y-2">
+              {RESEARCH_GROUPS.map((g) => {
+                const filled = g.fields.filter((f) => getResearch(g.group, f.key)?.trim()).length
+                const pct = (filled / g.fields.length) * 100
+                return (
+                  <AccordionItem
+                    key={g.group}
+                    value={`g-${g.group}`}
+                    className="rounded-2xl bg-[#14141C] border border-white/5 overflow-hidden"
+                  >
+                    <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-white/5">
+                      <div className="flex items-center justify-between w-full pr-2">
+                        <div className="flex items-center gap-2 text-left">
+                          <span className="text-[10px] font-bold text-[#7C5CFC]">
+                            {String(g.group).padStart(2, '0')}
+                          </span>
+                          <span className="text-sm font-bold text-white">{g.title}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            className={
+                              filled === g.fields.length
+                                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[10px]'
+                                : 'bg-white/5 text-[#9494A8] border-white/10 text-[10px]'
+                            }
+                          >
+                            {filled}/{g.fields.length}
+                          </Badge>
+                        </div>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="px-4 pb-4">
+                      <div className="mb-3 h-1 bg-white/10 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-[#7C5CFC] to-[#22D3EE] transition-all duration-300"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {g.fields.map((f) => {
+                          const val = getResearch(g.group, f.key)
+                          const isFilled = !!val?.trim()
+                          return (
+                            <div
+                              key={f.key}
+                              className={f.type === 'textarea' ? 'md:col-span-2' : ''}
+                            >
+                              <Label className="text-xs font-medium text-[#9494A8] flex items-center gap-1 mb-1.5">
+                                {f.label}
+                                {isFilled && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
+                              </Label>
+                              {f.type === 'select' ? (
+                                <Select
+                                  value={val}
+                                  onValueChange={(v) => setResearchValue(g.group, f.key, v)}
+                                >
+                                  <SelectTrigger className={fieldInputClass(isFilled) + ' h-9'}>
+                                    <SelectValue placeholder={f.placeholder || 'Selecione…'} />
+                                  </SelectTrigger>
+                                  <SelectContent className="bg-[#1C1C27] border-white/10 text-white">
+                                    {f.options!.map((o) => (
+                                      <SelectItem key={o} value={o} className="text-xs">
+                                        {o}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : f.type === 'textarea' ? (
+                                <Textarea
+                                  className={fieldInputClass(isFilled)}
+                                  rows={2}
+                                  value={val}
+                                  onChange={(e) => setResearchValue(g.group, f.key, e.target.value)}
+                                  placeholder={f.placeholder || '…'}
+                                />
+                              ) : (
+                                <Input
+                                  className={fieldInputClass(isFilled)}
+                                  value={val}
+                                  onChange={(e) => setResearchValue(g.group, f.key, e.target.value)}
+                                  placeholder={f.placeholder || '…'}
+                                />
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                )
+              })}
+            </Accordion>
+          </TabsContent>
+
+          {/* ============ ABA 3 — ENTREVISTA GUIADA ============ */}
+          <TabsContent value="entrevista" className="space-y-4 mt-4">
+            {/* Progresso geral da entrevista */}
+            <div className="rounded-2xl bg-gradient-to-br from-[#1C1C27] to-[#14141C] border border-white/5 p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-white">Progresso da entrevista</h3>
+                  <p className="text-[11px] text-[#9494A8]">
+                    {interviewsCompleted}/{INTERVIEW_STEPS.length} etapas preenchidas
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={restoreInterviewDraft}
+                  className="border-white/10 text-xs gap-1.5"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" /> Restaurar rascunho
+                </Button>
+              </div>
+              <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-[#7C5CFC] to-[#22D3EE] transition-all duration-500"
+                  style={{
+                    width: `${(interviewsCompleted / INTERVIEW_STEPS.length) * 100}%`,
+                  }}
+                />
+              </div>
+              <p className="text-[10px] text-[#9494A8]/70 flex items-center gap-1">
+                <Clock className="w-3 h-3" /> Salvamento automático a cada 2 segundos.
+              </p>
+            </div>
+
+            {/* Etapa atual */}
+            {(() => {
+              const step = INTERVIEW_STEPS[interviewStep]
+              const txt = getInterview(step.code)
+              const wc = txt.trim() ? txt.trim().split(/\s+/).length : 0
+              return (
+                <div className="rounded-2xl bg-[#14141C] border border-white/5 p-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Badge className="bg-[#7C5CFC]/20 text-[#7C5CFC] border-[#7C5CFC]/30">
+                        {step.code}
+                      </Badge>
+                      <h3 className="text-sm font-bold text-white">{step.title}</h3>
+                    </div>
+                    <span className="text-[11px] text-[#9494A8]">
+                      Etapa {interviewStep + 1} de {INTERVIEW_STEPS.length}
+                    </span>
+                  </div>
+
+                  <p className="text-sm text-slate-300 italic border-l-2 border-[#7C5CFC]/40 pl-3">
+                    {step.prompt}
+                  </p>
+
+                  <div>
+                    <Textarea
+                      className="bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC] placeholder:text-[#9494A8]/50 min-h-[180px]"
+                      value={txt}
+                      onChange={(e) => setInterviewValue(step.code, e.target.value)}
+                      placeholder="Escreva sua resposta aqui…"
+                    />
+                    <p className="text-[11px] text-[#9494A8] mt-1.5 flex items-center gap-1">
+                      <FileText className="w-3 h-3" /> {wc} palavra{wc === 1 ? '' : 's'}
+                    </p>
+                  </div>
+
+                  {/* Navegação entre etapas */}
+                  <div className="flex items-center justify-between pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setInterviewStep((s) => Math.max(0, s - 1))}
+                      disabled={interviewStep === 0}
+                      className="border-white/10 text-xs gap-1.5"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" /> Anterior
+                    </Button>
+
+                    {/* indicadores de etapa */}
+                    <div className="flex items-center gap-1">
+                      {INTERVIEW_STEPS.map((s, i) => (
+                        <button
+                          key={s.code}
+                          onClick={() => setInterviewStep(i)}
+                          className={`h-1.5 rounded-full transition-all ${
+                            i === interviewStep
+                              ? 'w-6 bg-[#7C5CFC]'
+                              : getInterview(s.code).trim()
+                                ? 'w-1.5 bg-emerald-400'
+                                : 'w-1.5 bg-white/20'
+                          }`}
+                          title={`${s.code} — ${s.title}`}
+                        />
+                      ))}
+                    </div>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setInterviewStep((s) => Math.min(INTERVIEW_STEPS.length - 1, s + 1))
+                      }
+                      disabled={interviewStep === INTERVIEW_STEPS.length - 1}
+                      className="border-white/10 text-xs gap-1.5"
+                    >
+                      Próximo <ArrowRight className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              )
+            })()}
+          </TabsContent>
+        </Tabs>
+
+        {/* ============ ATIVOS GERADOS (abaixo das tabs) ============ */}
+        {hasAssets && (
+          <div className="space-y-4 pt-2">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-[#7C5CFC]" />
+                Ativos de Marca ({brandProfile.assets.length})
+              </h2>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportAll}
+                  className="border-white/10 text-xs gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" /> Baixar arquitetura
+                </Button>
                 <Button
                   size="sm"
-                  onClick={() => setMode('simplificado')}
-                  className="bg-[#7C5CFC] gap-1.5"
+                  onClick={handleGenerateClick}
+                  disabled={loading}
+                  className="bg-[#7C5CFC] text-xs gap-1.5"
                 >
-                  <Compass className="w-4 h-4" /> Ir para a base essencial
+                  <RefreshCw className="w-3.5 h-3.5" /> Regenerar tudo
                 </Button>
-              }
-            />
-          ) : (
-            <>
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-[#9494A8]">
-                  {brandProfile.assets.length} ativos gerados em 5 camadas estruturadas.
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleExport}
-                    className="border-white/10 text-xs gap-1.5"
-                  >
-                    <Download className="w-3.5 h-3.5" /> Baixar arquitetura
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => handleGenerate(true)}
-                    className="bg-[#7C5CFC] text-xs gap-1.5"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" /> Regenerar
-                  </Button>
-                </div>
               </div>
-              {brandProfile.lastGeneratedAt && (
-                <GenerationMetaBar
-                  contextVersion={brandProfile.activeVersion}
-                  generatedAt={brandProfile.lastGeneratedAt}
-                  model={brandProfile.lastModel}
-                  durationMs={brandProfile.lastDurationMs}
-                />
-              )}
+            </div>
+
+            {brandProfile.lastGeneratedAt && (
+              <GenerationMeta
+                version={brandProfile.activeVersion}
+                generatedAt={brandProfile.lastGeneratedAt}
+                model={brandProfile.lastModel}
+                durationMs={brandProfile.lastDurationMs}
+              />
+            )}
+
+            <Accordion type="multiple" defaultValue={LAYER_ORDER.map((l) => `layer-${l}`)}>
               {LAYER_ORDER.map((layer) => {
                 const layerAssets = brandProfile.assets.filter((a) => a.layer === layer)
                 if (!layerAssets.length) return null
-                const isOpen = expandedLayer === layer
                 return (
-                  <div
+                  <AccordionItem
                     key={layer}
+                    value={`layer-${layer}`}
                     className="rounded-2xl bg-[#14141C] border border-white/5 overflow-hidden"
                   >
-                    <button
-                      onClick={() => setExpandedLayer(isOpen ? null : layer)}
-                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5"
-                    >
-                      <span className="text-sm font-bold text-white flex items-center gap-2">
-                        {isOpen ? (
-                          <ChevronDown className="w-4 h-4 text-[#7C5CFC]" />
-                        ) : (
-                          <ChevronRight className="w-4 h-4 text-[#7C5CFC]" />
-                        )}
-                        {LAYER_LABELS[layer]}
-                      </span>
-                      <Badge className="bg-white/5 text-[#9494A8] border-white/10 text-[10px]">
-                        {layerAssets.length} ativos
-                      </Badge>
-                    </button>
-                    {isOpen && (
-                      <div className="px-4 pb-4 space-y-2">
-                        {layerAssets.map((a) => (
-                          <AssetCard key={a.type} asset={a} />
-                        ))}
+                    <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-white/5">
+                      <div className="flex items-center justify-between w-full pr-2">
+                        <span className="text-sm font-bold text-white">{LAYER_LABELS[layer]}</span>
+                        <Badge className="bg-white/5 text-[#9494A8] border-white/10 text-[10px]">
+                          {layerAssets.length} ativos
+                        </Badge>
                       </div>
-                    )}
-                  </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="px-4 pb-4 space-y-2">
+                      {layerAssets.map((a) => (
+                        <AssetCard
+                          key={a.type}
+                          asset={a}
+                          version={brandProfile.activeVersion}
+                          generatedAt={brandProfile.lastGeneratedAt}
+                          onRegenerate={() => handleRegenerateAsset(a.type)}
+                          onSave={(content) => handleSaveAsset(a.type, content)}
+                        />
+                      ))}
+                    </AccordionContent>
+                  </AccordionItem>
                 )
               })}
-            </>
-          )}
-        </div>
-      )}
+            </Accordion>
+          </div>
+        )}
+      </div>
 
-      {/* Academy */}
-      {mode === 'academy' && (
-        <AcademyPanel
-          moduleTitle="Posicionamento"
-          lessons={[
-            { title: 'Base simplificada: como preencher rápido', duration: '6 min' },
-            { title: 'Base completa: formulário estruturado', duration: '12 min' },
-            { title: 'Como conduzir as 8 entrevistas guiadas', duration: '15 min' },
-            { title: 'Entendendo os 13 ativos de marca', duration: '10 min' },
-            { title: 'Como exportar e usar a arquitetura', duration: '7 min' },
-          ]}
+      {/* Modal de confirmação de geração */}
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent className="bg-[#14141C] border-white/10 text-white">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-[#7C5CFC]" />
+              Gerar Brand OS
+            </DialogTitle>
+            <DialogDescription className="text-[#9494A8]">
+              Isso consumirá <strong className="text-white">1 crédito de IA</strong> e gerará seus{' '}
+              <strong className="text-white">13 ativos de marca</strong>. Um snapshot versionado do
+              seu BrandProfile será salvo. Continuar?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmOpen(false)}
+              className="border-white/10 text-xs"
+            >
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              onClick={confirmGenerate}
+              className="bg-gradient-to-r from-[#7C5CFC] to-[#6A48E0] text-white text-xs gap-1.5"
+            >
+              <Sparkles className="w-3.5 h-3.5" /> Gerar agora
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </TooltipProvider>
+  )
+}
+
+/* =====================================================================
+   SUBCOMPONENTES
+   ===================================================================== */
+
+function EssentialField({
+  label,
+  filled,
+  children,
+}: {
+  label: string
+  filled: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <div>
+      <Label className="text-xs font-medium text-[#9494A8] flex items-center gap-1.5 mb-1.5">
+        {label}
+        <span
+          className={`inline-flex h-1.5 w-1.5 rounded-full ${
+            filled ? 'bg-emerald-400' : 'bg-white/20'
+          }`}
         />
-      )}
+      </Label>
+      {children}
     </div>
   )
 }
 
-function AssetCard({ asset }: { asset: BrandAsset }) {
+function fieldInputClass(filled: boolean) {
+  return `w-full bg-[#1C1C27] border rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC] placeholder:text-[#9494A8]/50 transition-colors ${
+    filled
+      ? 'border-emerald-500/40 focus:border-emerald-500/60'
+      : 'border-white/10 focus:border-[#7C5CFC]/60'
+  }`
+}
+
+function GenerationMeta({
+  version,
+  generatedAt,
+  model,
+  durationMs,
+}: {
+  version: number
+  generatedAt?: string | null
+  model?: string | null
+  durationMs?: number | null
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-[11px] text-[#9494A8] bg-[#0e0e15]/60 border border-white/5 rounded-lg px-3 py-2">
+      <span className="flex items-center gap-1.5">
+        <Sparkles className="w-3 h-3 text-[#7C5CFC]" /> Contexto Brand OS v{version}
+      </span>
+      {model && <span>• {model}</span>}
+      {generatedAt && (
+        <span className="flex items-center gap-1">
+          • <Clock className="w-3 h-3" /> {new Date(generatedAt).toLocaleString('pt-BR')}
+        </span>
+      )}
+      {durationMs != null && <span>• {(durationMs / 1000).toFixed(1)}s</span>}
+    </div>
+  )
+}
+
+function AssetCard({
+  asset,
+  version,
+  generatedAt,
+  onRegenerate,
+  onSave,
+}: {
+  asset: BrandAsset
+  version: number
+  generatedAt: string | null
+  onRegenerate: () => void
+  onSave: (content: string) => void
+}) {
   const [copied, setCopied] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(asset.content)
+
+  useEffect(() => {
+    setDraft(asset.content)
+  }, [asset.content])
+
+  const needsConfirmation = asset.content.includes('[Preencha este dado]')
+
   const copy = () => {
     navigator.clipboard.writeText(asset.content)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
     toast.success(`"${asset.title}" copiado!`)
   }
+
+  const save = () => {
+    onSave(draft)
+    setEditing(false)
+  }
+
+  const exportAsset = () => {
+    const content = `# ${asset.title}\n\n> Brand OS v${version} — gerado em ${
+      generatedAt ? new Date(generatedAt).toLocaleString('pt-BR') : '-'
+    }\n\n${asset.content}\n`
+    downloadFile(`brand-os-${asset.type}.md`, content, 'text/markdown')
+    toast.success(`"${asset.title}" exportado!`)
+  }
+
   return (
-    <div className="rounded-xl bg-[#0e0e15]/60 border border-white/5 p-3">
-      <div className="flex items-center justify-between mb-1.5">
-        <h5 className="text-xs font-bold text-white">{asset.title}</h5>
-        <button
-          onClick={copy}
-          className="text-[10px] text-[#22D3EE] hover:underline flex items-center gap-1"
-        >
-          {copied ? <CheckCircle2 className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-          {copied ? 'Copiado' : 'Copiar'}
-        </button>
+    <div className="rounded-xl bg-[#0e0e15]/60 border border-white/5 p-3 space-y-2">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <h5 className="text-xs font-bold text-white">{asset.title}</h5>
+          {needsConfirmation && (
+            <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[9px] gap-1">
+              <AlertTriangle className="w-2.5 h-2.5" /> Confirme este dado
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={copy}
+            className="text-[10px] text-[#22D3EE] hover:underline flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-[#22D3EE]/10"
+          >
+            {copied ? <CheckCircle2 className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+            {copied ? 'Copiado' : 'Copiar'}
+          </button>
+          {!editing ? (
+            <button
+              onClick={() => setEditing(true)}
+              className="text-[10px] text-[#9494A8] hover:text-white flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-white/5"
+            >
+              <Pencil className="w-3 h-3" /> Editar
+            </button>
+          ) : (
+            <button
+              onClick={save}
+              className="text-[10px] text-emerald-400 hover:underline flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-emerald-400/10"
+            >
+              <Save className="w-3 h-3" /> Salvar
+            </button>
+          )}
+          <button
+            onClick={onRegenerate}
+            className="text-[10px] text-[#7C5CFC] hover:underline flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-[#7C5CFC]/10"
+          >
+            <RefreshCw className="w-3 h-3" /> Regenerar
+          </button>
+          <button
+            onClick={exportAsset}
+            className="text-[10px] text-[#9494A8] hover:text-white flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-white/5"
+          >
+            <Download className="w-3 h-3" /> Exportar
+          </button>
+        </div>
       </div>
-      <p className="text-xs text-slate-300 whitespace-pre-wrap leading-relaxed">{asset.content}</p>
+
+      {editing ? (
+        <Textarea
+          className="bg-[#1C1C27] border border-[#7C5CFC]/40 rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC] min-h-[120px]"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+      ) : (
+        <p className="text-xs text-slate-300 whitespace-pre-wrap leading-relaxed">
+          {asset.content}
+        </p>
+      )}
+
+      <p className="text-[9px] text-[#9494A8]/70">
+        v{version} — gerado em{' '}
+        {generatedAt ? new Date(generatedAt).toLocaleDateString('pt-BR') : '-'}
+      </p>
     </div>
   )
+}
+
+/* =====================================================================
+   UTILITÁRIOS
+   ===================================================================== */
+
+function downloadFile(filename: string, content: string, mime: string) {
+  const blob = new Blob([content], { type: mime })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function extractPillars(content: string): string[] {
+  return content
+    .split('\n')
+    .map((l) => l.replace(/^\d+\.\s*/, '').trim())
+    .filter(Boolean)
 }
 
 function generateAssetContent(
@@ -740,14 +1471,14 @@ function generateAssetContent(
   research: ResearchAnswer[],
   interview: InterviewAnswer[],
 ): string {
-  const niche = base.niche || 'seu nicho'
-  const audience = base.audience || 'seu público'
-  const result = base.result || 'o resultado prometido'
-  const differential = base.differential || 'seu diferencial'
-  const service = base.service || 'seu serviço'
+  const niche = base.niche?.trim() || '[Preencha este dado]'
+  const audience = base.audience?.trim() || '[Preencha este dado]'
+  const result = base.result?.trim() || '[Preencha este dado]'
+  const differential = base.differential?.trim() || '[Preencha este dado]'
+  const service = base.service?.trim() || '[Preencha este dado]'
 
-  const r = (key: string) => research.find((x) => x.fieldKey === key)?.value
-  const i = (code: string) => interview.find((x) => x.guideCode === code)?.transcript
+  const r = (key: string) => research.find((x) => x.fieldKey === key)?.value || ''
+  const i = (code: string) => interview.find((x) => x.guideCode === code)?.transcript || ''
 
   switch (type) {
     case 'posicionamento':
@@ -760,18 +1491,18 @@ function generateAssetContent(
       return `O inimigo é a abordagem superficial de ${niche} que promete rápido e entrega pouco. ${i('G4') ? 'Sua raiva do mercado sustenta essa narrativa.' : 'Combata a desinformação e o atalho ilusório.'}`
     case 'tom_de_voz':
       return base.voice
-        ? `${base.voice}`
-        : `Direto, técnico-acessível e motivador. Sem jargão desnecessário, com autoridade de quem executa, não só ensina.`
+        ? `${base.voice}. ${TOM_LABELS[base.voice] || ''}`
+        : 'Direto, técnico-acessível e motivador. Sem jargão desnecessário, com autoridade de quem executa, não só ensina.'
     case 'vocabulario':
-      return `Palavras da marca: ${r('palavras_marca') || 'transformação, método, clareza, execução'}.\nPalavras proibidas: ${r('palavras_proibidas') || 'mágico, fácil, segredo, faça você mesmo sem método'}.`
+      return `Palavras que a marca USA: ${r('palavras_usa') || '[Preencha este dado]'}.\nPalavras que a marca NUNCA usa: ${r('palavras_nunca') || '[Preencha este dado]'}.`
     case 'storytelling':
       return i('G1')
-        ? `História de origem: ${i('G1').slice(0, 280)}…`
+        ? `História de origem: ${i('G1').slice(0, 320)}…`
         : `A jornada começa quando você percebeu que ${audience} precisavam de ${result}, mas as opções de ${niche} não entregavam ${differential.toLowerCase()}. Decidiu construir um caminho próprio.`
     case 'stack_de_prova':
-      return `1. Números: ${r('numeros_impacto') || 'X clientes atendidos'}\n2. Casos: ${r('casos_sucesso') || 'depoimentos antes/depois'}\n3. Depoimentos: ${r('depoimentos') || 'frases reais de clientes'}\n4. Autoridade: ${r('premios') || r('certificacoes') || 'reconhecimento de mercado'}`
+      return `1. Números: ${r('clientes_ativos') || '[Preencha este dado]'} clientes ativos\n2. Cases: ${r('cases') || '[Preencha este dado]'}\n3. Depoimentos: ${r('depoimentos') || '[Preencha este dado]'}\n4. Autoridade: ${r('selos_premiacoes') || r('certificacoes') || '[Preencha este dado]'}`
     case 'identidade_visual':
-      return `Estilo: ${r('estilo_visual') || 'moderno, escuro, premium'}. Referência: ${r('referencia_pinterest') || 'paleta violeta + ciano sobre fundo carbono'}. Manter consistência em todas as peças.`
+      return `Estilo: ${r('estilo_visual') || '[Preencha este dado]'}. Cores: ${r('cores_marca') || '[Preencha este dado]'}. Referências: ${r('referencias_visuais') || '[Preencha este dado]'}. Manter consistência em todas as peças.`
     case 'pilares_de_conteudo':
       return `1. Educação: quebre mitos de ${niche}\n2. Bastidores: mostre o método em ação\n3. Prova: casos e resultados\n4. Conexão: histórias de ${audience}\n5. Conversão: oferta e garantia`
     case 'linha_editorial':
@@ -779,21 +1510,21 @@ function generateAssetContent(
     case 'bio_taglines':
       return `Bio: ${service} para ${audience}. ${result}.\nTagline 1: ${differential}\nTagline 2: ${niche} sem enrolação.\nTagline 3: O método que entrega ${result.toLowerCase()}.`
     case 'oferta_principal':
-      return base.mainOffer
+      return base.mainOffer?.trim()
         ? base.mainOffer
-        : `${service} para ${audience}. Entrega: ${result}. Diferencial: ${differential}. Garantia: ${r('garantias') || 'condições claras de reembolso'}.`
+        : `${service} para ${audience}. Entrega: ${result}. Diferencial: ${differential}. Garantia: ${r('etapa_5') ? 'processo estruturado em 5 etapas' : '[Preencha este dato]'}.`
   }
 }
 
 function buildExportMarkdown(profile: BrandProfile): string {
-  let md = `# Arquitetura de Marca — Brand OS\n\n`
-  md += `> Plataforma de Marketing e Vendas com IA — LUMEN Studio\n\n`
+  let md = `# Brand OS — Arquitetura de Marca\n\n`
+  md += `> LUMEN Studio — Plataforma de Marketing e Vendas com IA\n\n`
   md += `- **Versão:** ${profile.activeVersion}\n`
   md += `- **Gerado em:** ${profile.lastGeneratedAt ? new Date(profile.lastGeneratedAt).toLocaleString('pt-BR') : '-'}\n`
   md += `- **Modelo:** ${profile.lastModel || '-'}\n\n`
   md += `## Base essencial\n\n`
   const b = profile.base
-  md += `- Nicho: ${b.niche}\n- Subnicho: ${b.subniche}\n- Serviço: ${b.service}\n- Público: ${b.audience}\n- Resultado: ${b.result}\n- Diferencial: ${b.differential}\n- Tom de voz: ${b.voice}\n- Oferta: ${b.mainOffer}\n\n`
+  md += `- Nicho: ${b.niche || '-'}\n- Subnicho: ${b.subniche || '-'}\n- Serviço: ${b.service || '-'}\n- Público: ${b.audience || '-'}\n- Resultado: ${b.result || '-'}\n- Diferencial: ${b.differential || '-'}\n- Tom de voz: ${b.voice || '-'}\n- Oferta: ${b.mainOffer || '-'}\n\n`
   md += `## Ativos de marca (${profile.assets.length})\n\n`
   for (const layer of LAYER_ORDER) {
     const assets = profile.assets.filter((a) => a.layer === layer)

@@ -49,6 +49,7 @@ const App = () => (
               <Route path="/agendamento" element={<Agendamento />} />
               {/* Plataforma de Marketing e Vendas com IA */}
               <Route path="/modulo-1" element={<Posicionamento />} />
+              <Route path="/posicionamento" element={<Posicionamento />} />
               <Route path="/modulo-2" element={<Conteudo />} />
               <Route path="/modulo-3" element={<Funis />} />
               <Route path="/modulo-4" element={<Ativos />} />

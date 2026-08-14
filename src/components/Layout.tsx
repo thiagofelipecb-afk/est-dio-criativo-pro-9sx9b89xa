@@ -102,6 +102,7 @@ export default function Layout() {
   const navItems: NavItem[] = [
     { label: 'Início', path: '/', icon: Home },
     { label: 'Meus Projetos', path: '/projetos', icon: FolderKanban },
+    { label: 'Posicionamento', path: '/posicionamento', icon: Compass },
     ...moduleItems,
     ...studioItems,
     ...transversalItems,

@@ -52,6 +52,24 @@ interface StudioContextType {
   appliedAiSuggestions: AISuggestion[]
   addAiSuggestion: (suggestion: AISuggestion) => void
   revertAiSuggestion: (id: string) => void
+
+  // Brand OS — versão resumida para consumo dos geradores do estúdio criativo
+  brandOS: BrandOSContext | null
+  setBrandOS: (b: BrandOSContext | null) => void
+  updateBrandOS: (updates: Partial<BrandOSContext>) => void
+}
+
+// Versão resumida do Brand OS consumida pelos geradores do estúdio
+export interface BrandOSContext {
+  brandName: string
+  niche: string
+  promise: string
+  voice: string
+  audience: string
+  contentPillars: string[]
+  editorialLine: string
+  activeVersion: number
+  generatedAt: string | null
 }
 
 const DEFAULT_PROJECTS: Project[] = [
@@ -498,6 +516,16 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   )
   const [appliedAiSuggestions, setAppliedAiSuggestions] = useState<AISuggestion[]>([])
 
+  // Brand OS — versão resumida persistida em localStorage (lumen_brand_os)
+  const [brandOS, setBrandOSState] = useState<BrandOSContext | null>(() => {
+    const saved = localStorage.getItem('lumen_brand_os')
+    return saved ? JSON.parse(saved) : null
+  })
+
+  useEffect(() => {
+    localStorage.setItem('lumen_brand_os', JSON.stringify(brandOS))
+  }, [brandOS])
+
   useEffect(() => {
     localStorage.setItem('lumen_projects', JSON.stringify(projects))
   }, [projects])
@@ -679,6 +707,10 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setAppliedAiSuggestions((prev) => prev.filter((s) => s.id !== id))
   }
 
+  const setBrandOS = (b: BrandOSContext | null) => setBrandOSState(b)
+  const updateBrandOS = (updates: Partial<BrandOSContext>) =>
+    setBrandOSState((prev) => (prev ? { ...prev, ...updates } : prev))
+
   return (
     <StudioContext.Provider
       value={{
@@ -711,6 +743,9 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         appliedAiSuggestions,
         addAiSuggestion,
         revertAiSuggestion,
+        brandOS,
+        setBrandOS,
+        updateBrandOS,
       }}
     >
       {children}
