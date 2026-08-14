@@ -1,9 +1,25 @@
-import React from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePlatform } from '@/context/PlatformContext'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Sparkles, Pencil, AlertCircle, CheckCircle2, Clock } from 'lucide-react'
+import {
+  Sparkles,
+  Pencil,
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  Copy,
+  Save,
+  RefreshCw,
+  Lock,
+  Unlock,
+  ChevronUp,
+  ChevronDown,
+} from 'lucide-react'
+import { toast } from 'sonner'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import type { ContentBlock } from '@/types/platform'
 
 // Cabeçalho padrão de cada módulo com contexto do Brand OS ativo
 export function ModuleHeader({
@@ -185,7 +201,7 @@ export function SavedItemCard({
   )
 }
 
-// Academy contextual por módulo
+// Academy contextual por módulo (lista simples — mantida para compatibilidade)
 export function AcademyPanel({
   lessons,
   moduleTitle,
@@ -235,6 +251,27 @@ export function AcademyPanel({
       </div>
     </div>
   )
+}
+
+// Hook de autosave com debounce (padrão 2s)
+export function useDebouncedEffect<T>(value: T, fn: (v: T) => void, delay = 2000) {
+  const ref = useRef(fn)
+  ref.current = fn
+  useEffect(() => {
+    const t = setTimeout(() => ref.current(value), delay)
+    return () => clearTimeout(t)
+  }, [value, delay])
+}
+
+// Guarda de Brand OS: se não houver Brand OS ativo, retorna false e exibe tooltip.
+// Uso: const can = useBrandOSGuard(); if(!can) return <GuardButton/>
+export function useBrandOSGuard() {
+  const { hasBrandOS, brandProfile } = usePlatform()
+  return {
+    can: hasBrandOS,
+    version: brandProfile.activeVersion,
+    brandProfile,
+  }
 }
 
 // Campo de formulário padrão
@@ -305,7 +342,26 @@ export function GenerateButton({
   )
 }
 
-// Editor por bloco genérico
+// Regeneração simulada de um bloco via Brand OS ativo
+function useBlockRegen() {
+  const { brandProfile, hasBrandOS } = usePlatform()
+  return (blockType: string, currentText: string) => {
+    if (!hasBrandOS) return currentText
+    const diff = brandProfile.base.differential || 'entrega de valor'
+    const voice = brandProfile.base.voice || 'direto e próximo'
+    const niche = brandProfile.base.niche || 'seu nicho'
+    const suffix = ` (alinhado ao tom ${voice} • ${niche})`
+    // Variações simples simulando reescrita pela IA
+    const variants = [
+      `${currentText.replace(/\.$/, '')} — e é por isso que ${diff.toLowerCase()}.`,
+      `Reescrito: ${currentText}`,
+      `${currentText}\n\n→ ${diff}. Tom: ${voice}.${suffix}`,
+    ]
+    return variants[Math.floor(Math.random() * variants.length)]
+  }
+}
+
+// Editor por bloco genérico com ações por bloco (Copiar, Editar/Salvar, Regenerar, Bloquear, Reordenar)
 export function BlockEditor<
   T extends { id: string; blockType: string; position: number; text: string; version: number },
 >({
@@ -313,44 +369,184 @@ export function BlockEditor<
   onChange,
   onAdjust,
   readOnly,
+  enableRegen = true,
+  enableReorder = false,
 }: {
   blocks: T[]
   onChange: (blocks: T[]) => void
   onAdjust?: (blockId: string) => void
   readOnly?: boolean
+  enableRegen?: boolean
+  enableReorder?: boolean
 }) {
-  const updateBlock = (id: string, text: string) => {
-    onChange(blocks.map((b) => (b.id === id ? { ...b, text, version: b.version + 1 } : b)))
+  const { hasBrandOS } = usePlatform()
+  const regen = useBlockRegen()
+  const [editing, setEditing] = useState<Record<string, string>>({})
+  const [isEditing, setIsEditing] = useState<Record<string, boolean>>({})
+
+  const updateBlock = (id: string, text: string, bumpVersion = false) => {
+    onChange(
+      blocks.map((b) =>
+        b.id === id ? { ...b, text, version: bumpVersion ? b.version + 1 : b.version } : b,
+      ),
+    )
   }
+
+  const startEdit = (b: T) => {
+    setEditing((e) => ({ ...e, [b.id]: b.text }))
+    setIsEditing((e) => ({ ...e, [b.id]: true }))
+  }
+  const saveEdit = (b: T) => {
+    updateBlock(b.id, editing[b.id] ?? b.text, true)
+    setIsEditing((e) => ({ ...e, [b.id]: false }))
+    toast.success('Bloco salvo.')
+  }
+
+  const copy = (b: T) => {
+    navigator.clipboard.writeText(b.text)
+    toast.success('Bloco copiado!')
+  }
+
+  const regenBlock = (b: T) => {
+    if (!hasBrandOS) {
+      toast.error('Configure seu Brand OS primeiro em Posicionamento.', {
+        description: 'A regeneração usa o Brand OS ativo como contexto.',
+      })
+      return
+    }
+    const newText = regen(b.blockType, b.text)
+    updateBlock(b.id, newText, true)
+    onAdjust?.(b.id)
+    toast.success('Bloco regenerado com IA (simulada).')
+  }
+
+  const toggleLock = (b: T) => {
+    onChange(
+      blocks.map((x) => (x.id === b.id ? { ...x, locked: !(x as ContentBlock).locked } : x)) as T[],
+    )
+  }
+
+  const move = (index: number, dir: -1 | 1) => {
+    const next = [...blocks]
+    const target = index + dir
+    if (target < 0 || target >= next.length) return
+    ;[next[index], next[target]] = [next[target], next[index]]
+    onChange(next.map((b, i) => ({ ...b, position: i })) as T[])
+  }
+
   return (
     <div className="space-y-2">
-      {blocks.map((b) => (
-        <div key={b.id} className="rounded-xl border border-white/10 bg-[#0e0e15]/60 p-3 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#7C5CFC]">
-              {b.blockType}
-            </span>
-            {onAdjust && !readOnly && (
-              <button
-                onClick={() => onAdjust(b.id)}
-                className="text-[10px] text-[#22D3EE] hover:underline"
-              >
-                Ajustar
-              </button>
+      {blocks.map((b, i) => {
+        const locked = (b as ContentBlock).locked
+        return (
+          <div
+            key={b.id}
+            className="rounded-xl border border-white/10 bg-[#0e0e15]/60 p-3 space-y-2"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 min-w-0">
+                {enableReorder && !readOnly && (
+                  <div className="flex flex-col">
+                    <button
+                      onClick={() => move(i, -1)}
+                      disabled={i === 0}
+                      className="text-[#9494A8] hover:text-white disabled:opacity-20"
+                      title="Mover para cima"
+                    >
+                      <ChevronUp className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={() => move(i, 1)}
+                      disabled={i === blocks.length - 1}
+                      className="text-[#9494A8] hover:text-white disabled:opacity-20"
+                      title="Mover para baixo"
+                    >
+                      <ChevronDown className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#7C5CFC] truncate">
+                  {b.blockType}
+                </span>
+                {locked && <Lock className="w-3 h-3 text-amber-400" />}
+                {(b as ContentBlock).aiGenerated && (
+                  <Badge className="bg-[#22D3EE]/10 text-[#22D3EE] border-[#22D3EE]/20 text-[9px]">
+                    IA
+                  </Badge>
+                )}
+              </div>
+              {!readOnly && (
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => copy(b)}
+                    className="p-1 rounded text-[#9494A8] hover:text-white hover:bg-white/5"
+                    title="Copiar"
+                  >
+                    <Copy className="w-3 h-3" />
+                  </button>
+                  {isEditing[b.id] ? (
+                    <button
+                      onClick={() => saveEdit(b)}
+                      className="p-1 rounded text-emerald-400 hover:bg-emerald-500/10"
+                      title="Salvar"
+                    >
+                      <Save className="w-3 h-3" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => startEdit(b)}
+                      disabled={locked}
+                      className="p-1 rounded text-[#9494A8] hover:text-white hover:bg-white/5 disabled:opacity-30"
+                      title="Editar"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                  )}
+                  {enableRegen && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => regenBlock(b)}
+                          disabled={locked}
+                          className="p-1 rounded text-[#22D3EE] hover:bg-[#22D3EE]/10 disabled:opacity-30"
+                          title="Regenerar bloco"
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent className="bg-[#1C1C27] text-white border-white/10 text-xs">
+                        Regenerar via Brand OS (IA simulada)
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                  <button
+                    onClick={() => toggleLock(b)}
+                    className="p-1 rounded text-[#9494A8] hover:text-white hover:bg-white/5"
+                    title={locked ? 'Desbloquear' : 'Bloquear'}
+                  >
+                    {locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                  </button>
+                </div>
+              )}
+            </div>
+            {readOnly ? (
+              <p className="text-xs text-slate-300 whitespace-pre-wrap leading-relaxed">{b.text}</p>
+            ) : isEditing[b.id] ? (
+              <textarea
+                value={editing[b.id] ?? b.text}
+                onChange={(e) => setEditing((s) => ({ ...s, [b.id]: e.target.value }))}
+                rows={Math.min(10, Math.max(3, (editing[b.id] ?? b.text).split('\n').length))}
+                className="w-full bg-[#1C1C27] border border-white/10 rounded-lg p-2 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-[#7C5CFC] resize-none leading-relaxed"
+                autoFocus
+              />
+            ) : (
+              <p className="text-xs text-slate-300 whitespace-pre-wrap leading-relaxed">
+                {b.text || <span className="text-[#9494A8]/50 italic">Bloco vazio</span>}
+              </p>
             )}
           </div>
-          {readOnly ? (
-            <p className="text-xs text-slate-300 whitespace-pre-wrap leading-relaxed">{b.text}</p>
-          ) : (
-            <textarea
-              value={b.text}
-              onChange={(e) => updateBlock(b.id, e.target.value)}
-              rows={Math.min(8, Math.max(2, b.text.split('\n').length))}
-              className="w-full bg-transparent border-none text-xs text-slate-200 focus:outline-none resize-none leading-relaxed"
-            />
-          )}
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

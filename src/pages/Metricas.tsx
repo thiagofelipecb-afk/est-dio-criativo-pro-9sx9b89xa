@@ -1,11 +1,22 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import { usePlatform } from '@/context/PlatformContext'
 import { ModuleHeader, EmptyState, inputClass, Field } from '@/components/marketing/Shared'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { BarChart3, Save, Clock } from 'lucide-react'
+import { BarChart3, Save, Clock, TrendingUp } from 'lucide-react'
 import { toast } from 'sonner'
 import { MetricReading } from '@/types/platform'
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RTooltip,
+  ResponsiveContainer,
+  Legend,
+} from 'recharts'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 const uid = (p: string) => `${p}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
 
@@ -84,21 +95,50 @@ function MetricRow({
   metrics: MetricReading[]
   onSave: (m: MetricReading) => void
 }) {
-  const isCarousel = item.type === 'carrossel'
-  const fields = isCarousel
+  const isVideo = item.type === 'reel' || item.type === 'video'
+  const fields = isVideo
     ? [
         { key: 'saves', label: 'Saves' },
         { key: 'shares', label: 'Shares' },
+        { key: 'watch_time', label: 'Watch time (s)' },
+        { key: 'rewatch', label: 'Rewatch %' },
         { key: 'swipe', label: 'Swipe-through %' },
+        { key: 'dm_shares', label: 'Compart. DM' },
       ]
     : [
         { key: 'saves', label: 'Saves' },
-        { key: 'watch_time', label: 'Watch time (s)' },
-        { key: 'rewatch', label: 'Rewatch %' },
+        { key: 'shares', label: 'Shares' },
+        { key: 'swipe', label: 'Swipe-through %' },
         { key: 'dm_shares', label: 'Compart. DM' },
       ]
   const [vals, setVals] = useState<Record<string, string>>({})
-  const last = metrics.find((m) => m.contentId === item.id)
+  const itemReadings = useMemo(
+    () =>
+      metrics
+        .filter((m) => m.contentId === item.id)
+        .sort((a, b) => a.measuredAt.localeCompare(b.measuredAt)),
+    [metrics, item.id],
+  )
+  const last = itemReadings[itemReadings.length - 1]
+
+  const chartData = itemReadings.map((m) => ({
+    date: new Date(m.measuredAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+    ...m.metrics,
+  }))
+  const metricKeys = useMemo(() => {
+    const keys = new Set<string>()
+    chartData.forEach((d) => Object.keys(d).forEach((k) => k !== 'date' && keys.add(k)))
+    return Array.from(keys)
+  }, [chartData])
+  const lineColors = ['#7C5CFC', '#22D3EE', '#F472B6', '#F59E0B', '#34D399', '#60A5FA']
+  const metricLabels: Record<string, string> = {
+    saves: 'Saves',
+    shares: 'Shares',
+    swipe: 'Swipe-through %',
+    watch_time: 'Watch time (s)',
+    rewatch: 'Rewatch %',
+    dm_shares: 'Compart. DM',
+  }
 
   const save = () => {
     const numMetrics: Record<string, number> = {}
@@ -152,6 +192,75 @@ function MetricRow({
           <Save className="w-3.5 h-3.5" /> Salvar leitura
         </Button>
       </div>
+      {/* Gráfico de evolução por item */}
+      {chartData.length >= 2 && (
+        <div className="pt-3 border-t border-white/5">
+          <div className="flex items-center gap-1.5 mb-2">
+            <TrendingUp className="w-3.5 h-3.5 text-[#22D3EE]" />
+            <p className="text-[11px] font-semibold text-white">Evolução das métricas</p>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="text-[9px] text-[#9494A8] italic ml-1">
+                  (todas as leituras manuais)
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="bg-[#1C1C27] text-white border-white/10 text-xs">
+                Leituras manuais — sem integração com redes sociais ativa.
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          <div className="h-48 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                <XAxis dataKey="date" tick={{ fill: '#9494A8', fontSize: 10 }} stroke="#ffffff20" />
+                <YAxis tick={{ fill: '#9494A8', fontSize: 10 }} stroke="#ffffff20" />
+                <RTooltip
+                  contentStyle={{
+                    background: '#1C1C27',
+                    border: '1px solid #ffffff20',
+                    borderRadius: 8,
+                    fontSize: 11,
+                  }}
+                  labelStyle={{ color: '#9494A8' }}
+                />
+                <Legend wrapperStyle={{ fontSize: 10 }} />
+                {metricKeys.map((k, i) => (
+                  <Line
+                    key={k}
+                    type="monotone"
+                    dataKey={k}
+                    name={metricLabels[k] || k}
+                    stroke={lineColors[i % lineColors.length]}
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+      {/* Histórico textual */}
+      {itemReadings.length > 0 && (
+        <div className="pt-2 border-t border-white/5 space-y-1 max-h-32 overflow-y-auto">
+          {itemReadings
+            .slice()
+            .reverse()
+            .map((m) => (
+              <div key={m.id} className="flex items-center justify-between text-[10px]">
+                <span className="text-[#9494A8] flex items-center gap-1">
+                  <Clock className="w-2.5 h-2.5" /> {new Date(m.measuredAt).toLocaleString('pt-BR')}
+                </span>
+                <span className="text-slate-400">
+                  {Object.entries(m.metrics)
+                    .map(([k, v]) => `${metricLabels[k] || k}: ${v}`)
+                    .join(' • ')}
+                </span>
+              </div>
+            ))}
+        </div>
+      )}
     </div>
   )
 }

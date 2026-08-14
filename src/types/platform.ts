@@ -100,19 +100,56 @@ export interface GenerationJob {
 export type FunnelStage = 'topo' | 'meio' | 'fundo'
 export type Awareness = 1 | 2 | 3 | 4 | 5
 
+// Tipos de bloco expandidos (aditivo — mantém compatibilidade com blockType livre)
+export type ContentBlockType =
+  | 'headline'
+  | 'body'
+  | 'cta'
+  | 'hashtags'
+  | 'caption'
+  | 'gancho_visual'
+  | 'gancho_verbal'
+  | 'setup'
+  | 'desenvolvimento'
+  | 'insight'
+  | 'payoff'
+  | 'legenda'
+  | 'card'
+  | 'slide'
+  // mantém os tipos legados usados no código existente (roles de carrossel etc.)
+  | string
+
 export interface ContentBlock {
   id: string
-  blockType: string
+  blockType: ContentBlockType
   position: number
   text: string
   version: number
+  // Campos aditivos (opcionais p/ blocos antigos)
+  aiGenerated?: boolean
+  locked?: boolean
+  order?: number
+  regeneratedAt?: string
 }
 
-export type ContentStatus = 'rascunho' | 'gerando' | 'gerado' | 'aprovado' | 'em_revisao'
+export type ContentStatus =
+  | 'rascunho'
+  | 'gerando'
+  | 'gerado'
+  | 'aprovado'
+  | 'em_revisao'
+  // Novos status alinhados ao Módulo Conteúdo consolidado
+  | 'draft'
+  | 'approved'
+  | 'scheduled'
+  | 'published'
+  | 'cancelled'
+  | 'pronto'
+  | 'agendado'
 
 export interface ContentItem {
   id: string
-  type: 'post' | 'story' | 'reel' | 'carrossel'
+  type: 'post' | 'story' | 'reel' | 'carrossel' | 'video'
   title: string
   blocks: ContentBlock[]
   funnelStage: FunnelStage
@@ -122,6 +159,66 @@ export interface ContentItem {
   contextVersion: number
   createdAt: string
   updatedAt: string
+  // Campos aditivos (opcionais p/ itens antigos)
+  funnel_stage?: FunnelStage | null
+  objective?: string
+  theme?: string
+  brand_profile_version_id?: string | null
+  source_creative_id?: string | null
+  metadata?: Record<string, any>
+  scheduled_at?: string | null
+  published_at?: string | null
+  // Snapshot da geração (prompt/modelo) para auditoria
+  prompt_version?: string
+  model?: string
+  generated_at?: string | null
+  durationMs?: number | null
+}
+
+// Helper para mapear projetos antigos do Estúdio (StudioContext) para ContentItem
+// sem perder dados — aditivo, não substitui os tipos antigos.
+export function projectToContentItem(p: {
+  id: string
+  title: string
+  type: string
+  status?: string
+  scriptText?: string
+  updatedAt?: string
+  createdAt?: string
+}): ContentItem {
+  const typeMap: Record<string, ContentItem['type']> = {
+    reel: 'reel',
+    video: 'video',
+    youtube: 'video',
+    carousel: 'carrossel',
+    post: 'post',
+  }
+  const now = new Date().toISOString()
+  return {
+    id: `legacy-${p.id}`,
+    type: typeMap[p.type] || 'post',
+    title: p.title,
+    blocks: p.scriptText
+      ? [
+          {
+            id: `blk-${p.id}`,
+            blockType: 'body',
+            position: 0,
+            text: p.scriptText,
+            version: 1,
+          },
+        ]
+      : [],
+    funnelStage: 'topo',
+    awareness: 3,
+    cta: '',
+    status: 'rascunho',
+    contextVersion: 0,
+    createdAt: p.createdAt || now,
+    updatedAt: p.updatedAt || now,
+    source_creative_id: p.id,
+    metadata: { legacy: true, originalType: p.type },
+  }
 }
 
 export interface IdeaItem {

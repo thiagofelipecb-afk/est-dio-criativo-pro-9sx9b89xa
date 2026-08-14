@@ -1,9 +1,11 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStudio } from '@/context/StudioContext'
+import { usePlatform } from '@/context/PlatformContext'
 import { CarouselProject, CarouselSlide } from '@/types/studio'
 import { Button } from '@/components/ui/button'
-import { Slider } from '@/components/ui/slider'
+import { Badge } from '@/components/ui/badge'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Layers,
   Plus,
@@ -20,12 +22,26 @@ import {
   Save,
   Wand2,
   MoveRight,
+  ChevronUp,
+  ChevronDown,
+  FileText,
 } from 'lucide-react'
 import { toast } from 'sonner'
+
+type CarrosselStatus = 'rascunho' | 'pronto' | 'agendado'
+
+const HOOK_CATEGORIES = [
+  { id: 'problema', label: 'Problema', template: 'Cansado de {TEMA} sem resultado?' },
+  { id: 'curiosidade', label: 'Curiosidade', template: 'O que ninguém te conta sobre {TEMA}:' },
+  { id: 'passo_passo', label: 'Passo a passo', template: 'Passo a passo para dominar {TEMA}:' },
+  { id: 'lista', label: 'Lista', template: '5 coisas sobre {TEMA} que você precisa saber:' },
+  { id: 'comparacao', label: 'Comparação', template: 'Erro comum vs. jeito certo de {TEMA}:' },
+] as const
 
 export default function EditorCarrossel() {
   const navigate = useNavigate()
   const { carousels, saveCarousel, schedulePost } = useStudio()
+  const { hasBrandOS, brandProfile, saveContentItem } = usePlatform()
 
   const [activeCarousel, setActiveCarousel] = useState<CarouselProject>(() => {
     return (
@@ -85,6 +101,130 @@ export default function EditorCarrossel() {
 
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0)
   const currentSlide = activeCarousel.slides[currentSlideIndex] || activeCarousel.slides[0]
+
+  // === Briefing (objetivo, público, mensagem principal) com autosave 2s ===
+  const [briefing, setBriefing] = useState<{ objetivo: string; publico: string; mensagem: string }>(
+    () => {
+      const saved = localStorage.getItem('lumen_carrossel_briefing_v2')
+      if (saved) {
+        try {
+          return JSON.parse(saved)
+        } catch {
+          /* intentionally ignored */
+        }
+      }
+      return { objetivo: '', publico: '', mensagem: '' }
+    },
+  )
+  useEffect(() => {
+    const t = setTimeout(() => {
+      localStorage.setItem('lumen_carrossel_briefing_v2', JSON.stringify(briefing))
+    }, 2000)
+    return () => clearTimeout(t)
+  }, [briefing])
+
+  // === Copy card a card (textarea + preview) por slide ===
+  const [slideCopy, setSlideCopy] = useState<Record<string, string>>(() => {
+    const saved = localStorage.getItem('lumen_carrossel_copy')
+    if (saved) {
+      try {
+        return JSON.parse(saved)
+      } catch {
+        /* intentionally ignored */
+      }
+    }
+    return {}
+  })
+  useEffect(() => {
+    const t = setTimeout(() => {
+      localStorage.setItem('lumen_carrossel_copy', JSON.stringify(slideCopy))
+    }, 2000)
+    return () => clearTimeout(t)
+  }, [slideCopy])
+
+  // === Status do carrossel (draft → pronto → agendado) ===
+  const [carrosselStatus, setCarrosselStatus] = useState<CarrosselStatus>(() => {
+    const saved = localStorage.getItem('lumen_carrossel_status')
+    return (saved as CarrosselStatus) || 'rascunho'
+  })
+  useEffect(() => {
+    localStorage.setItem('lumen_carrossel_status', carrosselStatus)
+  }, [carrosselStatus])
+
+  const suggestHook = (categoryId: (typeof HOOK_CATEGORIES)[number]['id']) => {
+    const cat = HOOK_CATEGORIES.find((c) => c.id === categoryId) || HOOK_CATEGORIES[0]
+    const tema = briefing.mensagem || activeCarousel.title
+    const hookText = cat.template.replace('{TEMA}', tema.toLowerCase())
+    updateCurrentSlide({ title: hookText })
+    toast.success(`Hook sugerido (${cat.label}) aplicado ao slide!`)
+  }
+
+  const rewriteCard = () => {
+    if (!hasBrandOS) {
+      toast.error('Configure seu Brand OS primeiro em Posicionamento.', {
+        action: { label: 'Tentar novamente', onClick: rewriteCard },
+      })
+      return
+    }
+    const diff = brandProfile.base.differential || 'entrega de valor'
+    updateCurrentSlide({
+      bodyText: `[Reescrito] ${currentSlide.bodyText}\n\n→ ${diff}.`,
+    })
+    toast.success('Card reescrito com Brand OS!')
+  }
+
+  const condenseCard = () => {
+    updateCurrentSlide({
+      bodyText: currentSlide.bodyText.split('.')[0] + '.',
+    })
+    toast.success('Card condensado (essência mantida)!')
+  }
+
+  const moveSlide = (dir: -1 | 1) => {
+    const target = currentSlideIndex + dir
+    if (target < 0 || target >= activeCarousel.slides.length) return
+    const slides = [...activeCarousel.slides]
+    ;[slides[currentSlideIndex], slides[target]] = [slides[target], slides[currentSlideIndex]]
+    const updated = { ...activeCarousel, slides }
+    setActiveCarousel(updated)
+    setCurrentSlideIndex(target)
+    saveCarousel(updated)
+    toast.success('Slide reordenado!')
+  }
+
+  const exportTxt = () => {
+    const txt = activeCarousel.slides
+      .map(
+        (s, i) =>
+          `# Card ${i + 1}\nTítulo: ${s.title}\nSubtítulo: ${s.subtitle || ''}\nBody: ${s.bodyText}\nCopy: ${slideCopy[s.id] || ''}`,
+      )
+      .join('\n\n---\n\n')
+    const blob = new Blob([txt], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${activeCarousel.title || 'carrossel'}-copy.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success('TXT com todos os cards baixado!')
+  }
+
+  const exportPng = () => {
+    toast.info('Exportação PNG/ZIP', {
+      description:
+        'A renderização real depende de integração com motor de imagem. O conteúdo está pronto.',
+    })
+  }
+
+  const generateCaption = () => {
+    if (!hasBrandOS) {
+      toast.error('Configure seu Brand OS primeiro em Posicionamento.')
+      return
+    }
+    const caption = `${activeCarousel.title} — ${brandProfile.base.differential || 'entrega de valor'}. Salve este post! #carrossel #conteudo`
+    setSlideCopy((c) => ({ ...c, _caption: caption }))
+    toast.success('Legenda gerada com IA!')
+  }
 
   const updateCurrentSlide = (updates: Partial<CarouselSlide>) => {
     const newSlides = activeCarousel.slides.map((s, idx) =>
@@ -251,14 +391,30 @@ export default function EditorCarrossel() {
           </Button>
 
           <Button
+            variant="outline"
             size="sm"
-            onClick={() => {
-              toast.success('Carrossel exportado em PNG de alta resolução!')
-            }}
-            className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs font-semibold gap-1.5"
+            onClick={exportTxt}
+            className="border-white/10 text-xs gap-1.5"
           >
-            <Download className="w-3.5 h-3.5" /> Exportar Slides
+            <FileText className="w-3.5 h-3.5" /> TXT
           </Button>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex">
+                <Button
+                  size="sm"
+                  onClick={exportPng}
+                  className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs font-semibold gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" /> Exportar Slides
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent className="bg-[#1C1C27] text-white border-white/10 text-xs">
+              A renderização PNG/ZIP real depende de integração com motor de imagem.
+            </TooltipContent>
+          </Tooltip>
 
           <Button
             size="sm"
@@ -268,6 +424,86 @@ export default function EditorCarrossel() {
             <Calendar className="w-3.5 h-3.5" /> Agendar Post
           </Button>
         </div>
+      </div>
+
+      {/* === BRIEFING (objetivo, público, mensagem principal — autosave) === */}
+      <div className="rounded-2xl bg-[#14141C] border border-white/10 p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+            <Type className="w-3.5 h-3.5 text-[#7C5CFC]" /> Briefing do Carrossel
+          </h3>
+          {hasBrandOS ? (
+            <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[9px]">
+              Brand OS v{brandProfile.activeVersion}
+            </Badge>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[9px] cursor-help">
+                  Brand OS pendente
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent className="bg-[#1C1C27] text-white border-white/10 text-xs">
+                Configure seu Brand OS primeiro em Posicionamento.
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div>
+            <label className="text-[11px] text-[#9494A8] block mb-1">Objetivo</label>
+            <input
+              value={briefing.objetivo}
+              onChange={(e) => setBriefing({ ...briefing, objetivo: e.target.value })}
+              placeholder="Ex: Educar sobre retenção"
+              className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] text-[#9494A8] block mb-1">Público</label>
+            <input
+              value={briefing.publico}
+              onChange={(e) => setBriefing({ ...briefing, publico: e.target.value })}
+              placeholder="Ex: Criadores iniciantes"
+              className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] text-[#9494A8] block mb-1">Mensagem principal</label>
+            <input
+              value={briefing.mensagem}
+              onChange={(e) => setBriefing({ ...briefing, mensagem: e.target.value })}
+              placeholder="Ex: Método > inspiração"
+              className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
+            />
+          </div>
+        </div>
+        <p className="text-[10px] text-[#9494A8]/70 italic">Autossalvo a cada 2s</p>
+      </div>
+
+      {/* === STATUS do carrossel === */}
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] text-[#9494A8]">Status:</span>
+        {(['rascunho', 'pronto', 'agendado'] as const).map((s) => (
+          <button
+            key={s}
+            onClick={() => {
+              setCarrosselStatus(s)
+              toast.success(`Status alterado para "${s}"!`)
+            }}
+            className={`px-3 py-1 rounded-lg text-[11px] font-medium capitalize border transition-all ${
+              carrosselStatus === s
+                ? s === 'pronto'
+                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                  : s === 'agendado'
+                    ? 'bg-[#7C5CFC]/20 text-[#7C5CFC] border-[#7C5CFC]/40'
+                    : 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                : 'bg-[#1C1C27] text-[#9494A8] border-white/10'
+            }`}
+          >
+            {s}
+          </button>
+        ))}
       </div>
 
       {/* Main Workspace: Left Carousel Slide Thumbnails + Center Slide Canvas + Right Properties */}
@@ -412,6 +648,24 @@ export default function EditorCarrossel() {
               />
             </div>
 
+            {/* === HOOKS POR CATEGORIA === */}
+            <div className="pt-1">
+              <label className="text-[11px] text-[#9494A8] block mb-1">
+                Sugerir hook por categoria
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {HOOK_CATEGORIES.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => suggestHook(c.id)}
+                    className="px-2 py-1 rounded-lg text-[10px] bg-[#1C1C27] text-[#9494A8] hover:text-white hover:bg-white/10 border border-white/5"
+                  >
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div>
               <label className="text-[11px] text-[#9494A8] block mb-1">Subtítulo / Destaque</label>
               <input
@@ -430,6 +684,80 @@ export default function EditorCarrossel() {
                 rows={4}
                 className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
               />
+            </div>
+
+            {/* === COPY CARD A CARD (textarea + preview) === */}
+            <div className="pt-2 border-t border-white/5">
+              <label className="text-[11px] text-[#9494A8] block mb-1">
+                Copy do card (para legenda/post)
+              </label>
+              <textarea
+                value={slideCopy[currentSlide.id] || ''}
+                onChange={(e) => setSlideCopy({ ...slideCopy, [currentSlide.id]: e.target.value })}
+                rows={3}
+                placeholder="Escreva a copy deste card…"
+                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC] resize-none"
+              />
+              {slideCopy[currentSlide.id] && (
+                <div className="mt-1.5 rounded-lg bg-[#0e0e15]/60 border border-white/5 p-2 text-[10px] text-slate-300 italic">
+                  Preview: {slideCopy[currentSlide.id]}
+                </div>
+              )}
+            </div>
+
+            {/* === REESCRITA + CONDENSAÇÃO === */}
+            <div className="flex gap-2 pt-2 border-t border-white/5">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={rewriteCard}
+                      disabled={!hasBrandOS}
+                      className="border-white/10 text-[11px] text-[#22D3EE] hover:bg-[#22D3EE]/10 gap-1.5 disabled:opacity-50"
+                    >
+                      <Wand2 className="w-3 h-3" /> Reescrever
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {!hasBrandOS && (
+                  <TooltipContent className="bg-[#1C1C27] text-white border-white/10 text-xs">
+                    Configure seu Brand OS primeiro em Posicionamento.
+                  </TooltipContent>
+                )}
+              </Tooltip>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={condenseCard}
+                className="border-white/10 text-[11px] text-[#9494A8] hover:text-white gap-1.5"
+              >
+                <Sparkles className="w-3 h-3" /> Condensar
+              </Button>
+            </div>
+
+            {/* === REORDENAÇÃO (↑↓) === */}
+            <div className="flex items-center justify-between pt-2 border-t border-white/5">
+              <span className="text-[11px] text-[#9494A8]">Reordenar slide</span>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => moveSlide(-1)}
+                  disabled={currentSlideIndex === 0}
+                  className="p-1.5 rounded-lg text-[#9494A8] hover:text-white hover:bg-white/5 disabled:opacity-20"
+                  title="Mover para cima"
+                >
+                  <ChevronUp className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => moveSlide(1)}
+                  disabled={currentSlideIndex === activeCarousel.slides.length - 1}
+                  className="p-1.5 rounded-lg text-[#9494A8] hover:text-white hover:bg-white/5 disabled:opacity-20"
+                  title="Mover para baixo"
+                >
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {/* Background Style Switcher */}
@@ -459,8 +787,68 @@ export default function EditorCarrossel() {
                 ))}
               </div>
             </div>
+
+            {/* Proporção 4:5 (confirmar funciona) */}
+            <div className="pt-2 border-t border-white/5 flex items-center justify-between">
+              <span className="text-[11px] text-[#9494A8]">Proporção</span>
+              <div className="flex gap-1">
+                {(['1:1', '4:5'] as const).map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => {
+                      const updated = { ...activeCarousel, aspectRatio: r }
+                      setActiveCarousel(updated)
+                      saveCarousel(updated)
+                    }}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border ${
+                      activeCarousel.aspectRatio === r
+                        ? 'bg-[#7C5CFC] text-white border-[#7C5CFC]'
+                        : 'bg-[#1C1C27] text-[#9494A8] border-white/10'
+                    }`}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
+      </div>
+
+      {/* === LEGENDA MANUAL OU GERADA POR IA === */}
+      <div className="rounded-2xl bg-[#14141C] border border-white/10 p-4 space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+            <Type className="w-3.5 h-3.5 text-[#22D3EE]" /> Legenda do carrossel
+          </h3>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={generateCaption}
+                  disabled={!hasBrandOS}
+                  className="border-white/10 text-[11px] text-[#7C5CFC] hover:bg-[#7C5CFC]/10 gap-1.5 disabled:opacity-50"
+                >
+                  <Sparkles className="w-3 h-3" /> Gerar legenda com IA
+                </Button>
+              </span>
+            </TooltipTrigger>
+            {!hasBrandOS && (
+              <TooltipContent className="bg-[#1C1C27] text-white border-white/10 text-xs">
+                Configure seu Brand OS primeiro em Posicionamento.
+              </TooltipContent>
+            )}
+          </Tooltip>
+        </div>
+        <textarea
+          value={slideCopy._caption || ''}
+          onChange={(e) => setSlideCopy({ ...slideCopy, _caption: e.target.value })}
+          rows={3}
+          placeholder="Escreva a legenda ou gere com IA…"
+          className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC] resize-none"
+        />
       </div>
     </div>
   )
