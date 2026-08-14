@@ -1,0 +1,370 @@
+/* Global styles - Theme, font, utilities, animations and global components */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* LUMEN Studio Dark Premium Theme Default */
+    --background: 240 31% 5%; /* #0B0B10 */
+    --foreground: 240 10% 96%; /* #F4F4F7 */
+
+    --card: 240 17% 10%; /* #14141C */
+    --card-foreground: 240 10% 96%;
+
+    --popover: 240 17% 10%;
+    --popover-foreground: 240 10% 96%;
+
+    --primary: 252 96% 67%; /* #7C5CFC */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 187 86% 53%; /* #22D3EE */
+    --secondary-foreground: 240 31% 5%;
+
+    --muted: 240 16% 14%; /* #1C1C27 */
+    --muted-foreground: 240 10% 62%; /* #9494A8 */
+
+    --accent: 252 50% 20%;
+    --accent-foreground: 240 10% 96%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 240 16% 20%; /* rgba(255,255,255,0.08) */
+    --input: 240 16% 18%;
+    --ring: 252 96% 67%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 240 25% 6%;
+    --sidebar-foreground: 240 10% 96%;
+    --sidebar-primary: 252 96% 67%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 16% 14%;
+    --sidebar-accent-foreground: 240 10% 96%;
+    --sidebar-border: 240 16% 14%;
+    --sidebar-ring: 252 96% 67%;
+
+    --chart-1: 252 96% 67%;
+    --chart-2: 187 86% 53%;
+    --chart-3: 158 64% 52%;
+    --chart-4: 38 92% 50%;
+    --chart-5: 0 84% 60%;
+  }
+
+  .dark {
+    --background: 240 31% 5%;
+    --foreground: 240 10% 96%;
+    --card: 240 17% 10%;
+    --card-foreground: 240 10% 96%;
+    --popover: 240 17% 10%;
+    --popover-foreground: 240 10% 96%;
+    --primary: 252 96% 67%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 187 86% 53%;
+    --secondary-foreground: 240 31% 5%;
+    --muted: 240 16% 14%;
+    --muted-foreground: 240 10% 62%;
+    --accent: 252 50% 20%;
+    --accent-foreground: 240 10% 96%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 16% 20%;
+    --input: 240 16% 18%;
+    --ring: 252 96% 67%;
+    --sidebar-background: 240 25% 6%;
+    --sidebar-foreground: 240 10% 96%;
+    --sidebar-primary: 252 96% 67%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 16% 14%;
+    --sidebar-accent-foreground: 240 10% 96%;
+    --sidebar-border: 240 16% 14%;
+    --sidebar-ring: 252 96% 67%;
+  }
+
+  /* NEVER REMOVE THIS */
+  section[aria-label='Notifications alt+T'] {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+}
+
+@layer utilities {
+  /* KEEP ALL THE ANIMATIONS CLASSES THAT ARE USED BELOW */
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--radix-accordion-content-height);
+    }
+  }
+
+  @keyframes accordion-up {
+    from {
+      height: var(--radix-accordion-content-height);
+    }
+    to {
+      height: 0;
+    }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes fade-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+
+  @keyframes fade-in-up {
+    from {
+      transform: translateY(10px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes fade-in-down {
+    from {
+      transform: translateY(-10px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes fade-out-up {
+    from {
+      transform: translateY(0);
+      opacity: 1;
+    }
+    to {
+      transform: translateY(-10px);
+      opacity: 0;
+    }
+  }
+
+  @keyframes fade-out-down {
+    from {
+      transform: translateY(0);
+      opacity: 1;
+    }
+    to {
+      transform: translateY(10px);
+      opacity: 0;
+    }
+  }
+
+  @keyframes slide-up {
+    from {
+      transform: translateY(10px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes slide-down {
+    from {
+      transform: translateY(-10px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+
+  @keyframes spotlight {
+    from {
+      opacity: 0;
+      transform: translate(-72%, -62%) scale(0.5);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, -40%) scale(1);
+    }
+  }
+
+  .animate-accordion-down {
+    animation: accordion-down 0.2s ease-out;
+  }
+
+  .animate-accordion-up {
+    animation: accordion-up 0.2s ease-out;
+  }
+
+  .animate-fade-in {
+    animation: fade-in 0.5s ease-out;
+  }
+
+  .animate-fade-out {
+    animation: fade-out 0.5s ease-out;
+  }
+
+  .animate-fade-in-up {
+    animation: fade-in-up 0.6s ease-out;
+  }
+
+  .animate-fade-in-down {
+    animation: fade-in-down 0.6s ease-out;
+  }
+
+  .animate-fade-out-up {
+    animation: fade-out-up 0.6s ease-out;
+  }
+
+  .animate-fade-out-down {
+    animation: fade-out-down 0.6s ease-out;
+  }
+
+  .animate-slide-up {
+    animation: slide-up 0.6s ease-out;
+  }
+
+  .animate-slide-down {
+    animation: slide-down 0.6s ease-out;
+  }
+
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  .animate-spotlight {
+    animation: spotlight 2s ease forwards;
+  }
+
+  @keyframes pulse-glow {
+    0%,
+    100% {
+      box-shadow:
+        0 0 15px rgba(124, 92, 252, 0.4),
+        0 0 30px rgba(34, 211, 238, 0.2);
+    }
+    50% {
+      box-shadow:
+        0 0 25px rgba(124, 92, 252, 0.8),
+        0 0 50px rgba(34, 211, 238, 0.4);
+    }
+  }
+
+  @keyframes rec-pulse {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.3;
+      transform: scale(0.9);
+    }
+  }
+
+  @keyframes border-beam {
+    0% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+    100% {
+      background-position: 0% 50%;
+    }
+  }
+
+  .animate-pulse-glow {
+    animation: pulse-glow 3s infinite ease-in-out;
+  }
+
+  .animate-rec-pulse {
+    animation: rec-pulse 1s infinite ease-in-out;
+  }
+
+  .animate-border-gradient {
+    background-size: 200% 200%;
+    animation: border-beam 4s ease infinite;
+  }
+
+  /* Custom glassmorphism classes */
+  .glass-panel {
+    background: rgba(20, 20, 28, 0.75);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .glass-panel-elevated {
+    background: rgba(28, 28, 39, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .glass-header {
+    background: rgba(11, 11, 16, 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .glow-purple {
+    box-shadow: 0 8px 32px rgba(124, 92, 252, 0.25);
+  }
+
+  .glow-cyan {
+    box-shadow: 0 8px 32px rgba(34, 211, 238, 0.25);
+  }
+
+  .glow-card-hover:hover {
+    box-shadow:
+      0 12px 36px rgba(124, 92, 252, 0.15),
+      0 0 0 1px rgba(124, 92, 252, 0.35);
+  }
+
+  /* Custom scrollbar for timeline and editors */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: rgba(11, 11, 16, 0.5);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.16);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(124, 92, 252, 0.5);
+  }
+}
