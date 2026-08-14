@@ -70,7 +70,7 @@ export default function Layout() {
       badge: hasBrandOS ? undefined : 'Pendente',
     },
     { label: 'Módulo 2 — Conteúdo', path: '/modulo-2', icon: PenSquare },
-    { label: 'Módulo 3 — Funis', path: '/modulo-3', icon: GitBranch },
+    { label: 'Módulo 3 — Funis', path: '/funis', icon: GitBranch },
     { label: 'Módulo 4 — Ativos', path: '/modulo-4', icon: Boxes },
     { label: 'Módulo 5 — Escala', path: '/modulo-5', icon: Megaphone },
     { label: 'Módulo 6 — Vendas', path: '/modulo-6', icon: Headphones },

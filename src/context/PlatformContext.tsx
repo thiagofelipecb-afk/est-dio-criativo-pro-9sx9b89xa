@@ -5,6 +5,7 @@ import {
   ContentItem,
   IdeaItem,
   FunnelDiagnosis,
+  FunnelDiagnosisRecord,
   FunnelEcosystem,
   FunnelPlan,
   PageProject,
@@ -49,6 +50,11 @@ interface PlatformContextType {
   saveIdeas: (ideas: IdeaItem[]) => void
 
   // Funis
+  funnelDiagnosis: FunnelDiagnosisRecord
+  setFunnelDiagnosis: (d: FunnelDiagnosisRecord) => void
+  funnelDiagnosisAutosave: (d: FunnelDiagnosis) => void
+  snapshotFunnelDiagnosis: (label?: string) => void
+  restoreFunnelDiagnosisVersion: (version: number) => void
   ecosystem: FunnelEcosystem | null
   setEcosystem: (e: FunnelEcosystem | null) => void
   funnelPlans: FunnelPlan[]
@@ -115,6 +121,24 @@ const EMPTY_BRAND: BrandProfile = {
 
 const PlatformContext = createContext<PlatformContextType | undefined>(undefined)
 
+// Diagnóstico (Raio-X) vazio padrão
+function emptyDiagnosis(): FunnelDiagnosis {
+  return {
+    oferta_esteira: '',
+    produto_principal: '',
+    ticket: '',
+    validacao: '',
+    audiencia: '',
+    objetivo: '',
+    horas_semana: '',
+    orcamento: '',
+    faz_video: '',
+    equipe: '',
+    aquecimento: '',
+    nicho: '',
+  }
+}
+
 function load<T>(key: string, fallback: T): T {
   try {
     const saved = localStorage.getItem(key)
@@ -141,8 +165,14 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [jobs, setJobs] = useState<GenerationJob[]>(() => load('lumen_jobs', []))
   const [contentItems, setContentItems] = useState<ContentItem[]>(() => load('lumen_content', []))
   const [ideas, setIdeas] = useState<IdeaItem[]>(() => load('lumen_ideas', []))
+  const [funnelDiagnosis, setFunnelDiagnosisState] = useState<FunnelDiagnosisRecord>(() =>
+    load('lumen_funnel_diagnosis', {
+      current: emptyDiagnosis(),
+      versions: [],
+    }),
+  )
   const [ecosystem, setEcosystemState] = useState<FunnelEcosystem | null>(() =>
-    load('lumen_ecosystem', null),
+    load('lumen_funnel_ecosystem', null),
   )
   const [funnelPlans, setFunnelPlansState] = useState<FunnelPlan[]>(() =>
     load('lumen_funnel_plans', []),
@@ -189,7 +219,8 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   useEffect(() => persist('lumen_jobs', jobs), [jobs])
   useEffect(() => persist('lumen_content', contentItems), [contentItems])
   useEffect(() => persist('lumen_ideas', ideas), [ideas])
-  useEffect(() => persist('lumen_ecosystem', ecosystem), [ecosystem])
+  useEffect(() => persist('lumen_funnel_diagnosis', funnelDiagnosis), [funnelDiagnosis])
+  useEffect(() => persist('lumen_funnel_ecosystem', ecosystem), [ecosystem])
   useEffect(() => persist('lumen_funnel_plans', funnelPlans), [funnelPlans])
   useEffect(() => persist('lumen_pages', pageProjects), [pageProjects])
   useEffect(() => persist('lumen_video_scripts', videoScripts), [videoScripts])
@@ -289,7 +320,35 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     })
   }, [])
 
-  // Funis
+  // Funis — diagnóstico (Raio-X) com autosave + versionamento
+  const setFunnelDiagnosis = useCallback((d: FunnelDiagnosisRecord) => {
+    setFunnelDiagnosisState(d)
+  }, [])
+  const funnelDiagnosisAutosave = useCallback((current: FunnelDiagnosis) => {
+    setFunnelDiagnosisState((prev) => ({ ...prev, current }))
+  }, [])
+  const snapshotFunnelDiagnosis = useCallback((label?: string) => {
+    setFunnelDiagnosisState((prev) => {
+      const nextVersion =
+        prev.versions.length > 0 ? Math.max(...prev.versions.map((v) => v.version)) + 1 : 1
+      const snap: import('@/types/platform').FunnelDiagnosisVersion = {
+        version: nextVersion,
+        snapshot: prev.current,
+        createdAt: new Date().toISOString(),
+        label,
+      }
+      return { ...prev, versions: [...prev.versions, snap] }
+    })
+  }, [])
+  const restoreFunnelDiagnosisVersion = useCallback((version: number) => {
+    setFunnelDiagnosisState((prev) => {
+      const v = prev.versions.find((x) => x.version === version)
+      if (!v) return prev
+      return { ...prev, current: { ...v.snapshot } }
+    })
+  }, [])
+
+  // Funis — ecossistema e planos
   const setEcosystem = useCallback((e: FunnelEcosystem | null) => setEcosystemState(e), [])
   const setFunnelPlans = useCallback((p: FunnelPlan[]) => setFunnelPlansState(p), [])
 
@@ -394,6 +453,11 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         saveIdeas,
         ecosystem,
         setEcosystem,
+        funnelDiagnosis,
+        setFunnelDiagnosis,
+        funnelDiagnosisAutosave,
+        snapshotFunnelDiagnosis,
+        restoreFunnelDiagnosisVersion,
         funnelPlans,
         setFunnelPlans,
         pageProjects,

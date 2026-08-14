@@ -233,73 +233,162 @@ export interface IdeaItem {
 // ---------- Funis (Módulo 3) ----------
 export type FunnelDiagnosisState = 'diagnostico' | 'recomendado' | 'aprovado' | 'em_revisao'
 
+// Faixas de ticket médio (Raio-X)
+export type TicketFaixa = 'ate_97' | '97_297' | '297_997' | '997_2497' | '2497_9997' | 'acima_9997'
+
+export type ValidacaoMercado =
+  | 'nao_validado'
+  | 'alguns_clientes'
+  | 'clientes_recorrentes'
+  | 'escalando'
+  | 'dominante'
+
+export type AudienciaFaixa = '0_500' | '500_2k' | '2k_10k' | '10k_50k' | '50k_200k' | '200k_mais'
+
+export type ObjetivoFunnel =
+  | 'aquisicao_leads'
+  | 'vendas_diretas'
+  | 'nutricao_relacionamento'
+  | 'lancamento'
+  | 'recorrencia_retencao'
+  | 'escala_anuncios'
+
+export type HorasDisponiveis = '1_5h' | '5_10h' | '10_20h' | '20_40h' | 'full_time_equipe'
+
+export type OrcamentoMensal = '0_500' | '500_2000' | '2000_10000' | '10000_mais'
+
+export type FazVideo = 'nao_gravo' | 'esporadicamente' | 'regularmente' | 'avancado'
+
+export type EquipeFunnel =
+  | 'solo'
+  | 'freelancers_pontuais'
+  | 'equipe_enxuta'
+  | 'equipe_4_10'
+  | 'agencia_empresa'
+
+export type AquecimentoAudiencia = 'fria' | 'morna' | 'quente' | 'mista'
+
 export interface FunnelDiagnosis {
-  ladder: string
-  offerName: string
-  ticket: string
-  validation: 'nunca_vendeu' | '1_2_vezes' | 'recorrente'
-  audience: 'sem' | 'pequena_fria' | 'pequena_engajada' | 'media' | 'grande' | 'parada'
-  objective:
-    | 'leads'
-    | 'aquecer'
-    | 'fechar_direto'
-    | 'lancar'
-    | 'crescer_seguidores'
-    | 'vender_digital'
-  hoursPerWeek: number
-  budget: string
-  appearsInVideo: boolean
-  hasTeam: boolean
-  heating: 'organico' | 'pago' | 'hibrido'
-  niche: string
+  oferta_esteira: string
+  produto_principal: string
+  ticket: TicketFaixa | ''
+  validacao: ValidacaoMercado | ''
+  audiencia: AudienciaFaixa | ''
+  objetivo: ObjetivoFunnel | ''
+  horas_semana: HorasDisponiveis | ''
+  orcamento: OrcamentoMensal | ''
+  faz_video: FazVideo | ''
+  equipe: EquipeFunnel | ''
+  aquecimento: AquecimentoAudiencia | ''
+  nicho: string
+}
+
+// Snapshot versionado do diagnóstico (Raio-X)
+export interface FunnelDiagnosisVersion {
+  version: number
+  snapshot: FunnelDiagnosis
+  createdAt: string
+  label?: string
+}
+
+export interface FunnelDiagnosisRecord {
+  current: FunnelDiagnosis
+  versions: FunnelDiagnosisVersion[]
 }
 
 export interface FunnelCatalogItem {
   id: string
-  name: string
-  stage: 'entrada' | 'nutricao' | 'conversao'
-  ticketTags: ('baixo' | 'medio' | 'alto')[]
-  requirements: {
+  nome: string
+  descricao: string
+  etapa: 'entrada' | 'nutricao' | 'conversao'
+  faixas_ticket: TicketFaixa[]
+  requisitos: string[]
+  ativos_necessarios: string[]
+  status: 'ativo' | 'beta' | 'em_breve'
+  categoria: string
+  dificuldade: 'iniciante' | 'intermediario' | 'avancado'
+  tempo_estimado: string
+  // Campos auxiliares legados (opcionais) — mantidos p/ compat com versões antigas
+  name?: string
+  stage?: 'entrada' | 'nutricao' | 'conversao'
+  ticketTags?: TicketFaixa[]
+  requirements?: {
     objective?: string[]
     validation?: string[]
     audience?: string[]
   }
-  description: string
+  description?: string
+  // Audiência mínima exigida (índice AudienciaFaixa) — opcional
+  audiencia_minima?: AudienciaFaixa
+}
+
+export interface FunnelEcosystemSelected {
+  catalogItemId: string
+  etapa: 'entrada' | 'nutricao' | 'conversao'
+  justificativa: string
 }
 
 export interface FunnelEcosystem {
   diagnosis: FunnelDiagnosis
   status: FunnelDiagnosisState
-  rationale: string
+  tese_geral: string
+  justificativas: Record<string, string>
+  selected: FunnelEcosystemSelected[]
+  approvedSelected?: FunnelEcosystemSelected[]
   version: number
-  selected: {
-    catalogItemId: string
-    stage: 'entrada' | 'nutricao' | 'conversao'
-    justification: string
-  }[]
   createdAt: string
+  approvedAt?: string | null
+  updatedAt?: string | null
+  // Campos legados (compat)
+  rationale?: string
 }
+
+export type ChecklistPrioridade = 'baixa' | 'media' | 'alta' | 'critica'
 
 export interface ChecklistItem {
   id: string
   title: string
-  priority: 'alta' | 'media' | 'baixa'
-  done: boolean
-  doneAt: string | null
+  prioridade: ChecklistPrioridade
+  concluido_em: string | null
+  // Campos legados (compat)
+  priority?: ChecklistPrioridade
+  done?: boolean
+  doneAt?: string | null
+}
+
+// Etapa estruturada de um funil
+export interface FunnelPlanStage {
+  nome: string
+  descricao: string
+  canal: string
+  duracao: string
+  ordem: number
+}
+
+// Ativo referenciado por ID real do Brand OS
+export interface FunnelPlanAsset {
+  assetId: string // ID real do ativo do Brand OS (BrandAssetType)
+  nome: string
+  rationale: string
+  status: 'pronto' | 'pendente' | 'ausente'
 }
 
 export interface FunnelPlan {
   catalogItemId: string
   order: number
   analysis: string
-  structure: string[]
+  estrutura: FunnelPlanStage[]
   techConfig: string[]
   cadence: string[]
   alerts: string[]
-  map: string[]
-  assets: { type: string; recommended: string; rationale: string }[]
+  mapa: string[]
+  ativos: FunnelPlanAsset[]
   checklist: ChecklistItem[]
   generatedAt: string | null
+  // Campos legados (compat) — mantidos para não quebrar Ativos.tsx
+  structure?: string[]
+  map?: string[]
+  assets?: { type: string; recommended: string; rationale: string }[]
 }
 
 // ---------- Ativos (Módulo 4) ----------

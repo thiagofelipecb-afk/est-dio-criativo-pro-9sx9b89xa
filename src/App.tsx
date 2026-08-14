@@ -1,5 +1,5 @@
 /* Main App Component - Handles routing (using react-router-dom), studio context and providers */
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from '@/components/ui/toaster'
 import { Toaster as Sonner } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -51,7 +51,8 @@ const App = () => (
               <Route path="/modulo-1" element={<Posicionamento />} />
               <Route path="/posicionamento" element={<Posicionamento />} />
               <Route path="/modulo-2" element={<Conteudo />} />
-              <Route path="/modulo-3" element={<Funis />} />
+              <Route path="/modulo-3" element={<Navigate to="/funis" replace />} />
+              <Route path="/funis" element={<Funis />} />
               <Route path="/modulo-4" element={<Ativos />} />
               <Route path="/modulo-5" element={<Escala />} />
               <Route path="/modulo-6" element={<Vendas />} />
