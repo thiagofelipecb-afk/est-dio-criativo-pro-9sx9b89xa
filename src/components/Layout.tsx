@@ -5,28 +5,36 @@ import { CreateModal } from '@/components/CreateModal'
 import { MediaLibraryModal } from '@/components/MediaLibraryModal'
 import {
   Home,
-  FolderKanban,
+  Compass,
+  PenSquare,
+  GitBranch,
+  Boxes,
+  Megaphone,
+  Headphones,
   Camera,
   Layers,
   FileImage,
   ScrollText,
   Calendar,
+  Library,
+  BarChart3,
+  Settings,
+  Smartphone,
+  Briefcase,
   Sparkles,
   Plus,
   ChevronLeft,
   ChevronRight,
   Bell,
   HelpCircle,
-  Settings,
-  Library,
-  Music,
-  Film,
-  Shapes,
-  LayoutGrid,
   Menu,
   X,
   CheckCircle,
+  FolderKanban,
+  Film,
 } from 'lucide-react'
+import ClaraWidget from '@/components/ClaraWidget'
+import { usePlatform } from '@/context/PlatformContext'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -41,6 +49,7 @@ import { toast } from 'sonner'
 
 export default function Layout() {
   const { projects, activeProjectId, setActiveProjectId, setIsCreateModalOpen } = useStudio()
+  const { hasBrandOS } = usePlatform()
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -53,9 +62,28 @@ export default function Layout() {
 
   const activeProject = projects.find((p) => p.id === activeProjectId)
 
-  const navItems = [
-    { label: 'Início', path: '/', icon: Home },
-    { label: 'Meus Projetos', path: '/projetos', icon: FolderKanban },
+  const moduleItems = [
+    {
+      label: 'Módulo 1 — Posicionamento',
+      path: '/modulo-1',
+      icon: Compass,
+      badge: hasBrandOS ? undefined : 'Pendente',
+    },
+    { label: 'Módulo 2 — Conteúdo', path: '/modulo-2', icon: PenSquare },
+    { label: 'Módulo 3 — Funis', path: '/modulo-3', icon: GitBranch },
+    { label: 'Módulo 4 — Ativos', path: '/modulo-4', icon: Boxes },
+    { label: 'Módulo 5 — Escala', path: '/modulo-5', icon: Megaphone },
+    { label: 'Módulo 6 — Vendas', path: '/modulo-6', icon: Headphones },
+  ]
+
+  type NavItem = {
+    label: string
+    path: string
+    icon: React.ComponentType<{ className?: string }>
+    badge?: string
+  }
+
+  const studioItems: NavItem[] = [
     { label: 'Gravadora', path: '/gravadora', icon: Camera, badge: 'REC' },
     { label: 'Criar Carrossel', path: '/carrossel', icon: Layers },
     { label: 'Criar Post', path: '/post', icon: FileImage },
@@ -63,11 +91,27 @@ export default function Layout() {
     { label: 'Agendamento', path: '/agendamento', icon: Calendar, badge: 'Auto' },
   ]
 
+  const transversalItems: NavItem[] = [
+    { label: 'Biblioteca', path: '/biblioteca', icon: Library },
+    { label: 'Métricas', path: '/metricas', icon: BarChart3 },
+    { label: 'Configurações', path: '/configuracoes', icon: Settings },
+    { label: 'Versão Mobile', path: '/versao-mobile', icon: Smartphone },
+    { label: 'Assessoria', path: '/assessoria', icon: Briefcase },
+  ]
+
+  const navItems: NavItem[] = [
+    { label: 'Início', path: '/', icon: Home },
+    { label: 'Meus Projetos', path: '/projetos', icon: FolderKanban },
+    ...moduleItems,
+    ...studioItems,
+    ...transversalItems,
+  ]
+
   const libraryItems = [
-    { label: 'Modelos', category: 'all' as const, icon: LayoutGrid },
-    { label: 'Músicas', category: 'audio' as const, icon: Music },
+    { label: 'Modelos', category: 'all' as const, icon: Layers },
+    { label: 'Músicas', category: 'audio' as const, icon: ScrollText },
     { label: 'Mídias', category: 'video' as const, icon: Film },
-    { label: 'Elementos', category: 'image' as const, icon: Shapes },
+    { label: 'Elementos', category: 'image' as const, icon: FileImage },
   ]
 
   const openLibrary = (cat: 'all' | 'video' | 'image' | 'audio') => {
@@ -453,6 +497,9 @@ export default function Layout() {
         onOpenChange={setIsMediaLibraryOpen}
         categoryFilter={mediaModalCategory}
       />
+
+      {/* Clara — Assistente IA global */}
+      <ClaraWidget />
     </div>
   )
 }

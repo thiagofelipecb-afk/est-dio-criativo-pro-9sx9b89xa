@@ -1,6 +1,7 @@
 import React from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStudio } from '@/context/StudioContext'
+import { usePlatform } from '@/context/PlatformContext'
 import { Button } from '@/components/ui/button'
 import {
   Sparkles,
@@ -19,6 +20,14 @@ import {
   Flame,
   ChevronRight,
   Tv,
+  Compass,
+  PenSquare,
+  GitBranch,
+  Boxes,
+  Megaphone,
+  Headphones,
+  PlayCircle,
+  AlertCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -26,6 +35,7 @@ export default function Index() {
   const navigate = useNavigate()
   const { projects, scheduledPosts, setIsCreateModalOpen, createProject, setActiveProjectId } =
     useStudio()
+  const { hasBrandOS, brandProfile } = usePlatform()
 
   const currentHour = new Date().getHours()
   const greeting =
@@ -93,8 +103,96 @@ export default function Index() {
     }
   }
 
+  const modules = [
+    {
+      num: 1,
+      title: 'Posicionamento',
+      desc: 'Brand OS: oferta, ICP, voz, prova',
+      path: '/modulo-1',
+      icon: Compass,
+      color: '#7C5CFC',
+    },
+    {
+      num: 2,
+      title: 'Conteúdo',
+      desc: 'Posts, stories, reels, carrosséis',
+      path: '/modulo-2',
+      icon: PenSquare,
+      color: '#22D3EE',
+    },
+    {
+      num: 3,
+      title: 'Funis',
+      desc: 'Raio-X, ecossistema, planos',
+      path: '/modulo-3',
+      icon: GitBranch,
+      color: '#7C5CFC',
+    },
+    {
+      num: 4,
+      title: 'Ativos',
+      desc: 'Páginas e roteiros de vídeo',
+      path: '/modulo-4',
+      icon: Boxes,
+      color: '#22D3EE',
+    },
+    {
+      num: 5,
+      title: 'Escala',
+      desc: 'Anúncios e biblioteca',
+      path: '/modulo-5',
+      icon: Megaphone,
+      color: '#7C5CFC',
+    },
+    {
+      num: 6,
+      title: 'Vendas',
+      desc: 'Assistente, scripts, social',
+      path: '/modulo-6',
+      icon: Headphones,
+      color: '#22D3EE',
+    },
+  ]
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-8 animate-fade-in">
+      {/* Onboarding Banner — completar posicionamento */}
+      {!hasBrandOS && (
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#7C5CFC]/20 via-[#14141C] to-[#22D3EE]/15 border border-[#7C5CFC]/30 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#7C5CFC]/20 text-[#7C5CFC] border border-[#7C5CFC]/30">
+              <AlertCircle className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white">
+                Complete seu Posicionamento (Brand OS)
+              </h3>
+              <p className="text-xs text-[#9494A8] mt-0.5">
+                A base de marca alimenta todos os geradores de IA da plataforma. Comece pelo Módulo
+                1.
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => navigate('/modulo-1')}
+            className="bg-gradient-to-r from-[#7C5CFC] to-[#6A48E0] text-xs gap-1.5 shrink-0"
+          >
+            <Compass className="w-4 h-4" /> Iniciar Módulo 1
+          </Button>
+        </div>
+      )}
+
+      {/* Vídeo introdutório */}
+      <div className="relative overflow-hidden rounded-2xl bg-[#14141C] border border-white/10 aspect-video max-h-64 flex items-center justify-center">
+        <div className="text-center">
+          <div className="flex h-14 w-14 mx-auto items-center justify-center rounded-full bg-[#7C5CFC]/20 text-[#7C5CFC] mb-2">
+            <PlayCircle className="w-7 h-7" />
+          </div>
+          <p className="text-xs text-[#9494A8]">Vídeo introdutório — bem-vindo à plataforma</p>
+        </div>
+      </div>
+
       {/* 1. Hero Banner */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#1C1C27] via-[#14141C] to-[#0B0B10] border border-white/10 p-6 sm:p-8 shadow-2xl">
         {/* Glow Effects Background */}
@@ -239,6 +337,62 @@ export default function Index() {
               </p>
             </div>
           </button>
+        </div>
+      </section>
+
+      {/* 2.5 Plataforma de Marketing e Vendas com IA — 6 Módulos */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-[#7C5CFC]" />
+            Plataforma de Marketing e Vendas com IA
+          </h2>
+          <span className="text-xs text-[#9494A8]">
+            {hasBrandOS ? `Brand OS ativo • v${brandProfile.activeVersion}` : 'Onboarding pendente'}
+          </span>
+        </div>
+        {hasBrandOS && (
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#9494A8]">
+            <span className="text-[#9494A8]">Contexto ativo:</span>
+            {brandProfile.base.niche && (
+              <span className="px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-white">
+                {brandProfile.base.niche}
+                {brandProfile.base.subniche ? ` • ${brandProfile.base.subniche}` : ''}
+              </span>
+            )}
+          </div>
+        )}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {modules.map((m) => {
+            const Icon = m.icon
+            return (
+              <button
+                key={m.num}
+                onClick={() => navigate(m.path)}
+                className="group p-4 rounded-2xl bg-[#14141C] hover:bg-[#1C1C27] border border-white/5 hover:border-[#7C5CFC]/40 transition-all text-left flex flex-col gap-2"
+              >
+                <div className="flex items-center justify-between">
+                  <div
+                    className="p-2 rounded-lg"
+                    style={{
+                      background: `${m.color}1a`,
+                      color: m.color,
+                      border: `1px solid ${m.color}33`,
+                    }}
+                  >
+                    <Icon className="w-4 h-4" />
+                  </div>
+                  <span className="text-[10px] font-bold text-[#9494A8]">M{m.num}</span>
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-white group-hover:text-[#7C5CFC] transition-colors">
+                    {m.title}
+                  </h3>
+                  <p className="text-[10px] text-[#9494A8] mt-0.5 line-clamp-2">{m.desc}</p>
+                </div>
+              </button>
+            )
+          })}
         </div>
       </section>
 
