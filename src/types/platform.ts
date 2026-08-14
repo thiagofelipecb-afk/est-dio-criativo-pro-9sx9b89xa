@@ -370,7 +370,16 @@ export interface FunnelPlanAsset {
   assetId: string // ID real do ativo do Brand OS (BrandAssetType)
   nome: string
   rationale: string
-  status: 'pronto' | 'pendente' | 'ausente'
+  status: 'pronto' | 'pendente' | 'ausente' | 'gerando' | 'concluido' | 'falhou'
+  // Status da geração do ativo (pendente/gerando/concluído/falhou)
+  genStatus?: 'pendente' | 'gerando' | 'concluido' | 'falhou'
+  // Snapshot da geração (prompt/modelo/versão do Brand OS) para auditoria
+  brand_profile_version_id?: string | null
+  prompt_version?: string | null
+  model?: string | null
+  generated_at?: string | null
+  // Texto gerado para o ativo (copy/HTML/etc.)
+  content?: string
 }
 
 export interface FunnelPlan {
@@ -411,6 +420,12 @@ export interface PageProject {
   contextVersion: number
   createdAt: string
   updatedAt: string
+  // Snapshot da geração (prompt/modelo/versão do Brand OS) para auditoria
+  brand_profile_version_id?: string | null
+  prompt_version?: string | null
+  model?: string | null
+  generated_at?: string | null
+  durationMs?: number | null
 }
 
 export type VideoScriptMethod = 'vsl_benson' | 'nissin_miojo' | 'aula_vendas'
@@ -424,6 +439,12 @@ export interface VideoScript {
   contextVersion: number
   createdAt: string
   updatedAt: string
+  // Snapshot da geração (prompt/modelo/versão do Brand OS) para auditoria
+  brand_profile_version_id?: string | null
+  prompt_version?: string | null
+  model?: string | null
+  generated_at?: string | null
+  durationMs?: number | null
 }
 
 // ---------- Escala (Módulo 5) ----------
