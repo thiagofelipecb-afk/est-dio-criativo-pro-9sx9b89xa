@@ -28,14 +28,32 @@ import {
   Headphones,
   PlayCircle,
   AlertCircle,
+  CheckCircle2,
+  Zap,
+  AlertTriangle,
 } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
 
 export default function Index() {
   const navigate = useNavigate()
   const { projects, scheduledPosts, setIsCreateModalOpen, createProject, setActiveProjectId } =
     useStudio()
-  const { hasBrandOS, brandProfile } = usePlatform()
+  const {
+    hasBrandOS,
+    brandProfile,
+    jobs,
+    contentItems,
+    ideas,
+    funnelDiagnosis,
+    ecosystem,
+    funnelPlans,
+    pageProjects,
+    videoScripts,
+    adCreations,
+    salesScripts,
+    scheduleEvents,
+  } = usePlatform()
 
   const currentHour = new Date().getHours()
   const greeting =
@@ -154,6 +172,212 @@ export default function Index() {
     },
   ]
 
+  // ===== Progresso dos Módulos (baseado em dados reais) =====
+  // Se não houver Brand OS, todos os módulos mostram 0%.
+  const diagFilled = Object.values(funnelDiagnosis.current).filter(
+    (v) => String(v).trim() !== '',
+  ).length
+  const funnelApproved = ecosystem?.status === 'aprovado'
+  const pendingChecklists = funnelPlans.reduce(
+    (acc, p) =>
+      acc + (p.checklist?.filter((c) => !c.concluido_em && c.prioridade !== 'baixa').length || 0),
+    0,
+  )
+
+  const moduleProgress = hasBrandOS
+    ? [
+        {
+          num: 1,
+          title: 'Posicionamento',
+          pct: 100, // Brand OS existe => módulo base concluído
+          path: '/modulo-1',
+          hint: 'Brand OS ativo',
+        },
+        {
+          num: 2,
+          title: 'Conteúdo',
+          pct: Math.min(100, Math.round((contentItems.length / 5) * 100)),
+          path: '/modulo-2',
+          hint: `${contentItems.length} conteúdo(s) • ${ideas.length} ideia(s)`,
+        },
+        {
+          num: 3,
+          title: 'Funis',
+          pct: Math.min(
+            100,
+            Math.round(
+              (diagFilled >= 8 ? 33 : (diagFilled / 8) * 33) +
+                (ecosystem ? 34 : 0) +
+                (funnelApproved ? 33 : 0),
+            ),
+          ),
+          path: '/funis',
+          hint: `${diagFilled}/12 Raio-X • ${funnelPlans.length} plano(s) • ${pendingChecklists} checklist pendente(s)`,
+        },
+        {
+          num: 4,
+          title: 'Ativos',
+          pct: Math.min(100, Math.round(((pageProjects.length + videoScripts.length) / 4) * 100)),
+          path: '/modulo-4',
+          hint: `${pageProjects.length} página(s) • ${videoScripts.length} roteiro(s)`,
+        },
+        {
+          num: 5,
+          title: 'Escala',
+          pct: Math.min(100, Math.round((adCreations.length / 3) * 100)),
+          path: '/modulo-5',
+          hint: `${adCreations.length} anúncio(s) criado(s)`,
+        },
+        {
+          num: 6,
+          title: 'Vendas',
+          pct: Math.min(100, Math.round((salesScripts.length / 3) * 100)),
+          path: '/modulo-6',
+          hint: `${salesScripts.length} script(s) salvos`,
+        },
+      ]
+    : [
+        {
+          num: 1,
+          title: 'Posicionamento',
+          pct: 0,
+          path: '/modulo-1',
+          hint: 'Configure seu Brand OS primeiro',
+        },
+        {
+          num: 2,
+          title: 'Conteúdo',
+          pct: 0,
+          path: '/modulo-2',
+          hint: 'Configure seu Brand OS primeiro',
+        },
+        { num: 3, title: 'Funis', pct: 0, path: '/funis', hint: 'Configure seu Brand OS primeiro' },
+        {
+          num: 4,
+          title: 'Ativos',
+          pct: 0,
+          path: '/modulo-4',
+          hint: 'Configure seu Brand OS primeiro',
+        },
+        {
+          num: 5,
+          title: 'Escala',
+          pct: 0,
+          path: '/modulo-5',
+          hint: 'Configure seu Brand OS primeiro',
+        },
+        {
+          num: 6,
+          title: 'Vendas',
+          pct: 0,
+          path: '/modulo-6',
+          hint: 'Configure seu Brand OS primeiro',
+        },
+      ]
+
+  // ===== Gerações Recentes (últimos 5 jobs de qualquer módulo) =====
+  const recentJobs = [...jobs].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5)
+
+  const kindLabel: Record<string, string> = {
+    'brand-os': 'Brand OS',
+    sales_assist: 'Vendas',
+    analise_biblioteca: 'Biblioteca',
+    analise_anuncio: 'Anúncio',
+  }
+  const jobModule = (kind: string): { label: string; path: string } => {
+    if (kind === 'brand-os') return { label: 'Posicionamento', path: '/modulo-1' }
+    if (kind === 'sales_assist') return { label: 'Vendas', path: '/modulo-6' }
+    if (kind === 'analise_anuncio' || kind === 'analise_biblioteca')
+      return { label: 'Escala', path: '/modulo-5' }
+    return { label: 'Plataforma', path: '/' }
+  }
+  const relativeTime = (iso: string) => {
+    const diff = Date.now() - new Date(iso).getTime()
+    const min = Math.floor(diff / 60000)
+    if (min < 1) return 'agora'
+    if (min < 60) return `há ${min} min`
+    const h = Math.floor(min / 60)
+    if (h < 24) return `há ${h} ${h === 1 ? 'hora' : 'horas'}`
+    const d = Math.floor(h / 24)
+    return `há ${d} ${d === 1 ? 'dia' : 'dias'}`
+  }
+
+  // ===== Próximas Ações (derivadas dos dados reais) =====
+  const nextActions: { text: string; path: string; icon: React.ReactNode }[] = []
+  if (!hasBrandOS) {
+    nextActions.push({
+      text: 'Configurar Brand OS no Posicionamento',
+      path: '/modulo-1',
+      icon: <Compass className="w-3.5 h-3.5" />,
+    })
+  } else {
+    if (diagFilled < 8)
+      nextActions.push({
+        text: `Preencher Raio-X do funil (${diagFilled}/12 campos)`,
+        path: '/funis',
+        icon: <GitBranch className="w-3.5 h-3.5" />,
+      })
+    if (ecosystem && ecosystem.status === 'recomendado' && !funnelApproved)
+      nextActions.push({
+        text: 'Aprovar ecossistema de funis recomendado',
+        path: '/funis',
+        icon: <GitBranch className="w-3.5 h-3.5" />,
+      })
+    if (pendingChecklists > 0)
+      nextActions.push({
+        text: `Concluir ${pendingChecklists} item(ns) de checklist do funil`,
+        path: '/funis',
+        icon: <CheckCircle2 className="w-3.5 h-3.5" />,
+      })
+    if (funnelPlans.length > 0 && pageProjects.length === 0)
+      nextActions.push({
+        text: 'Gerar página de captura para o funil aprovado',
+        path: '/modulo-4',
+        icon: <Boxes className="w-3.5 h-3.5" />,
+      })
+    if (contentItems.length === 0)
+      nextActions.push({
+        text: 'Gerar primeiro conteúdo no Módulo 2',
+        path: '/modulo-2',
+        icon: <PenSquare className="w-3.5 h-3.5" />,
+      })
+    if (brandProfile.research.length === 0)
+      nextActions.push({
+        text: 'Preencher Pesquisa Completa do Brand OS',
+        path: '/modulo-1',
+        icon: <Compass className="w-3.5 h-3.5" />,
+      })
+  }
+  const displayActions = nextActions.slice(0, 5)
+
+  // ===== Mini Calendário (próximos 7 dias) =====
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const next7 = Array.from({ length: 7 }).map((_, i) => {
+    const d = new Date(today)
+    d.setDate(today.getDate() + i)
+    return d
+  })
+  const dayHasEvents = (d: Date) => {
+    const dayStr = d.toISOString().slice(0, 10)
+    const schedEv = scheduleEvents.some((e) => e.date?.slice(0, 10) === dayStr)
+    const schedPost = scheduledPosts.some((p) => p.scheduledDate?.slice(0, 10) === dayStr)
+    return schedEv || schedPost
+  }
+  const weekdayShort = (d: Date) =>
+    d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')
+
+  // ===== Academy transversal — atalho =====
+  const academyProgress = (() => {
+    try {
+      const saved = localStorage.getItem('lumen_academy_progress')
+      return saved ? JSON.parse(saved) : {}
+    } catch {
+      return {}
+    }
+  })()
+  const academyCompleted = Object.values(academyProgress).filter((v: any) => v?.completed)
+    .length as number
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-8 animate-fade-in">
       {/* Onboarding Banner — completar posicionamento */}
@@ -556,6 +780,223 @@ export default function Index() {
               7.9% <span className="text-xs font-medium text-[#22D3EE] font-sans">Excelente</span>
             </p>
             <p className="text-[11px] text-[#9494A8]">Média dos últimos 14 vídeos postados</p>
+          </div>
+        </div>
+      </section>
+
+      {/* 6. Progresso dos Módulos */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-[#7C5CFC]" />
+            Progresso dos Módulos
+          </h2>
+          <span className="text-xs text-[#9494A8]">
+            {hasBrandOS ? 'Calculado com base nos seus dados' : 'Pendente — configure o Brand OS'}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {moduleProgress.map((m) => {
+            const blocked = m.pct === 0 && !hasBrandOS
+            const card = (
+              <button
+                key={m.num}
+                onClick={() => navigate(m.path)}
+                className="group p-4 rounded-2xl bg-[#14141C] hover:bg-[#1C1C27] border border-white/5 hover:border-[#7C5CFC]/40 transition-all text-left flex flex-col gap-2 w-full"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-[#9494A8]">M{m.num}</span>
+                  <span
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                      m.pct === 100
+                        ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                        : m.pct > 0
+                          ? 'bg-[#7C5CFC]/15 text-[#7C5CFC] border border-[#7C5CFC]/30'
+                          : 'bg-white/5 text-[#9494A8] border border-white/10'
+                    }`}
+                  >
+                    {m.pct}% completo
+                  </span>
+                </div>
+                <h3 className="text-xs font-bold text-white group-hover:text-[#7C5CFC] transition-colors">
+                  {m.title}
+                </h3>
+                <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#7C5CFC] to-[#22D3EE] transition-all"
+                    style={{ width: `${m.pct}%` }}
+                  />
+                </div>
+                <p className="text-[10px] text-[#9494A8] line-clamp-1">{m.hint}</p>
+              </button>
+            )
+            return blocked ? (
+              <Tooltip key={m.num}>
+                <TooltipTrigger asChild>{card}</TooltipTrigger>
+                <TooltipContent className="bg-[#1C1C27] text-white border-white/10 text-xs">
+                  Configure seu Brand OS primeiro
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              card
+            )
+          })}
+        </div>
+      </section>
+
+      {/* 7. Gerações Recentes + Próximas Ações + Mini Calendário */}
+      <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Gerações Recentes */}
+        <div className="rounded-2xl bg-[#14141C] border border-white/5 p-5 space-y-3">
+          <h3 className="text-sm font-bold text-white flex items-center gap-2">
+            <Zap className="w-4 h-4 text-[#22D3EE]" />
+            Gerações Recentes
+          </h3>
+          {recentJobs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center text-center py-8">
+              <Zap className="w-6 h-6 text-[#9494A8]/50 mb-2" />
+              <p className="text-xs text-[#9494A8]">
+                Nenhuma geração ainda. Use os módulos para gerar conteúdo com IA.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {recentJobs.map((job) => {
+                const mod = jobModule(job.kind)
+                const label = kindLabel[job.kind] || job.kind
+                return (
+                  <button
+                    key={job.id}
+                    onClick={() => navigate(mod.path)}
+                    className="w-full flex items-center gap-3 rounded-lg bg-[#0e0e15]/60 border border-white/5 hover:border-[#7C5CFC]/40 p-2.5 text-left transition-all"
+                  >
+                    <div
+                      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
+                        job.status === 'completed'
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                          : job.status === 'failed'
+                            ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                            : 'bg-[#7C5CFC]/10 text-[#7C5CFC] border border-[#7C5CFC]/20'
+                      }`}
+                    >
+                      {job.status === 'completed' ? (
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                      ) : job.status === 'failed' ? (
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                      ) : (
+                        <Zap className="w-3.5 h-3.5 animate-pulse" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-white truncate">
+                        {label} <span className="text-[#9494A8] font-normal">• {mod.label}</span>
+                      </p>
+                      <p className="text-[10px] text-[#9494A8] flex items-center gap-1">
+                        <Clock className="w-2.5 h-2.5" />
+                        {relativeTime(job.createdAt)}
+                        <span className="capitalize">• {job.status}</span>
+                      </p>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Próximas Ações */}
+        <div className="rounded-2xl bg-[#14141C] border border-white/5 p-5 space-y-3">
+          <h3 className="text-sm font-bold text-white flex items-center gap-2">
+            <ArrowRight className="w-4 h-4 text-[#7C5CFC]" />
+            Próximas Ações
+          </h3>
+          {displayActions.length === 0 ? (
+            <div className="flex flex-col items-center justify-center text-center py-8">
+              <CheckCircle2 className="w-6 h-6 text-emerald-400 mb-2" />
+              <p className="text-xs text-emerald-300 font-medium">
+                Tudo em dia! Nenhuma ação pendente detectada.
+              </p>
+              <p className="text-[10px] text-[#9494A8] mt-1">
+                Continue criando e escalando seus conteúdos.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {displayActions.map((a, i) => (
+                <button
+                  key={i}
+                  onClick={() => navigate(a.path)}
+                  className="w-full flex items-center gap-3 rounded-lg bg-[#0e0e15]/60 border border-white/5 hover:border-[#7C5CFC]/40 p-2.5 text-left transition-all group"
+                >
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#7C5CFC]/10 text-[#7C5CFC] border border-[#7C5CFC]/20">
+                    {a.icon}
+                  </span>
+                  <span className="text-xs text-slate-200 group-hover:text-white flex-1 line-clamp-2">
+                    {a.text}
+                  </span>
+                  <ChevronRight className="w-3.5 h-3.5 text-[#9494A8] shrink-0 group-hover:text-[#7C5CFC]" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Mini Calendário */}
+        <div className="rounded-2xl bg-[#14141C] border border-white/5 p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-[#22D3EE]" />
+              Próximos 7 dias
+            </h3>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/agendamento')}
+              className="h-6 text-[11px] text-[#22D3EE] hover:bg-[#22D3EE]/10 px-2 gap-1"
+            >
+              Ver agenda <ChevronRight className="w-3 h-3" />
+            </Button>
+          </div>
+          <div className="grid grid-cols-7 gap-1.5">
+            {next7.map((d, i) => {
+              const hasEvents = dayHasEvents(d)
+              const isToday = i === 0
+              return (
+                <div
+                  key={i}
+                  className={`flex flex-col items-center justify-center rounded-lg py-2 border ${
+                    isToday
+                      ? 'bg-[#7C5CFC]/15 border-[#7C5CFC]/40'
+                      : 'bg-[#0e0e15]/60 border-white/5'
+                  }`}
+                >
+                  <span className="text-[9px] uppercase text-[#9494A8]">{weekdayShort(d)}</span>
+                  <span
+                    className={`text-xs font-bold ${isToday ? 'text-[#7C5CFC]' : 'text-white'}`}
+                  >
+                    {d.getDate()}
+                  </span>
+                  <span
+                    className={`mt-1 h-1.5 w-1.5 rounded-full ${
+                      hasEvents ? 'bg-[#22D3EE]' : 'bg-transparent'
+                    }`}
+                  />
+                </div>
+              )
+            })}
+          </div>
+          <div className="flex items-center gap-3 text-[10px] text-[#9494A8] pt-1">
+            <span className="flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#22D3EE]" /> conteúdo agendado
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/academy')}
+              className="h-6 text-[11px] text-[#7C5CFC] hover:bg-[#7C5CFC]/10 px-2 gap-1 ml-auto"
+            >
+              Academy ({academyCompleted} concluídas) <ChevronRight className="w-3 h-3" />
+            </Button>
           </div>
         </div>
       </section>

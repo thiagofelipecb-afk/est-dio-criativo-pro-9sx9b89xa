@@ -29,6 +29,7 @@ import Metricas from './pages/Metricas'
 import Configuracoes from './pages/Configuracoes'
 import Assessoria from './pages/Assessoria'
 import VersaoMobile from './pages/VersaoMobile'
+import Academy from './pages/Academy'
 
 const App = () => (
   <BrowserRouter>
@@ -61,6 +62,7 @@ const App = () => (
               <Route path="/configuracoes" element={<Configuracoes />} />
               <Route path="/assessoria" element={<Assessoria />} />
               <Route path="/versao-mobile" element={<VersaoMobile />} />
+              <Route path="/academy" element={<Academy />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
