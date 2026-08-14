@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { usePlatform } from '@/context/PlatformContext'
 import { useAIGeneration } from '@/hooks/use-ai-generation'
 import {
@@ -9,10 +10,23 @@ import {
   GenerateButton,
   AcademyPanel,
 } from '@/components/marketing/Shared'
-import { AdCreation, AdIntelItem, CreativeSource } from '@/types/platform'
+import { AdCreation, AdIntelItem, CapturedCreative } from '@/types/platform'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Megaphone, Search, Library, Sparkles, ExternalLink, Eye, ArrowRight } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+  Megaphone,
+  Search,
+  Library,
+  Sparkles,
+  ExternalLink,
+  Eye,
+  ArrowRight,
+  Copy,
+  Film,
+  Layers,
+  Image as ImageIcon,
+} from 'lucide-react'
 import { toast } from 'sonner'
 
 const uid = (p: string) => `${p}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
@@ -53,16 +67,20 @@ export default function Escala() {
     saveAdCreation,
     adIntelItems,
     setAdIntelItems,
-    capturedCreatives,
-    updateCapturedCreative,
+    brandProfile,
+    saveCapturedCreative,
   } = usePlatform()
   const { generate } = useAIGeneration()
+  const navigate = useNavigate()
   const [sub, setSub] = useState<'criar' | 'inteligencia' | 'biblioteca' | 'academy'>('criar')
   const [desc, setDesc] = useState('')
+  const [audience, setAudience] = useState('')
+  const [outcome, setOutcome] = useState('')
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [progressLabel, setProgressLabel] = useState('')
   const [keyword, setKeyword] = useState('')
+  const [hasSearched, setHasSearched] = useState(false)
 
   const tabs = [
     { id: 'criar', label: 'Criar Anúncio', icon: Megaphone },
@@ -86,14 +104,24 @@ export default function Escala() {
       },
       1400,
     )
+    const niche = brandProfile.base.niche || 'seu nicho'
     const rec: AdCreation = {
       id: uid('ad'),
       description: desc,
       contextVersion: res.contextVersion,
-      recommendation: `Com base no seu Brand OS, recomendamos:\n1. Reels de bastidor (mostra método)\n2. Carrossel educativo (quebra objeção)\n3. UGC/testemunhal (prova social)\n\nFormatos ideais para "${desc}". Direcione para o Módulo 2 para criar as peças.`,
+      recommendation: `Com base no seu Brand OS (${niche}) e no que você descreveu, recomendamos os formatos abaixo para escalar "${desc}":\n\n1. Reel — mostra o método em vídeo curto, ideal para atenção e prova.\n2. Carrossel — quebra objeções e educa em passos.\n3. Post estático — reforça a oferta e o CTA direto.\n\nPúblico-alvo: ${audience || '—'}\nResultado esperado: ${outcome || '—'}\n\nUse os botões abaixo para criar a peça no formato escolhido.`,
       createdAt: new Date().toISOString(),
     }
     saveAdCreation(rec)
+    // Evento de produto: contador de criativos gerados
+    try {
+      const raw = localStorage.getItem('lumen_product_events')
+      const ev = raw ? JSON.parse(raw) : {}
+      ev.criativos_gerados = (ev.criativos_gerados || 0) + 1
+      localStorage.setItem('lumen_product_events', JSON.stringify(ev))
+    } catch {
+      /* ignore */
+    }
     setLoading(false)
     setProgress(0)
     toast.success('Recomendação de anúncio gerada!')
@@ -107,16 +135,19 @@ export default function Escala() {
     setLoading(true)
     setProgress(0)
     await generate('intel_anuncios', () => {}, 1000)
-    const results = SAMPLE_ADS.map((a) => ({
-      ...a,
-      id: uid('ad'),
-      keyword,
-      caption: a.caption.replace('tráfego pago', keyword),
-    }))
+    const kw = keyword.trim().toLowerCase()
+    const results = SAMPLE_ADS.filter(
+      (a) => a.advertiser.toLowerCase().includes(kw) || a.caption.toLowerCase().includes(kw),
+    ).map((a) => ({ ...a, id: uid('ad'), keyword }))
     setAdIntelItems(results)
+    setHasSearched(true)
     setLoading(false)
     setProgress(0)
-    toast.success(`${results.length} anúncios encontrados para "${keyword}"!`)
+    if (results.length === 0) {
+      toast.info(`Nenhum anúncio encontrado para "${keyword}".`)
+    } else {
+      toast.success(`${results.length} anúncios encontrados para "${keyword}"!`)
+    }
   }
 
   return (
@@ -148,17 +179,29 @@ export default function Escala() {
         <div className="space-y-4">
           <div className="rounded-2xl bg-[#14141C] border border-white/5 p-5 space-y-4">
             <h3 className="text-sm font-bold text-white">Criar Anúncio com contexto do Brand OS</h3>
-            <Field
-              label="Descreva o produto/serviço"
-              required
-              hint="O que é, para quem e qual resultado"
-            >
+            <Field label="Produto/Serviço" required hint="O que é, para quem e qual resultado">
               <textarea
                 className={inputClass}
                 rows={3}
                 value={desc}
                 onChange={(e) => setDesc(e.target.value)}
                 placeholder="Ex: Mentoria de tráfego pago para iniciantes que querem faturar os primeiros R$ 10k"
+              />
+            </Field>
+            <Field label="Para quem é" hint="Público-alvo do anúncio">
+              <input
+                className={inputClass}
+                value={audience}
+                onChange={(e) => setAudience(e.target.value)}
+                placeholder="Ex: Empreendedores iniciantes em tráfego pago"
+              />
+            </Field>
+            <Field label="Resultado esperado" hint="O que a pessoa ganha">
+              <input
+                className={inputClass}
+                value={outcome}
+                onChange={(e) => setOutcome(e.target.value)}
+                placeholder="Ex: Faturar os primeiros R$ 10k em 90 dias"
               />
             </Field>
             <GenerateButton
@@ -187,14 +230,30 @@ export default function Escala() {
               <pre className="text-xs text-slate-200 whitespace-pre-wrap font-sans">
                 {a.recommendation}
               </pre>
-              <Button
-                size="sm"
-                variant="outline"
-                className="border-white/10 text-xs gap-1.5"
-                onClick={() => toast.success('Levando ao Módulo 2 para criar as peças!')}
-              >
-                <ArrowRight className="w-3.5 h-3.5" /> Ir para Módulo 2
-              </Button>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button
+                  size="sm"
+                  className="bg-[#22D3EE] text-black text-[11px] gap-1 hover:bg-[#22D3EE]/90"
+                  onClick={() => navigate('/gravadora')}
+                >
+                  <Film className="w-3 h-3" /> Criar como Reel
+                </Button>
+                <Button
+                  size="sm"
+                  className="bg-[#7C5CFC] text-white text-[11px] gap-1 hover:bg-[#7C5CFC]/90"
+                  onClick={() => navigate('/carrossel')}
+                >
+                  <Layers className="w-3 h-3" /> Criar como Carrossel
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-white/10 text-[11px] gap-1"
+                  onClick={() => navigate('/post')}
+                >
+                  <ImageIcon className="w-3 h-3" /> Criar como Post
+                </Button>
+              </div>
             </div>
           ))}
         </div>
@@ -226,50 +285,90 @@ export default function Escala() {
               </Button>
             </div>
           </div>
-          <div className="space-y-2">
-            {[...adIntelItems]
-              .sort((a, b) => b.daysActive - a.daysActive)
-              .map((a) => (
-                <div
-                  key={a.id}
-                  className="rounded-xl bg-[#14141C] border border-white/5 p-4 flex gap-3"
+          {adIntelItems.length === 0 ? (
+            <EmptyState
+              icon={<Search className="w-6 h-6" />}
+              title={hasSearched ? 'Nenhum anúncio encontrado' : 'Busque anúncios ativos'}
+              description={
+                hasSearched
+                  ? `Não há resultados para "${keyword}". Tente outra palavra-chave ou explore a biblioteca de anúncios da Meta.`
+                  : 'Digite uma palavra-chave de nicho ou concorrente para ver anúncios ativos ordenados por tempo de escala.'
+              }
+              action={
+                <a
+                  href="https://www.facebook.com/ads/library/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs text-[#22D3EE] hover:underline"
                 >
-                  <img
-                    src={a.mediaUrl}
-                    alt=""
-                    className="w-16 h-16 rounded-lg object-cover shrink-0"
-                  />
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-white">{a.advertiser}</span>
-                      <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[10px]">
-                        {a.daysActive} dias ativo
-                      </Badge>
-                    </div>
-                    <p className="text-[11px] text-slate-300 line-clamp-2">{a.caption}</p>
-                    <div className="flex gap-2">
-                      <a
-                        href={a.libraryUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-[10px] text-[#22D3EE] hover:underline flex items-center gap-1"
-                      >
-                        <ExternalLink className="w-3 h-3" /> Meta Ad Library
-                      </a>
-                      <button
-                        onClick={() => {
-                          updateCapturedCreative(uid('cap'), {})
-                          toast.success('Salvo na biblioteca!')
-                        }}
-                        className="text-[10px] text-[#7C5CFC] hover:underline"
-                      >
-                        Salvar na biblioteca
-                      </button>
+                  <ExternalLink className="w-3.5 h-3.5" /> Abrir Meta Ad Library
+                </a>
+              }
+            />
+          ) : (
+            <div className="space-y-2">
+              {[...adIntelItems]
+                .sort((a, b) => b.daysActive - a.daysActive)
+                .map((a) => (
+                  <div
+                    key={a.id}
+                    className="rounded-xl bg-[#14141C] border border-white/5 p-4 flex gap-3"
+                  >
+                    <img
+                      src={a.mediaUrl}
+                      alt=""
+                      className="w-16 h-16 rounded-lg object-cover shrink-0"
+                    />
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-white">{a.advertiser}</span>
+                        <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[10px]">
+                          {a.daysActive} dias ativo
+                        </Badge>
+                      </div>
+                      <p className="text-[11px] text-slate-300 line-clamp-2">{a.caption}</p>
+                      <div className="flex gap-2">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <a
+                              href={a.libraryUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[10px] text-[#22D3EE] hover:underline flex items-center gap-1"
+                            >
+                              <ExternalLink className="w-3 h-3" /> Meta Ad Library
+                            </a>
+                          </TooltipTrigger>
+                          <TooltipContent className="bg-[#1C1C27] text-white border-white/10 text-xs">
+                            Abre a biblioteca de anúncios da Meta em nova aba
+                          </TooltipContent>
+                        </Tooltip>
+                        <button
+                          onClick={() => {
+                            const cap: CapturedCreative = {
+                              id: uid('cap'),
+                              source: 'anuncio',
+                              sourceUrl: a.libraryUrl,
+                              author: a.advertiser,
+                              mediaType: 'image',
+                              caption: a.caption,
+                              transcript: '',
+                              capturedAt: new Date().toISOString(),
+                              analysis: null,
+                            }
+                            saveCapturedCreative(cap)
+                            toast.success('Salvo na biblioteca!')
+                          }}
+                          className="text-[10px] text-[#7C5CFC] hover:underline"
+                        >
+                          Salvar na biblioteca
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-          </div>
+                ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -281,6 +380,8 @@ export default function Escala() {
             { title: 'Criar anúncios com base no posicionamento', duration: '10 min' },
             { title: 'Criar anúncios modelando outros players', duration: '12 min' },
             { title: 'Lendo a Meta Ad Library', duration: '8 min' },
+            { title: 'Modelando criativos de outros players (sem copiar)', duration: '14 min' },
+            { title: 'Do primeiro impulso à escala: jornada de anúncios', duration: '16 min' },
           ]}
         />
       )}
@@ -289,10 +390,13 @@ export default function Escala() {
 }
 
 function BibliotecaAdsPanel() {
-  const { capturedCreatives, updateCapturedCreative } = usePlatform()
+  const { capturedCreatives, updateCapturedCreative, saveCapturedCreative, brandProfile } =
+    usePlatform()
   const { generate } = useAIGeneration()
   const [filter, setFilter] = useState<'Todos' | 'Anuncios' | 'Instagram' | 'Reels'>('Todos')
   const [loading, setLoading] = useState(false)
+  const [adaptOpen, setAdaptOpen] = useState<string | null>(null)
+  const [adaptText, setAdaptText] = useState<Record<string, string>>({})
 
   const filtered = capturedCreatives.filter((c) => {
     if (filter === 'Todos') return true
@@ -318,6 +422,32 @@ function BibliotecaAdsPanel() {
     })
     setLoading(false)
     toast.success('Análise com IA gerada!')
+  }
+
+  const recriar = (c: CapturedCreative) => {
+    const novo: CapturedCreative = {
+      id: uid('cap'),
+      source: 'recriado',
+      sourceUrl: c.sourceUrl,
+      author: c.author,
+      mediaType: c.mediaType,
+      caption: `[Recriado] ${c.caption}`,
+      transcript: `Recriado a partir do criativo original ${c.id}`,
+      capturedAt: new Date().toISOString(),
+      analysis: null,
+    }
+    saveCapturedCreative(novo)
+    toast.success('Nova versão recriada e salva na biblioteca!')
+  }
+
+  const adaptar = (c: CapturedCreative) => {
+    const voice = brandProfile.base.voice || 'direto e próximo'
+    const diff = brandProfile.base.differential || 'nosso método'
+    const service = brandProfile.base.service || 'nosso serviço'
+    const adapted = `Adaptado de: ${c.caption} • ${c.author}\n\n${c.caption}\n\n✦ Reescrito no tom de voz "${voice}", ancorado no diferencial "${diff}" e no serviço "${service}".`
+    setAdaptText((s) => ({ ...s, [c.id]: adapted }))
+    setAdaptOpen((o) => (o === c.id ? null : c.id))
+    toast.success('Copy adaptada ao seu Brand OS!')
   }
 
   return (
@@ -357,7 +487,7 @@ function BibliotecaAdsPanel() {
                   {c.analysis}
                 </div>
               )}
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button
                   size="sm"
                   variant="outline"
@@ -371,7 +501,7 @@ function BibliotecaAdsPanel() {
                   size="sm"
                   variant="outline"
                   className="border-white/10 text-[11px] gap-1"
-                  onClick={() => toast.success('Criativo recriado!')}
+                  onClick={() => recriar(c)}
                 >
                   <Sparkles className="w-3 h-3" /> Recriar
                 </Button>
@@ -379,11 +509,30 @@ function BibliotecaAdsPanel() {
                   size="sm"
                   variant="outline"
                   className="border-white/10 text-[11px] gap-1"
-                  onClick={() => toast.success('Adaptado ao seu nicho!')}
+                  onClick={() => adaptar(c)}
                 >
                   <ArrowRight className="w-3 h-3" /> Adaptar
                 </Button>
               </div>
+              {adaptOpen === c.id && adaptText[c.id] && (
+                <div className="rounded-lg bg-[#7C5CFC]/5 border border-[#7C5CFC]/20 p-3 space-y-2">
+                  <p className="text-[10px] font-bold uppercase text-[#7C5CFC]">
+                    Adaptado ao seu nicho
+                  </p>
+                  <p className="text-[11px] text-slate-200 whitespace-pre-wrap">
+                    {adaptText[c.id]}
+                  </p>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(adaptText[c.id] || '')
+                      toast.success('Copy adaptada copiada!')
+                    }}
+                    className="text-[10px] text-[#22D3EE] hover:underline flex items-center gap-1"
+                  >
+                    <Copy className="w-3 h-3" /> Copiar
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>

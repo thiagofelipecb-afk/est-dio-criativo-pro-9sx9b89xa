@@ -487,6 +487,8 @@ export interface SalesAssistRequest {
     script: string
     avoid: string[]
     nextStep: string
+    confidence?: 'Alta' | 'Média' | 'Baixa'
+    missing?: string[]
   } | null
   contextVersion: number
   createdAt: string
@@ -502,7 +504,7 @@ export interface SalesScript {
 }
 
 // ---------- Transversais ----------
-export type CreativeSource = 'anuncio' | 'instagram' | 'reel'
+export type CreativeSource = 'anuncio' | 'instagram' | 'reel' | 'recriado'
 
 export interface CapturedCreative {
   id: string
