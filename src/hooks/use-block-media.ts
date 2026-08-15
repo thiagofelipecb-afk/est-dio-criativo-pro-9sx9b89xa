@@ -42,6 +42,18 @@ export function useBlockArts(blockId: string) {
     writeJSON(key, arts)
   }, [key, arts])
 
+  // GAP 2/3 — Sincroniza quando a mídia é redistribuída externamente (split/join)
+  // via writeBlockArts/clearBlockMedia. O evento global força a releitura.
+  useEffect(() => {
+    const handler = () => setArts(readJSON<BlockArt[]>(key, []))
+    window.addEventListener('lumen-block-media-changed', handler)
+    window.addEventListener('storage', handler)
+    return () => {
+      window.removeEventListener('lumen-block-media-changed', handler)
+      window.removeEventListener('storage', handler)
+    }
+  }, [key])
+
   const addArt = useCallback((dataUrl: string, name?: string) => {
     setArts((prev) => [
       ...prev,
@@ -77,6 +89,17 @@ export function useBlockBRoll(blockId: string) {
     writeJSON(key, broll)
   }, [key, broll])
 
+  // GAP 2/3 — Sincroniza quando a mídia é redistribuída externamente (split/join).
+  useEffect(() => {
+    const handler = () => setBroll(readJSON<BlockBRoll | null>(key, null))
+    window.addEventListener('lumen-block-media-changed', handler)
+    window.addEventListener('storage', handler)
+    return () => {
+      window.removeEventListener('lumen-block-media-changed', handler)
+      window.removeEventListener('storage', handler)
+    }
+  }, [key])
+
   const setBRoll = useCallback((b: BlockBRoll | null) => setBroll(b), [])
 
   return { broll, setBRoll }
@@ -85,6 +108,30 @@ export function useBlockBRoll(blockId: string) {
 /** Lê o B-roll de um bloco de forma síncrona — para overlays. */
 export function readBlockBRoll(blockId: string): BlockBRoll | null {
   return readJSON<BlockBRoll | null>(BROLL_PREFIX + blockId, null)
+}
+
+/* ── Escritores síncronos (GAP 2/3 — redistribuição de mídia ao dividir/juntar)
+   Permitem mover artes/B-roll de um blockId para outro quando blocos são
+   divididos ou juntados, sem depender de reatividade. ──────────────────────── */
+
+/** Grava as artes de um bloco de forma síncrona (sobrescreve). */
+export function writeBlockArts(blockId: string, arts: BlockArt[]): void {
+  writeJSON(ARTS_PREFIX + blockId, arts)
+}
+
+/** Grava o B-roll de um bloco de forma síncrona (sobrescreve). */
+export function writeBlockBRoll(blockId: string, broll: BlockBRoll | null): void {
+  writeJSON(BROLL_PREFIX + blockId, broll)
+}
+
+/** Remove artes e B-roll vinculados a um bloco (após redistribuição). */
+export function clearBlockMedia(blockId: string): void {
+  try {
+    localStorage.removeItem(ARTS_PREFIX + blockId)
+    localStorage.removeItem(BROLL_PREFIX + blockId)
+  } catch {
+    /* noop */
+  }
 }
 
 /* ── Vídeo de reação (global da Gravadora) ───────────────────────────────── */

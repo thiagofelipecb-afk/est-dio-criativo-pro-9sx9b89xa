@@ -24,6 +24,7 @@ import {
   Layers,
   Clapperboard,
   PenLine,
+  Circle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useStudio } from '@/context/StudioContext'
@@ -37,6 +38,22 @@ import { Whiteboard } from '@/components/studio/Whiteboard'
 import { BackgroundPanel } from '@/components/studio/BackgroundPanel'
 import { TitlePanel } from '@/components/studio/TitlePanel'
 import { ImagePlus, Type as TypeIcon } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import {
+  readBlockArts,
+  readBlockBRoll,
+  writeBlockArts,
+  writeBlockBRoll,
+  clearBlockMedia,
+} from '@/hooks/use-block-media'
+import type { BlockArt, BlockBRoll as BlockBRollType } from '@/types/studio'
 
 const TEXT_COLORS: Record<TeleprompterTextColor, string> = {
   white: '#FFFFFF',
@@ -66,6 +83,10 @@ export interface ScriptPanelProps {
   /** Iniciar teleprompter automaticamente ao gravar. */
   autoStartOnRecord: boolean
   setAutoStartOnRecord: (v: boolean) => void
+  /** GAP 1 — Callback para iniciar a gravação a partir do botão "Iniciar" do Roteiro. */
+  onStartRecording?: () => void
+  /** GAP 1 — Indica se o botão "Iniciar" pode ser usado (estado da máquina de estados). */
+  canStartRecording?: boolean
 }
 
 export default function ScriptPanel({
@@ -76,6 +97,8 @@ export default function ScriptPanel({
   setSyncArts,
   autoStartOnRecord,
   setAutoStartOnRecord,
+  onStartRecording,
+  canStartRecording = true,
 }: ScriptPanelProps) {
   const { gravadoraScript, setGravadoraScript, scriptBlocks, setScriptBlocks } = useStudio()
   const [tab, setTab] = useState<
@@ -88,11 +111,39 @@ export default function ScriptPanel({
   const [loadingAI, setLoadingAI] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
+  /* ═══ GAP 2 — Modo "Clique no ponto de divisão" + confirmação de mídia ═══ */
+  // Índice do bloco em modo de seleção de ponto de divisão (null = inativo).
+  const [splitModeIndex, setSplitModeIndex] = useState<number | null>(null)
+  // Offset selecionado dentro do texto do bloco (null = ainda não escolheu).
+  const [splitOffset, setSplitOffset] = useState<number | null>(null)
+  // Dialog de redistribuição de mídia ao dividir.
+  const [splitMediaDialog, setSplitMediaDialog] = useState<{
+    blockIndex: number
+    offset: number
+    arts: BlockArt[]
+    broll: BlockBRollType | null
+    sourceBlockId: string
+  } | null>(null)
+
+  /* ═══ GAP 3 — Resolução de conflito de mídia ao juntar blocos ═══ */
+  // Dialog de conflito de mídia ao juntar com o anterior.
+  const [joinConflictDialog, setJoinConflictDialog] = useState<{
+    index: number
+    prevArts: BlockArt[]
+    prevBRoll: BlockBRollType | null
+    curArts: BlockArt[]
+    curBRoll: BlockBRollType | null
+    prevBlockId: string
+    curBlockId: string
+  } | null>(null)
+
   const {
     blocks,
     reparse,
     splitAtCursor,
+    splitBlockWithIds,
     joinWithPrevious,
+    joinWithPreviousReturningId,
     moveUp,
     moveDown,
     deleteBlock,
@@ -156,6 +207,227 @@ export default function ScriptPanel({
     },
     [gravadoraScript, blocks, splitAtCursor],
   )
+
+  /* ═══ GAP 2 — Entra no modo "Clique no ponto de divisão" ═══
+     O botão "Dividir" existente ativa este modo; o usuário então clica no
+     texto do bloco expandido para escolher o ponto exato. */
+  const handleEnterSplitMode = useCallback(
+    (index: number) => {
+      if (!blocks[index]) return
+      // Garante que o bloco esteja expandido para o usuário clicar no texto.
+      setExpandedId(blocks[index].id)
+      setSplitModeIndex(index)
+      setSplitOffset(null)
+    },
+    [blocks],
+  )
+
+  const handleCancelSplitMode = useCallback(() => {
+    setSplitModeIndex(null)
+    setSplitOffset(null)
+  }, [])
+
+  /* Quando o usuário clica em uma posição do texto do bloco, calculamos o
+     offset por caractere e, se houver mídia vinculada, abrimos o dialog de
+     redistribuição. Caso contrário, dividimos diretamente. */
+  const handlePickSplitPoint = useCallback(
+    (index: number, offset: number) => {
+      const block = blocks[index]
+      if (!block) return
+      setSplitOffset(offset)
+      const arts = readBlockArts(block.id)
+      const broll = readBlockBRoll(block.id)
+      if (arts.length > 0 || broll) {
+        setSplitMediaDialog({
+          blockIndex: index,
+          offset,
+          arts,
+          broll,
+          sourceBlockId: block.id,
+        })
+      } else {
+        // Sem mídia: divide diretamente.
+        splitBlockWithIds(index, offset)
+        toast.success('Bloco dividido.')
+        setSplitModeIndex(null)
+        setSplitOffset(null)
+      }
+    },
+    [blocks, splitBlockWithIds],
+  )
+
+  /* Executa o split de fato, redistribuindo a mídia conforme a escolha.
+     Usa splitBlockWithIds para obter o ID do segundo bloco de forma
+     determinística e gravar a mídia diretamente no localStorage. */
+  const handleConfirmSplitMedia = useCallback(
+    (choice: 'first' | 'second' | 'both') => {
+      const dlg = splitMediaDialog
+      if (!dlg) return
+      const block = blocks[dlg.blockIndex]
+      if (!block) {
+        setSplitMediaDialog(null)
+        return
+      }
+      const prevArts = readBlockArts(block.id)
+      const prevBRoll = readBlockBRoll(block.id)
+
+      // Executa o split obtendo os IDs resultantes.
+      const ids = splitBlockWithIds(dlg.blockIndex, dlg.offset)
+      if (!ids) {
+        setSplitMediaDialog(null)
+        return
+      }
+      const { firstId, secondId } = ids
+
+      if (choice === 'first') {
+        // Mantém no primeiro: a mídia já está sob firstId (== block.id).
+        writeBlockArts(firstId, prevArts)
+        writeBlockBRoll(firstId, prevBRoll)
+        clearBlockMedia(secondId)
+      } else if (choice === 'second') {
+        // Move para o segundo: limpa o primeiro e grava no segundo.
+        clearBlockMedia(firstId)
+        writeBlockArts(secondId, prevArts)
+        writeBlockBRoll(secondId, prevBRoll)
+      } else {
+        // both: duplicar para ambos. Primeiro mantém; segundo recebe cópia.
+        writeBlockArts(firstId, prevArts)
+        writeBlockBRoll(firstId, prevBRoll)
+        writeBlockArts(
+          secondId,
+          prevArts.map((a) => ({ ...a, id: 'art-' + Math.random().toString(36).slice(2, 9) })),
+        )
+        writeBlockBRoll(secondId, prevBRoll)
+      }
+      // Dispara um evento para overlays/BlockCard refletirem a mudança.
+      window.dispatchEvent(new CustomEvent('lumen-block-media-changed'))
+
+      toast.success('Bloco dividido.')
+      setSplitMediaDialog(null)
+      setSplitModeIndex(null)
+      setSplitOffset(null)
+    },
+    [blocks, splitBlockWithIds, splitMediaDialog],
+  )
+
+  /* ═══ GAP 3 — Resolução de conflito de mídia ao juntar com anterior ═══
+     Antes de chamar joinWithPrevious, verifica se ambos os blocos possuem
+     mídia (arte ou B-roll) diferente. Se sim, abre o modal de resolução. */
+  const handleJoinWithPreviousCheck = useCallback(
+    (index: number) => {
+      if (index <= 0 || !blocks[index]) return
+      const prevBlock = blocks[index - 1]
+      const curBlock = blocks[index]
+      const prevArts = readBlockArts(prevBlock.id)
+      const curArts = readBlockArts(curBlock.id)
+      const prevBRoll = readBlockBRoll(prevBlock.id)
+      const curBRoll = readBlockBRoll(curBlock.id)
+
+      const prevHasMedia = prevArts.length > 0 || !!prevBRoll
+      const curHasMedia = curArts.length > 0 || !!curBRoll
+
+      // Compara se as mídias são "diferentes" (por dataUrl/url).
+      const artsEqual =
+        prevArts.length === curArts.length &&
+        prevArts.every((a, i) => a.dataUrl === curArts[i]?.dataUrl)
+      const brollEqual =
+        (prevBRoll === null && curBRoll === null) ||
+        (prevBRoll !== null &&
+          curBRoll !== null &&
+          prevBRoll.url === curBRoll.url &&
+          prevBRoll.pexelsId === curBRoll.pexelsId)
+
+      if (prevHasMedia && curHasMedia && (!artsEqual || !brollEqual)) {
+        // Conflito: ambos têm mídia e são diferentes.
+        setJoinConflictDialog({
+          index,
+          prevArts,
+          prevBRoll,
+          curArts,
+          curBRoll,
+          prevBlockId: prevBlock.id,
+          curBlockId: curBlock.id,
+        })
+        return
+      }
+
+      // Sem conflito: join normal. Como joinWithPreviousReturningId preserva
+      // o ID do bloco anterior, a mídia do anterior já fica vinculada ao ID
+      // resultante. Se só o bloco atual tem mídia, movemos para o ID do
+      // anterior antes do join. Se nenhum tem mídia, segue direto.
+      const resultId = joinWithPreviousReturningId(index)
+      if (resultId) {
+        if (!prevHasMedia && curHasMedia) {
+          // Só o atual tem mídia: move para o ID resultante (== prevBlock.id).
+          writeBlockArts(resultId, curArts)
+          writeBlockBRoll(resultId, curBRoll)
+          clearBlockMedia(curBlock.id)
+        } else if (prevHasMedia) {
+          // Só o anterior (ou nenhum) tem mídia: já está sob resultId.
+          clearBlockMedia(curBlock.id)
+        }
+        window.dispatchEvent(new CustomEvent('lumen-block-media-changed'))
+      }
+    },
+    [blocks, joinWithPreviousReturningId],
+  )
+
+  /* Executa o join conforme a resolução do conflito. O bloco resultante
+     preserva o ID do anterior, então gravamos a mídia escolhida sob esse ID. */
+  const handleConfirmJoinConflict = useCallback(
+    (choice: 'prev' | 'cur' | 'both' | 'cancel') => {
+      const dlg = joinConflictDialog
+      if (!dlg) return
+      if (choice === 'cancel') {
+        setJoinConflictDialog(null)
+        return
+      }
+      const prevBlock = blocks[dlg.index - 1]
+      const curBlock = blocks[dlg.index]
+      if (!prevBlock || !curBlock) {
+        setJoinConflictDialog(null)
+        return
+      }
+      let arts: BlockArt[] = []
+      let broll: BlockBRollType | null = null
+      if (choice === 'prev') {
+        arts = dlg.prevArts
+        broll = dlg.prevBRoll
+      } else if (choice === 'cur') {
+        arts = dlg.curArts
+        broll = dlg.curBRoll
+      } else {
+        // both: combina artes (evita duplicatas por dataUrl) e prefere o
+        // B-roll do anterior (ou do atual se o anterior não tiver).
+        const seen = new Set<string>()
+        arts = [...dlg.prevArts, ...dlg.curArts].filter((a) => {
+          if (seen.has(a.dataUrl)) return false
+          seen.add(a.dataUrl)
+          return true
+        })
+        broll = dlg.prevBRoll ?? dlg.curBRoll
+      }
+      // Limpa ambos antes do join para não deixar mídia órfã.
+      clearBlockMedia(prevBlock.id)
+      clearBlockMedia(curBlock.id)
+      // Executa o join (preserva o ID do bloco anterior).
+      const resultId = joinWithPreviousReturningId(dlg.index)
+      if (resultId) {
+        writeBlockArts(resultId, arts)
+        writeBlockBRoll(resultId, broll)
+        window.dispatchEvent(new CustomEvent('lumen-block-media-changed'))
+      }
+      setJoinConflictDialog(null)
+    },
+    [blocks, joinWithPreviousReturningId, joinConflictDialog],
+  )
+
+  /* GAP 1 — Inicia a gravação via callback da Gravadora. */
+  const handleStartRecording = useCallback(() => {
+    if (blocks.length === 0) return
+    if (!canStartRecording) return
+    onStartRecording?.()
+  }, [blocks.length, canStartRecording, onStartRecording])
 
   const handleSuggestAI = useCallback(async () => {
     if (!gravadoraScript.trim()) {
@@ -383,6 +655,35 @@ export default function ScriptPanel({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* GAP 1 — Botão "Iniciar" com label dinâmico.
+              Com 0 blocos: "0/0" e disabled. Com N blocos: "Iniciar (N blocos)". */}
+          <button
+            onClick={handleStartRecording}
+            disabled={blocks.length === 0 || !canStartRecording}
+            aria-label={
+              blocks.length === 0
+                ? 'Iniciar gravação — sem blocos'
+                : `Iniciar gravação com ${blocks.length} bloco(s)`
+            }
+            className={`flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
+              blocks.length === 0 || !canStartRecording
+                ? 'bg-white/5 text-[#9494A8]/50 cursor-not-allowed opacity-50'
+                : 'bg-[#7C5CFC] text-white hover:bg-[#6B4EF0] shadow-lg shadow-[#7C5CFC]/30'
+            }`}
+            title={
+              blocks.length === 0
+                ? 'Sem blocos para gravar'
+                : !canStartRecording
+                  ? 'Gravação indisponível no estado atual'
+                  : `Iniciar gravação (${blocks.length} bloco(s))`
+            }
+          >
+            <Circle className="w-3 h-3" />
+            {blocks.length === 0
+              ? '0/0'
+              : `Iniciar (${blocks.length} bloco${blocks.length > 1 ? 's' : ''})`}
+          </button>
+          {/* Contador de duração preservado */}
           <span className="text-[10px] font-mono text-[#22D3EE] bg-[#22D3EE]/10 px-2 py-0.5 rounded">
             {blocks.length} blocos · ~{formatDuration(totalSeconds)}
           </span>
@@ -394,6 +695,26 @@ export default function ScriptPanel({
           )}
         </div>
       </div>
+
+      {/* GAP 2 — Dialog de redistribuição de mídia ao dividir bloco */}
+      <SplitMediaDialog
+        open={splitMediaDialog !== null}
+        onClose={() => setSplitMediaDialog(null)}
+        onChoose={handleConfirmSplitMedia}
+        arts={splitMediaDialog?.arts ?? []}
+        broll={splitMediaDialog?.broll ?? null}
+      />
+
+      {/* GAP 3 — Dialog de resolução de conflito de mídia ao juntar blocos */}
+      <JoinConflictDialog
+        open={joinConflictDialog !== null}
+        onClose={() => setJoinConflictDialog(null)}
+        onChoose={handleConfirmJoinConflict}
+        prevArts={joinConflictDialog?.prevArts ?? []}
+        prevBRoll={joinConflictDialog?.prevBRoll ?? null}
+        curArts={joinConflictDialog?.curArts ?? []}
+        curBRoll={joinConflictDialog?.curBRoll ?? null}
+      />
 
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-hidden">
@@ -437,6 +758,12 @@ export default function ScriptPanel({
               onAcceptAll={acceptAllSuggestions}
               onClearSuggestions={() => setSuggestions([])}
               totalSeconds={totalSeconds}
+              splitModeIndex={splitModeIndex}
+              splitOffset={splitOffset}
+              onEnterSplitMode={handleEnterSplitMode}
+              onCancelSplitMode={handleCancelSplitMode}
+              onPickSplitPoint={handlePickSplitPoint}
+              onJoinPrevCheck={handleJoinWithPreviousCheck}
             />
           ) : tab === 'reaction' ? (
             <ReactionVideoPanel />
@@ -513,6 +840,14 @@ interface ScriptTabProps {
   onAcceptAll: () => void
   onClearSuggestions: () => void
   totalSeconds: number
+  /* GAP 2 — Modo "Clique no ponto de divisão" + redistribuição de mídia */
+  splitModeIndex: number | null
+  splitOffset: number | null
+  onEnterSplitMode: (index: number) => void
+  onCancelSplitMode: () => void
+  onPickSplitPoint: (index: number, offset: number) => void
+  /* GAP 3 — Resolução de conflito de mídia ao juntar */
+  onJoinPrevCheck: (index: number) => void
 }
 
 function ScriptTab(props: ScriptTabProps) {
@@ -546,6 +881,12 @@ function ScriptTab(props: ScriptTabProps) {
     onAcceptAll,
     onClearSuggestions,
     totalSeconds,
+    splitModeIndex,
+    splitOffset,
+    onEnterSplitMode,
+    onCancelSplitMode,
+    onPickSplitPoint,
+    onJoinPrevCheck,
   } = props
 
   return (
@@ -713,7 +1054,8 @@ function ScriptTab(props: ScriptTabProps) {
                 onSelect={() => onSelectBlock(index)}
                 onToggleStatus={() => onToggleStatus(index)}
                 onSplit={() => onSplit(index)}
-                onJoinPrev={() => onJoinPrev(index)}
+                onSplitMode={() => onEnterSplitMode(index)}
+                onJoinPrev={() => onJoinPrevCheck(index)}
                 onMoveUp={() => onMoveUp(index)}
                 onMoveDown={() => onMoveDown(index)}
                 onDelete={() => {
@@ -725,6 +1067,10 @@ function ScriptTab(props: ScriptTabProps) {
                   }
                 }}
                 onCancelDelete={() => setConfirmDeleteId(null)}
+                isSplitMode={splitModeIndex === index}
+                splitOffset={splitOffset}
+                onPickSplitPoint={(offset) => onPickSplitPoint(index, offset)}
+                onCancelSplitMode={onCancelSplitMode}
               />
             ))
           )}
@@ -755,6 +1101,12 @@ interface BlockCardProps {
   onCancelDelete: () => void
   /** Artes/B-roll são mostrados apenas quando o bloco está expandido. */
   expandedExtras?: boolean
+  /* GAP 2 — Modo "Clique no ponto de divisão" */
+  isSplitMode?: boolean
+  splitOffset?: number | null
+  onPickSplitPoint?: (offset: number) => void
+  onSplitMode?: () => void
+  onCancelSplitMode?: () => void
 }
 
 function BlockCard({
@@ -774,6 +1126,11 @@ function BlockCard({
   onDelete,
   onCancelDelete,
   expandedExtras = true,
+  isSplitMode = false,
+  splitOffset = null,
+  onPickSplitPoint,
+  onSplitMode,
+  onCancelSplitMode,
 }: BlockCardProps) {
   const summary = block.text.length > 80 ? block.text.slice(0, 80) + '…' : block.text
   return (
@@ -818,17 +1175,45 @@ function BlockCard({
           {block.title && (
             <p className="text-[10px] font-bold text-[#22D3EE] mb-0.5 truncate">{block.title}</p>
           )}
-          <p
-            className={`text-[11px] text-white leading-snug ${
-              expanded ? 'whitespace-pre-wrap' : 'line-clamp-2'
-            }`}
-            onClick={(e) => {
-              e.stopPropagation()
-              onToggleExpand()
-            }}
-          >
-            {expanded ? block.text : summary || '(bloco vazio)'}
-          </p>
+          {expanded && isSplitMode ? (
+            <SplitModeText
+              text={block.text}
+              splitOffset={splitOffset}
+              onPick={(offset) => {
+                onPickSplitPoint?.(offset)
+              }}
+            />
+          ) : (
+            <p
+              className={`text-[11px] text-white leading-snug ${
+                expanded ? 'whitespace-pre-wrap' : 'line-clamp-2'
+              }`}
+              onClick={(e) => {
+                e.stopPropagation()
+                onToggleExpand()
+              }}
+            >
+              {expanded ? block.text : summary || '(bloco vazio)'}
+            </p>
+          )}
+          {/* GAP 2 — Indicador do modo de divisão */}
+          {expanded && isSplitMode && (
+            <div className="mt-1.5 flex items-center justify-between gap-2 bg-[#22D3EE]/10 border border-[#22D3EE]/30 rounded px-2 py-1">
+              <span className="text-[9px] text-[#22D3EE] font-bold flex items-center gap-1">
+                <SplitSquareHorizontal className="w-3 h-3" />
+                Clique no texto para escolher o ponto de divisão
+              </span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onCancelSplitMode?.()
+                }}
+                className="text-[9px] text-[#9494A8] hover:text-white px-1.5 py-0.5 rounded"
+              >
+                Cancelar
+              </button>
+            </div>
+          )}
           <div className="flex items-center gap-2 mt-1">
             <span className="text-[9px] text-[#9494A8] flex items-center gap-0.5">
               ~{formatDuration(block.estimatedSeconds)}
@@ -871,12 +1256,20 @@ function BlockCard({
         <button
           onClick={(e) => {
             e.stopPropagation()
-            onSplit()
+            if (isSplitMode) {
+              onCancelSplitMode?.()
+            } else {
+              onSplitMode?.()
+            }
           }}
-          className="flex items-center gap-1 text-[9px] text-[#22D3EE] hover:bg-[#22D3EE]/10 px-1.5 py-0.5 rounded"
-          title="Dividir no cursor"
+          className={`flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded ${
+            isSplitMode
+              ? 'bg-[#22D3EE]/20 text-[#22D3EE] border border-[#22D3EE]/50'
+              : 'text-[#22D3EE] hover:bg-[#22D3EE]/10'
+          }`}
+          title={isSplitMode ? 'Cancelar divisão' : 'Clique no ponto de divisão'}
         >
-          <SplitSquareHorizontal className="w-3 h-3" /> Dividir
+          <SplitSquareHorizontal className="w-3 h-3" /> {isSplitMode ? 'Cancelar' : 'Dividir'}
         </button>
         <button
           onClick={(e) => {
@@ -1315,5 +1708,244 @@ function TeleprompterTab({
         </div>
       </div>
     </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   GAP 2 — Texto clicável por caractere para escolher ponto de divisão.
+   Renderiza cada caractere como span clicável; insere um cursor (pipe
+   piscante) na posição escolhida.
+   ═══════════════════════════════════════════════════════════════════════ */
+function SplitModeText({
+  text,
+  splitOffset,
+  onPick,
+}: {
+  text: string
+  splitOffset: number | null
+  onPick: (offset: number) => void
+}) {
+  // Se nenhum ponto foi escolhido, renderiza o texto cru com instrução.
+  if (splitOffset === null) {
+    return (
+      <p
+        className="text-[11px] text-white leading-snug whitespace-pre-wrap cursor-text select-none"
+        onClick={(e) => {
+          // Calcula offset por caracteres percorrendo os nós de texto.
+          const offset = caretOffsetFromEvent(e)
+          if (offset >= 0) onPick(offset)
+        }}
+      >
+        {text || '(bloco vazio)'}
+      </p>
+    )
+  }
+  // Com ponto escolhido: divide em antes/depois e mostra o cursor.
+  const before = text.slice(0, splitOffset)
+  const after = text.slice(splitOffset)
+  return (
+    <p
+      className="text-[11px] text-white leading-snug whitespace-pre-wrap cursor-text select-none"
+      onClick={(e) => {
+        const offset = caretOffsetFromEvent(e)
+        if (offset >= 0) onPick(offset)
+      }}
+    >
+      <span className="text-[#9494A8]">{before}</span>
+      <span
+        aria-label="Ponto de divisão selecionado"
+        className="inline-block w-[2px] h-[14px] bg-[#22D3EE] mx-px align-middle animate-pulse"
+      />
+      <span>{after}</span>
+    </p>
+  )
+}
+
+/** Calcula o offset de caractere a partir de um evento de clique no texto. */
+function caretOffsetFromEvent(e: React.MouseEvent<HTMLElement>): number {
+  const target = e.currentTarget
+  if (!target) return -1
+  // Usa o Range API para descobrir a posição do clique relativa ao texto.
+  let offset = -1
+  const doc = target.ownerDocument
+  if (doc.caretRangeFromPoint) {
+    const range = doc.caretRangeFromPoint(e.clientX, e.clientY)
+    if (range && target.contains(range.startContainer)) {
+      offset = range.startOffset
+      // Ajusta: se o container não for o próprio target, soma offsets dos nós anteriores.
+      if (range.startContainer !== target) {
+        offset = cumulativeOffset(target, range.startContainer) + range.startOffset
+      }
+    }
+  } else if (doc.caretPositionFromPoint) {
+    const pos = doc.caretPositionFromPoint(e.clientX, e.clientY)
+    if (pos && target.contains(pos.offsetNode)) {
+      if (pos.offsetNode === target) {
+        offset = pos.offset
+      } else {
+        offset = cumulativeOffset(target, pos.offsetNode) + pos.offset
+      }
+    }
+  }
+  return offset
+}
+
+/** Soma o comprimento de texto de todos os nós de texto anteriores ao nó dado. */
+function cumulativeOffset(root: Node, node: Node): number {
+  let offset = 0
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null)
+  let current: Node | null = walker.nextNode()
+  while (current) {
+    if (current === node) break
+    offset += (current.textContent ?? '').length
+    current = walker.nextNode()
+  }
+  return offset
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   GAP 2 — Dialog de redistribuição de mídia ao dividir bloco
+   ═══════════════════════════════════════════════════════════════════════ */
+interface SplitMediaDialogProps {
+  open: boolean
+  onClose: () => void
+  onChoose: (choice: 'first' | 'second' | 'both') => void
+  arts: BlockArt[]
+  broll: BlockBRollType | null
+}
+
+function SplitMediaDialog({ open, onClose, onChoose, arts, broll }: SplitMediaDialogProps) {
+  const hasArts = arts.length > 0
+  const hasBRoll = !!broll
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="bg-[#14141C] border-white/10 text-white max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-white">Redistribuir mídia ao dividir</DialogTitle>
+          <DialogDescription className="text-[#9494A8]">
+            Este bloco possui{' '}
+            {hasArts && hasBRoll
+              ? `${arts.length} arte(s) e B-roll`
+              : hasArts
+                ? `${arts.length} arte(s)`
+                : 'B-roll'}{' '}
+            vinculado(s). Como deseja redistribuir após a divisão?
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2 py-2">
+          <SplitMediaOption
+            label="Manter no primeiro bloco"
+            description="A mídia fica vinculada apenas ao bloco original."
+            onClick={() => onChoose('first')}
+          />
+          <SplitMediaOption
+            label="Mover para o segundo bloco"
+            description="A mídia é transferida para o novo bloco criado."
+            onClick={() => onChoose('second')}
+          />
+          <SplitMediaOption
+            label="Duplicar para ambos"
+            description="Ambos os blocos resultantes recebem a mídia."
+            onClick={() => onChoose('both')}
+          />
+        </div>
+        <DialogFooter>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            className="text-[#9494A8] hover:text-white"
+          >
+            Cancelar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function SplitMediaOption({
+  label,
+  description,
+  onClick,
+}: {
+  label: string
+  description: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full text-left rounded-lg border border-white/10 bg-[#0B0B10] hover:border-[#7C5CFC]/50 hover:bg-[#7C5CFC]/5 px-3 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
+    >
+      <p className="text-xs font-bold text-white">{label}</p>
+      <p className="text-[10px] text-[#9494A8] mt-0.5">{description}</p>
+    </button>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   GAP 3 — Dialog de resolução de conflito de mídia ao juntar blocos
+   ═══════════════════════════════════════════════════════════════════════ */
+interface JoinConflictDialogProps {
+  open: boolean
+  onClose: () => void
+  onChoose: (choice: 'prev' | 'cur' | 'both' | 'cancel') => void
+  prevArts: BlockArt[]
+  prevBRoll: BlockBRollType | null
+  curArts: BlockArt[]
+  curBRoll: BlockBRollType | null
+}
+
+function JoinConflictDialog({
+  open,
+  onClose,
+  onChoose,
+  prevArts,
+  prevBRoll,
+  curArts,
+  curBRoll,
+}: JoinConflictDialogProps) {
+  const prevCount = prevArts.length + (prevBRoll ? 1 : 0)
+  const curCount = curArts.length + (curBRoll ? 1 : 0)
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="bg-[#14141C] border-white/10 text-white max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-white">Conflito de mídia ao juntar</DialogTitle>
+          <DialogDescription className="text-[#9494A8]">
+            Ambos os blocos possuem mídia diferente vinculada (anterior: {prevCount} item(ns),
+            atual: {curCount} item(ns)). Qual mídia o bloco mesclado deve manter?
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2 py-2">
+          <SplitMediaOption
+            label="Manter mídia do bloco anterior"
+            description="O bloco resultante mantém apenas a mídia do bloco de cima."
+            onClick={() => onChoose('prev')}
+          />
+          <SplitMediaOption
+            label="Manter mídia do bloco atual"
+            description="O bloco resultante mantém apenas a mídia do bloco de baixo."
+            onClick={() => onChoose('cur')}
+          />
+          <SplitMediaOption
+            label="Manter ambas"
+            description="Combina as artes (sem duplicatas) e mantém o B-roll disponível."
+            onClick={() => onChoose('both')}
+          />
+        </div>
+        <DialogFooter>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onChoose('cancel')}
+            className="text-[#9494A8] hover:text-white"
+          >
+            Cancelar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

@@ -37,6 +37,12 @@ function makeId(): string {
   return 'blk-' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-3)
 }
 
+/** Cria um novo ID de bloco (estável, opaco) — exportado para que callers
+ * externos possam pré-gerar IDs ao redistribuir mídia em split/join. */
+export function makeBlockId(): string {
+  return makeId()
+}
+
 function makeBlock(text: string, title?: string): ScriptBlock {
   const clean = text.trim()
   return {
@@ -198,6 +204,8 @@ export interface UseScriptBlocksResult {
   blocks: ScriptBlock[]
   reparse: (rawText: string) => ScriptBlock[]
   splitBlock: (index: number, atChar?: number) => void
+  /** GAP 2 — Divide retornando os IDs dos blocos resultantes (síncrono). */
+  splitBlockWithIds: (index: number, atChar: number) => { firstId: string; secondId: string } | null
   splitAtCursor: (index: number, cursorOffset: number | undefined) => void
   joinWithPrevious: (index: number) => void
   moveUp: (index: number) => void
@@ -206,6 +214,8 @@ export interface UseScriptBlocksResult {
   toggleStatus: (index: number) => void
   setStatus: (index: number, status: ScriptBlockStatus) => void
   updateBlockText: (index: number, text: string) => void
+  /** GAP 3 — Juntar com anterior retornando o ID do bloco mesclado. */
+  joinWithPreviousReturningId: (index: number) => string | null
   joinAll: () => void
   splitAll: (rawText: string) => void
   canUndo: boolean
@@ -219,6 +229,10 @@ export function useScriptBlocks(initial: ScriptBlock[] = []): UseScriptBlocksRes
   const [historyVersion, setHistoryVersion] = useState(0) // força re-render após undo/redo
   const undoStack = useRef<ScriptBlock[][]>([])
   const redoStack = useRef<ScriptBlock[][]>([])
+  // Ref espelho de `blocks` para leitura síncrona dentro de callbacks que
+  // precisam do estado atual sem depender de re-render (splitBlockWithIds).
+  const blocksRef = useRef<ScriptBlock[]>(initial)
+  blocksRef.current = blocks
 
   const reparse = useCallback((rawText: string) => {
     let parsed: ScriptBlock[] = []
@@ -250,10 +264,66 @@ export function useScriptBlocks(initial: ScriptBlock[] = []): UseScriptBlocksRes
       if (undoStack.current.length > 20) undoStack.current.shift()
       redoStack.current = []
       const next = [...prev]
-      next.splice(index, 1, makeBlock(first, block.title), makeBlock(second))
+      // GAP 2 — Preserva o ID/status/título do bloco original no primeiro
+      // bloco resultante, mantendo o vínculo com artes/B-roll (BlockArts/
+      // BlockBRoll usam blockId como chave no localStorage).
+      const firstBlock: ScriptBlock = {
+        id: block.id,
+        text: first,
+        title: block.title,
+        status: block.status,
+        estimatedSeconds: estimateSeconds(first),
+      }
+      next.splice(index, 1, firstBlock, makeBlock(second))
       return next
     })
   }, [])
+
+  /**
+   * GAP 2 — Divide um bloco num offset de caractere e retorna os IDs dos
+   * dois blocos resultantes: [firstId, secondId]. O primeiro preserva o ID
+   * do bloco original; o segundo recebe um novo ID pré-gerado (gerado ANTES
+   * da mutação, para que o caller possa redistribuir mídia de forma
+   * síncrona e determinística).
+   */
+  const splitBlockWithIds = useCallback(
+    (index: number, atChar: number): { firstId: string; secondId: string } | null => {
+      const block = blocksRef.current[index]
+      if (!block) return null
+      const at =
+        atChar > 0 && atChar < block.text.length ? atChar : Math.floor(block.text.length / 2)
+      const first = block.text.slice(0, at).trim()
+      const second = block.text.slice(at).trim()
+      if (!second) return null
+      const secondId = makeId()
+      setBlocksState((prev) => {
+        const blk = prev[index]
+        if (!blk) return prev
+        undoStack.current.push(prev)
+        if (undoStack.current.length > 20) undoStack.current.shift()
+        redoStack.current = []
+        const next = [...prev]
+        const firstBlock: ScriptBlock = {
+          id: blk.id,
+          text: first,
+          title: blk.title,
+          status: blk.status,
+          estimatedSeconds: estimateSeconds(first),
+        }
+        const secondBlock: ScriptBlock = {
+          id: secondId,
+          text: second,
+          status: 'pending',
+          estimatedSeconds: estimateSeconds(second),
+        }
+        next.splice(index, 1, firstBlock, secondBlock)
+        return next
+      })
+      return { firstId: block.id, secondId }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
 
   const splitAtCursor = useCallback(
     (index: number, cursorOffset: number | undefined) => splitBlock(index, cursorOffset),
@@ -268,12 +338,38 @@ export function useScriptBlocks(initial: ScriptBlock[] = []): UseScriptBlocksRes
       undoStack.current.push(prev)
       if (undoStack.current.length > 20) undoStack.current.shift()
       redoStack.current = []
-      const merged = makeBlock(`${prevBlock.text}\n\n${cur.text}`, prevBlock.title)
+      // GAP 3 — Preserva o ID do bloco anterior no bloco mesclado, mantendo
+      // o vínculo com artes/B-roll (BlockArts/BlockBRoll usam blockId como
+      // chave no localStorage). Antes o join criava um novo ID e descartava
+      // silenciosamente a mídia vinculada a ambos os blocos.
+      const mergedText = `${prevBlock.text}\n\n${cur.text}`
+      const merged: ScriptBlock = {
+        id: prevBlock.id,
+        text: mergedText.trim(),
+        title: prevBlock.title,
+        status: prevBlock.status,
+        estimatedSeconds: estimateSeconds(mergedText),
+      }
       const next = [...prev]
       next.splice(index - 1, 2, merged)
       return next
     })
   }, [])
+
+  /** GAP 3 — Juntar com anterior preservando o ID do bloco anterior.
+   * Retorna o ID do bloco mesclado (== ID do anterior) para que o caller
+   * possa redistribuir mídia de forma síncrona e determinística. */
+  const joinWithPreviousReturningId = useCallback(
+    (index: number): string | null => {
+      const prev = blocksRef.current
+      if (index <= 0 || !prev[index]) return null
+      const prevBlock = prev[index - 1]
+      const resultId = prevBlock.id
+      joinWithPrevious(index)
+      return resultId
+    },
+    [joinWithPrevious],
+  )
 
   const moveUp = useCallback((index: number) => {
     setBlocksState((prev) => {
@@ -396,8 +492,10 @@ export function useScriptBlocks(initial: ScriptBlock[] = []): UseScriptBlocksRes
     blocks,
     reparse,
     splitBlock,
+    splitBlockWithIds,
     splitAtCursor,
     joinWithPrevious,
+    joinWithPreviousReturningId,
     moveUp,
     moveDown,
     deleteBlock,

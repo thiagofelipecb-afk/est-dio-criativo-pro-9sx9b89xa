@@ -2254,6 +2254,11 @@ export default function Gravadora() {
                 setSyncArts={setSyncArts}
                 autoStartOnRecord={autoStartOnRecord}
                 setAutoStartOnRecord={setAutoStartOnRecord}
+                /* GAP 1 — Botão "Iniciar" do Roteiro delega ao mesmo handler
+                   do botão Gravar principal, respeitando a máquina de estados
+                   (só habilitado em modo 'prompter'). */
+                onStartRecording={handleToggleRecord}
+                canStartRecording={mode === 'prompter'}
               />
             </div>
           </div>
