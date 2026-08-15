@@ -97,6 +97,7 @@ export default function Layout() {
 
   const transversalItems: NavItem[] = [
     { label: 'Biblioteca', path: '/biblioteca', icon: Library },
+    { label: 'Analytics', path: '/analytics', icon: BarChart3 },
     { label: 'Métricas', path: '/metricas', icon: BarChart3 },
     { label: 'Configurações', path: '/configuracoes', icon: Settings },
     { label: 'Versão Mobile', path: '/versao-mobile', icon: Smartphone },

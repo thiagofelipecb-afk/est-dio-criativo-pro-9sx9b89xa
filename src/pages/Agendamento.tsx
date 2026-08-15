@@ -28,9 +28,14 @@ import {
   CheckCircle2,
   AlertCircle,
   FileText,
+  CheckCircle,
+  Circle,
+  Loader2,
+  ExternalLink,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Post, PostPlatform, PostStatus } from '@/types/library'
+import { supabase } from '@/lib/supabase/client'
 
 const STORAGE_KEY = 'lumen_posts'
 
@@ -109,6 +114,40 @@ const formatDateTime = (iso: string) => {
     .padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
 }
 
+// Mapa de plataforma → slug da edge function de publicação.
+const PUBLISH_FN: Record<PostPlatform, string> = {
+  instagram: 'instagram-publish',
+  tiktok: 'tiktok-publish',
+  youtube: 'youtube-publish',
+}
+
+interface PublishResult {
+  success: boolean
+  platformPostId?: string
+  platformPostUrl?: string
+  error?: string
+  tokenMissing?: boolean
+}
+
+/** Chama a edge function da plataforma e retorna o resultado. */
+async function publishToPlatform(
+  platform: PostPlatform,
+  payload: { videoUrl: string; caption: string; hashtags: string[]; scheduledAt: string },
+): Promise<PublishResult> {
+  try {
+    const { data, error } = await supabase.functions.invoke<PublishResult>(PUBLISH_FN[platform], {
+      body: payload,
+    })
+    if (error) {
+      return { success: false, error: error.message || 'Erro de rede ao chamar a edge function.' }
+    }
+    return data ?? { success: false, error: 'Resposta vazia da edge function.' }
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return { success: false, error: msg }
+  }
+}
+
 export default function Agendamento() {
   const [posts, setPosts] = useState<Post[]>(() => loadPosts())
   const [viewMonth, setViewMonth] = useState(() => {
@@ -132,29 +171,136 @@ export default function Agendamento() {
   const [hashtagInput, setHashtagInput] = useState('')
   const [uploading, setUploading] = useState(false)
 
+  // Estado de conexão das plataformas (vindo da edge function platform-tokens-status)
+  const [tokenStatus, setTokenStatus] = useState<Record<PostPlatform, boolean>>({
+    instagram: false,
+    tiktok: false,
+    youtube: false,
+  })
+  const [tokensLoading, setTokensLoading] = useState(true)
+  const [publishingIds, setPublishingIds] = useState<Set<string>>(new Set())
+
+  /** Busca quais plataformas têm token configurado. */
+  const refreshTokenStatus = useCallback(async () => {
+    setTokensLoading(true)
+    try {
+      const { data, error } = await supabase.functions.invoke<Record<PostPlatform, boolean>>(
+        'platform-tokens-status',
+        { body: {} },
+      )
+      if (!error && data) {
+        setTokenStatus({
+          instagram: !!data.instagram,
+          tiktok: !!data.tiktok,
+          youtube: !!data.youtube,
+        })
+      }
+    } catch {
+      /* mantém false */
+    } finally {
+      setTokensLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    refreshTokenStatus()
+  }, [refreshTokenStatus])
+
   // Persistência
   useEffect(() => {
     savePosts(posts)
   }, [posts])
 
-  // Simulação de publicação ao carregar: posts scheduled com data passada → published
+  // Publicação ao carregar: posts scheduled com data passada → chama edge function.
+  // Sem token configurado → fallback para simulação local (preserva comportamento atual).
   useEffect(() => {
     const now = Date.now()
     const due = posts.filter(
       (p) => p.status === 'scheduled' && new Date(p.scheduledAt).getTime() <= now,
     )
     if (due.length === 0) return
-    setPosts((prev) =>
-      prev.map((p) =>
-        due.some((d) => d.id === p.id)
-          ? { ...p, status: 'published', updatedAt: new Date().toISOString() }
-          : p,
-      ),
-    )
-    due.forEach((p) => {
-      const names = p.platforms.map((pl) => PLATFORM_META[pl].label).join('/')
-      toast.success(`📢 Post publicado no ${names} (simulação)`, {
-        description: p.title,
+
+    due.forEach(async (p) => {
+      if (publishingIds.has(p.id)) return
+      setPublishingIds((prev) => new Set(prev).add(p.id))
+
+      // Tenta publicar em cada plataforma selecionada.
+      let anySuccess = false
+      let anyTokenMissing = false
+      let lastError = ''
+      let firstPostId: string | undefined
+      let firstPostUrl: string | undefined
+
+      for (const pl of p.platforms) {
+        const result = await publishToPlatform(pl, {
+          videoUrl: p.mediaUrls[0] || '',
+          caption: p.caption,
+          hashtags: p.hashtags,
+          scheduledAt: p.scheduledAt,
+        })
+        if (result.success) {
+          anySuccess = true
+          if (!firstPostId) {
+            firstPostId = result.platformPostId
+            firstPostUrl = result.platformPostUrl
+          }
+        } else if (result.tokenMissing) {
+          anyTokenMissing = true
+        } else {
+          lastError = result.error || 'Erro desconhecido'
+        }
+      }
+
+      if (anySuccess) {
+        // Publicação real bem-sucedida em pelo menos uma plataforma.
+        setPosts((prev) =>
+          prev.map((post) =>
+            post.id === p.id
+              ? {
+                  ...post,
+                  status: 'published',
+                  platformPostId: firstPostId,
+                  platformPostUrl: firstPostUrl,
+                  updatedAt: new Date().toISOString(),
+                }
+              : post,
+          ),
+        )
+        const names = p.platforms.map((pl) => PLATFORM_META[pl].label).join('/')
+        toast.success(`📢 Post publicado no ${names}`, {
+          description: firstPostUrl ? `Ver publicação: ${firstPostUrl}` : p.title,
+        })
+      } else if (anyTokenMissing) {
+        // Fallback: simulação local (token não configurado).
+        setPosts((prev) =>
+          prev.map((post) =>
+            post.id === p.id
+              ? { ...post, status: 'published', updatedAt: new Date().toISOString() }
+              : post,
+          ),
+        )
+        const names = p.platforms.map((pl) => PLATFORM_META[pl].label).join('/')
+        toast.info(`🔧 Token não configurado — simulação local ativa`, {
+          description: `${p.title} • ${names}`,
+        })
+      } else {
+        // Erro real da API.
+        setPosts((prev) =>
+          prev.map((post) =>
+            post.id === p.id
+              ? { ...post, status: 'failed', updatedAt: new Date().toISOString() }
+              : post,
+          ),
+        )
+        toast.error(`Falha ao publicar "${p.title}"`, {
+          description: lastError || 'Erro desconhecido na API da plataforma.',
+        })
+      }
+
+      setPublishingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(p.id)
+        return next
       })
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -594,6 +740,16 @@ export default function Agendamento() {
                           ))}
                         </div>
                       )}
+                      {post.platformPostUrl && (
+                        <a
+                          href={post.platformPostUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[9px] text-[#22D3EE] hover:underline"
+                        >
+                          <ExternalLink className="w-2.5 h-2.5" /> Ver publicação
+                        </a>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
@@ -632,7 +788,8 @@ export default function Agendamento() {
                   {editingId ? 'Editar Postagem' : 'Nova Postagem'}
                 </DialogTitle>
                 <DialogDescription className="text-xs text-[#9494A8]">
-                  Configure mídia, legenda, plataformas e horário de publicação.
+                  Configure mídia, legenda, plataformas e horário de publicação. Plataformas
+                  conectadas publicam de verdade; as demais usam simulação local.
                 </DialogDescription>
               </div>
             </div>
@@ -716,11 +873,12 @@ export default function Agendamento() {
             {/* Plataformas */}
             <div>
               <label className="text-xs text-[#9494A8] block mb-1.5">Plataformas</label>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3 flex-wrap">
                 {(['instagram', 'tiktok', 'youtube'] as const).map((pl) => {
                   const meta = PLATFORM_META[pl]
                   const Icon = meta.icon
                   const checked = form.platforms.includes(pl)
+                  const connected = tokenStatus[pl]
                   return (
                     <label
                       key={pl}
@@ -733,6 +891,24 @@ export default function Agendamento() {
                       <Checkbox checked={checked} onCheckedChange={() => togglePlatform(pl)} />
                       <Icon className={`w-4 h-4 ${meta.color}`} />
                       <span className="text-xs text-white">{meta.label}</span>
+                      {/* Indicador de conexão */}
+                      {tokensLoading ? (
+                        <Loader2 className="w-3 h-3 text-[#9494A8] animate-spin" />
+                      ) : connected ? (
+                        <span
+                          className="flex items-center gap-0.5 text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full"
+                          title="Token configurado — publicação real"
+                        >
+                          <CheckCircle className="w-2.5 h-2.5" /> Conectado
+                        </span>
+                      ) : (
+                        <span
+                          className="flex items-center gap-0.5 text-[9px] font-bold text-[#9494A8] bg-white/5 border border-white/10 px-1.5 py-0.5 rounded-full"
+                          title="Token não configurado — simulação local"
+                        >
+                          <Circle className="w-2.5 h-2.5" /> Não configurado
+                        </span>
+                      )}
                     </label>
                   )
                 })}

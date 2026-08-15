@@ -23,6 +23,10 @@ export interface Post {
   hashtags: string[]
   createdAt: string
   updatedAt: string
+  /** ID do post na plataforma (preenchido quando a publicação é real). */
+  platformPostId?: string
+  /** URL do post na plataforma (preenchido quando a publicação é real). */
+  platformPostUrl?: string
 }
 
 /** Texto arrastável num slide de carrossel. */

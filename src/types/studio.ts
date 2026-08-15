@@ -145,6 +145,10 @@ export interface ScheduledPost {
     likes: number
     engagementRate: string
   }
+  /** ID do post na plataforma (preenchido quando a publicação é real). */
+  platformPostId?: string
+  /** URL do post na plataforma (preenchido quando a publicação é real). */
+  platformPostUrl?: string
 }
 
 export interface AISuggestion {

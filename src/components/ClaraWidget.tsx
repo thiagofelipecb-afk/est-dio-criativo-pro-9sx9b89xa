@@ -1,13 +1,48 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
 import { usePlatform } from '@/context/PlatformContext'
-import { Sparkles, X, Send, Bot, Trash2 } from 'lucide-react'
+import { useStudio } from '@/context/StudioContext'
+import type { Project } from '@/types/studio'
+import {
+  Sparkles,
+  X,
+  Send,
+  Bot,
+  Trash2,
+  Video,
+  Hash,
+  Type,
+  Film,
+  Scissors,
+  Copy,
+  Check,
+} from 'lucide-react'
+import {
+  analyzeVideo,
+  suggestHashtags,
+  suggestTitles,
+  suggestBRoll,
+  transformToShorts,
+  fmtTimecode,
+  type VideoSegment,
+  type HashtagSuggestion,
+  type BrollSuggestion,
+} from '@/lib/clara-heuristics'
 
 interface ClaraMessage {
   role: 'clara' | 'user'
   text: string
   at: string
+  /** Resultado estruturado opcional (para cards acionáveis). */
+  result?: ClaraResult
 }
+
+type ClaraResult =
+  | { kind: 'video-analysis'; segments: VideoSegment[]; summary: string }
+  | { kind: 'hashtags'; suggestions: HashtagSuggestion[] }
+  | { kind: 'titles'; titles: string[] }
+  | { kind: 'broll'; suggestions: BrollSuggestion[] }
+  | { kind: 'shorts'; script: string; estimatedSec: number }
 
 const STORAGE_KEY = 'lumen_clara'
 const MAX_MESSAGES = 50
@@ -82,6 +117,11 @@ const ROUTE_CONTEXT: { match: RegExp; label: string; help: string }[] = [
     help: 'Posso orientar sobre leituras manuais, tendências e evolução de watch time.',
   },
   {
+    match: /\/analytics/,
+    label: 'Analytics',
+    help: 'Posso analisar suas métricas de uso da plataforma e sugerir próximos passos.',
+  },
+  {
     match: /\/agendamento/,
     label: 'Agendamento',
     help: 'Posso ajudar a planejar e agendar suas publicações.',
@@ -107,15 +147,35 @@ function routeInfo(pathname: string) {
   }
 }
 
+const QUICK_ACTIONS = [
+  { id: 'analyze', label: 'Analisar vídeo', icon: Video },
+  { id: 'hashtags', label: 'Sugerir hashtags', icon: Hash },
+  { id: 'titles', label: 'Sugerir título', icon: Type },
+  { id: 'broll', label: 'Sugerir B-roll', icon: Film },
+  { id: 'shorts', label: 'Transformar em Shorts', icon: Scissors },
+] as const
+
+type QuickActionId = (typeof QUICK_ACTIONS)[number]['id']
+
 export default function ClaraWidget() {
   const { hasBrandOS, brandProfile } = usePlatform()
+  const { projects, activeProjectId } = useStudio()
   const location = useLocation()
+  // Guarda o texto do roteiro do projeto ativo (vindo do snapshot/StudioContext)
+  // para alimentar as heurísticas da Clara. projects é Project[] do StudioContext.
+  void projects as Project[]
+  void activeProjectId
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState<ClaraMessage[]>(loadMessages)
   const [input, setInput] = useState('')
   const [typing, setTyping] = useState(false)
+  const [actionLoading, setActionLoading] = useState<QuickActionId | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const welcomedRef = useRef<string>('')
+
+  // Projeto ativo (para análise de vídeo)
+  const activeProject = projects.find((p) => p.id === activeProjectId)
 
   // Persistir sempre que mudar (com truncagem para 50)
   useEffect(() => {
@@ -127,7 +187,7 @@ export default function ClaraWidget() {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [messages, open, typing])
+  }, [messages, open, typing, actionLoading])
 
   const info = routeInfo(location.pathname)
 
@@ -196,6 +256,81 @@ export default function ClaraWidget() {
     welcomedRef.current = '' // permite regerar boas-vindas contextualizada
   }
 
+  /** Executa uma ação rápida da Clara (heurística local). */
+  const runQuickAction = useCallback(
+    (actionId: QuickActionId) => {
+      // Texto de referência: título + legenda + roteiro do projeto ativo.
+      const projectText = [activeProject?.title || '', activeProject?.scriptText || '']
+        .join('\n')
+        .trim()
+      const fallbackText = 'criação de conteúdo marketing digital'
+      const text = projectText || fallbackText
+
+      setActionLoading(actionId)
+      setTyping(true)
+
+      // Simula "pensando" com delay progressivo.
+      const delay = 900 + Math.random() * 600
+      setTimeout(() => {
+        let result: ClaraResult | null = null
+        let intro = ''
+
+        switch (actionId) {
+          case 'analyze': {
+            const duration = activeProject?.duration || 30
+            const analysis = analyzeVideo(duration, activeProject?.resolution)
+            result = {
+              kind: 'video-analysis',
+              segments: analysis.segments,
+              summary: analysis.summary,
+            }
+            intro = '🔍 Analisei seu vídeo. Aqui está minha sugestão de cortes:'
+            break
+          }
+          case 'hashtags': {
+            const suggestions = suggestHashtags(text)
+            result = { kind: 'hashtags', suggestions }
+            intro = `🏷️ Gerei ${suggestions.length} hashtags relevantes para "${activeProject?.title || 'seu conteúdo'}":`
+            break
+          }
+          case 'titles': {
+            const titles = suggestTitles(text)
+            result = { kind: 'titles', titles }
+            intro = '✍️ Aqui estão 3 opções de título otimizadas para engajamento:'
+            break
+          }
+          case 'broll': {
+            const suggestions = suggestBRoll(text)
+            result = { kind: 'broll', suggestions }
+            intro = '🎬 Sugestões de B-roll (termos de busca para Pexels) por bloco:'
+            break
+          }
+          case 'shorts': {
+            const script = transformToShorts(activeProject?.scriptText || text)
+            result = { kind: 'shorts', script: script.script, estimatedSec: script.estimatedSec }
+            intro = `✂️ Versão condensada para Shorts (~${script.estimatedSec}s):`
+            break
+          }
+        }
+
+        setMessages((prev) => [
+          ...prev,
+          { role: 'clara', text: intro, at: new Date().toISOString(), result: result || undefined },
+        ])
+        setTyping(false)
+        setActionLoading(null)
+      }, delay)
+    },
+    [activeProject],
+  )
+
+  const copyToClipboard = (text: string, id: string) => {
+    navigator.clipboard?.writeText(text).then(() => {
+      setCopied(id)
+      setTimeout(() => setCopied(null), 1500)
+    })
+  }
+
   if (!open) {
     return (
       <button
@@ -215,7 +350,7 @@ export default function ClaraWidget() {
   }
 
   return (
-    <div className="fixed bottom-5 right-5 z-50 w-[360px] max-w-[calc(100vw-2rem)] h-[500px] max-h-[calc(100vh-2rem)] flex flex-col rounded-2xl bg-[#14141C] border border-white/15 shadow-2xl overflow-hidden animate-fade-in-up">
+    <div className="fixed bottom-5 right-5 z-50 w-[360px] max-w-[calc(100vw-2rem)] h-[560px] max-h-[calc(100vh-2rem)] flex flex-col rounded-2xl bg-[#14141C] border border-white/15 shadow-2xl overflow-hidden animate-fade-in-up">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-[#7C5CFC]/20 to-[#22D3EE]/10 border-b border-white/10">
         <div className="flex items-center gap-2.5 min-w-0">
@@ -246,11 +381,36 @@ export default function ClaraWidget() {
         </div>
       </div>
 
+      {/* Quick Actions Bar */}
+      <div className="px-2.5 py-2 bg-[#0e0e15]/60 border-b border-white/5 flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+        {QUICK_ACTIONS.map((action) => {
+          const Icon = action.icon
+          const isLoading = actionLoading === action.id
+          return (
+            <button
+              key={action.id}
+              onClick={() => runQuickAction(action.id)}
+              disabled={actionLoading !== null}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold whitespace-nowrap transition-all shrink-0 ${
+                isLoading
+                  ? 'bg-[#7C5CFC]/30 text-[#7C5CFC]'
+                  : 'bg-[#1C1C27] text-[#9494A8] hover:bg-white/10 hover:text-white'
+              } disabled:cursor-not-allowed`}
+              title={action.label}
+            >
+              <Icon className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} />
+              {action.label}
+            </button>
+          )
+        })}
+      </div>
+
       {/* Contexto da rota */}
       <div className="px-3 py-1.5 bg-[#0e0e15]/60 border-b border-white/5">
         <p className="text-[10px] text-[#9494A8] truncate">
           <span className="text-[#7C5CFC] font-semibold">Contexto:</span> {info.label} •{' '}
           {hasBrandOS ? 'Brand OS ativo' : 'sem Brand OS'}
+          {activeProject && <span className="text-[#22D3EE]"> • {activeProject.title}</span>}
         </p>
       </div>
 
@@ -259,13 +419,16 @@ export default function ClaraWidget() {
         {messages.map((m, i) => (
           <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div
-              className={`max-w-[85%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${
+              className={`max-w-[88%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${
                 m.role === 'user'
                   ? 'bg-[#7C5CFC] text-white rounded-br-sm'
                   : 'bg-[#1C1C27] text-slate-200 rounded-bl-sm border border-white/5'
               }`}
             >
               {m.text}
+              {m.result && (
+                <ResultCard result={m.result} onCopy={copyToClipboard} copied={copied} />
+              )}
             </div>
           </div>
         ))}
@@ -310,4 +473,138 @@ export default function ClaraWidget() {
       </div>
     </div>
   )
+}
+
+/* ── Card de resultado estruturado (acionável) ─────────────────────────── */
+
+function ResultCard({
+  result,
+  onCopy,
+  copied,
+}: {
+  result: ClaraResult
+  onCopy: (text: string, id: string) => void
+  copied: string | null
+}) {
+  if (result.kind === 'video-analysis') {
+    const total = result.segments[result.segments.length - 1]?.endSec || 1
+    return (
+      <div className="mt-2 space-y-2">
+        <p className="text-[10px] text-[#9494A8]">{result.summary}</p>
+        {/* Preview visual dos segmentos na timeline */}
+        <div className="flex h-8 rounded-lg overflow-hidden border border-white/10">
+          {result.segments.map((seg, i) => {
+            const widthPct = ((seg.endSec - seg.startSec) / total) * 100
+            const colors = ['#7C5CFC', '#22D3EE', '#FBBF24']
+            return (
+              <div
+                key={i}
+                className="flex items-center justify-center text-[8px] font-bold text-black/70"
+                style={{ width: `${widthPct}%`, background: colors[i % 3] }}
+                title={`${seg.label}: ${fmtTimecode(seg.startSec)}-${fmtTimecode(seg.endSec)}`}
+              >
+                {widthPct > 15 ? seg.label.slice(0, 8) : ''}
+              </div>
+            )
+          })}
+        </div>
+        <div className="space-y-1">
+          {result.segments.map((seg, i) => (
+            <div
+              key={i}
+              className="flex items-center justify-between text-[10px] bg-black/30 rounded px-2 py-1"
+            >
+              <span className="text-white font-medium">{seg.label}</span>
+              <span className="text-[#22D3EE] font-mono">
+                {fmtTimecode(seg.startSec)} - {fmtTimecode(seg.endSec)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  if (result.kind === 'hashtags') {
+    return (
+      <div className="mt-2 flex flex-wrap gap-1">
+        {result.suggestions.map((s, i) => (
+          <button
+            key={i}
+            onClick={() => onCopy(s.tag, `ht-${i}`)}
+            className="text-[10px] text-[#7C5CFC] bg-[#7C5CFC]/10 border border-[#7C5CFC]/20 px-2 py-0.5 rounded hover:bg-[#7C5CFC]/20 transition-colors"
+            title={`Copiar ${s.tag}`}
+          >
+            {copied === `ht-${i}` ? <Check className="w-2.5 h-2.5 inline" /> : s.tag}
+          </button>
+        ))}
+      </div>
+    )
+  }
+
+  if (result.kind === 'titles') {
+    return (
+      <div className="mt-2 space-y-1.5">
+        {result.titles.map((t, i) => (
+          <button
+            key={i}
+            onClick={() => onCopy(t, `ti-${i}`)}
+            className="w-full text-left text-[11px] text-slate-200 bg-black/30 border border-white/10 rounded-lg px-2.5 py-1.5 hover:border-[#7C5CFC]/40 transition-colors"
+          >
+            <span className="text-[#22D3EE] font-bold mr-1">{i + 1}.</span>
+            {t}
+            {copied === `ti-${i}` && <Check className="w-3 h-3 inline ml-1 text-emerald-400" />}
+          </button>
+        ))}
+      </div>
+    )
+  }
+
+  if (result.kind === 'broll') {
+    return (
+      <div className="mt-2 space-y-1">
+        {result.suggestions.map((s, i) => (
+          <div
+            key={i}
+            className="flex items-center justify-between text-[10px] bg-black/30 rounded px-2 py-1"
+          >
+            <span className="text-white">
+              <span className="text-[#9494A8] mr-1">{i + 1}.</span>
+              {s.keyword}
+            </span>
+            <button
+              onClick={() => onCopy(s.query, `br-${i}`)}
+              className="text-[#22D3EE] hover:underline font-mono"
+            >
+              {copied === `br-${i}` ? (
+                <Check className="w-2.5 h-2.5 inline" />
+              ) : (
+                `pexels:${s.query}`
+              )}
+            </button>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  if (result.kind === 'shorts') {
+    return (
+      <div className="mt-2 space-y-2">
+        <p className="text-[10px] text-[#9494A8]">Duração estimada: ~{result.estimatedSec}s</p>
+        <div className="text-[11px] text-slate-200 bg-black/30 border border-white/10 rounded-lg p-2.5 max-h-32 overflow-y-auto whitespace-pre-wrap">
+          {result.script}
+        </div>
+        <button
+          onClick={() => onCopy(result.script, 'shorts')}
+          className="flex items-center gap-1 text-[10px] text-[#22D3EE] hover:underline"
+        >
+          {copied === 'shorts' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+          Copiar roteiro
+        </button>
+      </div>
+    )
+  }
+
+  return null
 }
