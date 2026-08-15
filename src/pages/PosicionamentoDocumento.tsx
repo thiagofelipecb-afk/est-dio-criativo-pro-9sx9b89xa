@@ -455,63 +455,133 @@ const MINDMAP_ICONS: React.ComponentType<{ className?: string; style?: React.CSS
 function MindMap({ data }: { data: DocData }) {
   const center = data.niche || 'Sua Marca'
   const branches = data.mindMapBranches
-  const W = 760
+
+  /*
+    Cálculo dos pontos de conexão do SVG com as colunas do Grid:
+    No desktop (sm:grid-cols-4), existem 4 colunas.
+    Como são 8 cards no total (2 linhas de 4 cards cada),
+    as linhas conectoras conectam o Nó Central ("agencia") no topo
+    aos pontos centrais superiores das 4 COLUNAS PRINCIPAIS.
+    Dessa forma, os 4 feixes fluem limpos e elegantes até os tops dos cards
+    da primeira linha sem poluir e cruzar os cards.
+
+    Largura total do contêiner SVG: 100%
+    Percentual x para cada uma das 4 colunas:
+    1ª coluna: 12.5%
+    2ª coluna: 37.5%
+    3ª coluna: 62.5%
+    4ª coluna: 87.5%
+  */
+  const colCentersPct = [12.5, 37.5, 62.5, 87.5]
+
   return (
-    <div className="mind-map w-full overflow-x-auto">
-      <div className="min-w-[680px] flex flex-col items-center gap-4 py-2">
+    <div className="mind-map w-full">
+      <div className="flex flex-col items-center">
         {/* Nó central */}
-        <div className="relative animate-mindmap-center">
+        <div className="relative animate-mindmap-center z-10">
           <div
-            className="absolute inset-0 rounded-2xl blur-xl opacity-50"
+            className="absolute inset-0 rounded-2xl blur-xl opacity-60"
             style={{ background: COLORS.purple }}
           />
-          <div className="relative px-6 py-3 rounded-2xl bg-gradient-to-r from-[#7C5CFC] to-[#6A48E0] text-white font-extrabold text-center shadow-lg">
+          <div className="relative px-8 py-3.5 rounded-2xl bg-gradient-to-r from-[#7C5CFC] via-[#6A48E0] to-[#5835D4] text-white font-extrabold text-center shadow-2xl border border-white/20">
             {center}
           </div>
         </div>
 
         {/* Linhas conectoras SVG */}
-        <svg
-          className="absolute pointer-events-none"
-          width={W}
-          height="70"
-          style={{ marginTop: -6 }}
-        >
-          {branches.map((_, i) => {
-            const x = 70 + (i * (W - 140)) / Math.max(branches.length - 1, 1)
-            return (
-              <path
-                key={i}
-                d={`M ${W / 2} 0 Q ${(W / 2 + x) / 2} 35 ${x} 70`}
-                fill="none"
-                stroke={branches[i].color}
-                strokeWidth="1.5"
-                strokeOpacity="0.5"
-                className="animate-mindmap-line"
-                style={{ animationDelay: `${i * 80}ms` }}
-              />
-            )
-          })}
-        </svg>
+        <div className="relative w-full h-24 my-1">
+          <svg
+            className="w-full h-full overflow-visible pointer-events-none"
+            viewBox="0 0 1000 100"
+            preserveAspectRatio="none"
+          >
+            <defs>
+              {branches.map((b, i) => (
+                <linearGradient
+                  key={`grad-${i}`}
+                  id={`mindmap-grad-${i}`}
+                  x1="0%"
+                  y1="0%"
+                  x2="0%"
+                  y2="100%"
+                >
+                  <stop offset="0%" stopColor={COLORS.purple} stopOpacity="0.9" />
+                  <stop offset="100%" stopColor={b.color} stopOpacity="0.9" />
+                </linearGradient>
+              ))}
+              <filter id="glow-line" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="2" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+              </filter>
+            </defs>
 
-        {/* Ramificações */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full mt-6">
+            {branches.map((b, i) => {
+              // Associa cada ramificação (0..7) a uma das 4 colunas (0..3)
+              const colIdx = i % 4
+              const startX = 500 // Centro inferior do nó central (x=50% de 1000)
+              const startY = 0 // Origem no topo da área do SVG (saída direta do nó central)
+              const endX = (colCentersPct[colIdx] / 100) * 1000
+              const endY = 100 // Alcança exatamente o topo da primeira fileira de cards
+
+              // Curvatura suave usando curva Bézier cúbica (C) ou quadrática (Q)
+              const controlY = 45
+
+              return (
+                <g key={i}>
+                  {/* Linha com brilho de fundo (glow effect) */}
+                  <path
+                    d={`M ${startX} ${startY} C ${startX} ${controlY}, ${endX} ${controlY}, ${endX} ${endY}`}
+                    fill="none"
+                    stroke={b.color}
+                    strokeWidth="4"
+                    strokeOpacity="0.25"
+                    filter="url(#glow-line)"
+                    className="animate-mindmap-line"
+                    style={{ animationDelay: `${i * 70}ms` }}
+                  />
+                  {/* Linha principal com gradiente e strokeWidth="2.5" */}
+                  <path
+                    d={`M ${startX} ${startY} C ${startX} ${controlY}, ${endX} ${controlY}, ${endX} ${endY}`}
+                    fill="none"
+                    stroke={`url(#mindmap-grad-${i})`}
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    className="animate-mindmap-line"
+                    style={{ animationDelay: `${i * 70}ms` }}
+                  />
+                  {/* Ponto brilhante de ancoragem no topo do card */}
+                  <circle
+                    cx={endX}
+                    cy={endY}
+                    r="3.5"
+                    fill={b.color}
+                    className="animate-mindmap-node"
+                    style={{ animationDelay: `${i * 70 + 200}ms` }}
+                  />
+                </g>
+              )
+            })}
+          </svg>
+        </div>
+
+        {/* Ramificações (Grid 2 colunas no mobile, 4 colunas no desktop) */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full">
           {branches.map((b, i) => {
             const Icon = MINDMAP_ICONS[i] || Brain
             return (
               <div
                 key={i}
-                className="rounded-xl border p-3 space-y-1.5 transition-transform hover:scale-[1.03] animate-mindmap-node"
+                className="rounded-xl border p-3.5 space-y-1.5 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg animate-mindmap-node"
                 style={{
                   borderColor: `${b.color}40`,
                   background: `${b.color}0d`,
-                  animationDelay: `${i * 80 + 200}ms`,
+                  animationDelay: `${i * 70 + 200}ms`,
                 }}
               >
                 <div className="flex items-center gap-1.5">
-                  <Icon className="w-3.5 h-3.5" style={{ color: b.color }} />
+                  <Icon className="w-3.5 h-3.5 shrink-0" style={{ color: b.color }} />
                   <span
-                    className="text-[10px] font-bold uppercase tracking-wider"
+                    className="text-[10px] font-bold uppercase tracking-wider truncate"
                     style={{ color: b.color }}
                   >
                     {b.title}
