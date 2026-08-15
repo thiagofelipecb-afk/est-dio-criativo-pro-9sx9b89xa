@@ -1503,6 +1503,14 @@ export default function Gravadora() {
         })
         .then(() => {
           transition('prompter')
+          // PONTE GRAVADORA → EDITOR: toast com ação para abrir o projeto
+          // recém-salvo (com snapshot completo) no editor de vídeo.
+          toast.success('Vídeo salvo! Abrir no Editor', {
+            action: {
+              label: 'Abrir no Editor',
+              onClick: () => navigate(`/editor/${newProj.id}`),
+            },
+          })
         })
         .catch((err) => {
           console.warn('[Gravadora] Falha ao salvar vídeo bruto/snapshot:', err)

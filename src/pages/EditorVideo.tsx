@@ -354,6 +354,11 @@ export default function EditorVideo() {
     return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`
   }
 
+  // Desfoque de fundo (FASE 4 — Editor com IA): slider 0–20px aplicado em
+  // tempo real no preview e repassado para a exportação. Declarado antes do
+  // handler de exportação para que possa ser referenciado nas suas deps.
+  const [backgroundBlur, setBackgroundBlur] = useState(0)
+
   /* FASE 5.7 — Exportação MP4 real. */
   const [exportProgress, setExportProgress] = useState<ExportProgress>({
     phase: 'idle',
@@ -421,6 +426,7 @@ export default function EditorVideo() {
         artsByBlock,
         brollByBlock,
         reaction,
+        backgroundBlur,
         projectName: currentProject?.title || 'projeto',
         onProgress: (p) => setExportProgress(p),
         shouldCancel: () => cancelExportRef.current,
@@ -476,6 +482,7 @@ export default function EditorVideo() {
     restoredBlocks,
     restoredArts,
     restoredBRoll,
+    backgroundBlur,
     currentProject,
     id,
     updateProject,
@@ -988,13 +995,13 @@ export default function EditorVideo() {
               }}
               style={{
                 filter:
-                  selectedClip?.filter === 'cinematic'
+                  (selectedClip?.filter === 'cinematic'
                     ? 'contrast(120%) saturate(130%)'
                     : selectedClip?.filter === 'vintage'
                       ? 'sepia(40%) contrast(90%)'
                       : selectedClip?.filter === 'neon'
                         ? 'hue-rotate(90deg) contrast(140%)'
-                        : 'none',
+                        : 'none') + (backgroundBlur > 0 ? ` blur(${backgroundBlur}px)` : ''),
               }}
             />
             {/* Snapshot restaurado indicator */}
@@ -1535,6 +1542,26 @@ export default function EditorVideo() {
                       </button>
                     ))}
                   </div>
+                </div>
+
+                {/* FASE 4 — Desfoque de Fundo (aplicado em tempo real + exportação) */}
+                <div className="pt-2 border-t border-white/5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <Eye className="w-3.5 h-3.5 text-[#7C5CFC]" /> Desfoque de Fundo
+                    </h4>
+                    <span className="text-[10px] font-mono text-[#9494A8]">{backgroundBlur}px</span>
+                  </div>
+                  <Slider
+                    value={[backgroundBlur]}
+                    min={0}
+                    max={20}
+                    step={1}
+                    onValueChange={(val) => setBackgroundBlur(val[0])}
+                  />
+                  <p className="text-[10px] text-[#9494A8]/70">
+                    Aplica um desfoque ao vídeo visível no preview e na exportação final.
+                  </p>
                 </div>
               </div>
             </TabsContent>

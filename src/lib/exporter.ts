@@ -53,6 +53,8 @@ export interface ExportOptions {
   reaction?: ReactionVideo | null
   /** FPS alvo (padrão 30). */
   fps?: number
+  /** Desfoque de fundo aplicado ao vídeo (0 a 20px). Padrão 0 (sem blur). */
+  backgroundBlur?: number
   /** Nome base do projeto para o arquivo. */
   projectName: string
   /** Callback de progresso. */
@@ -425,6 +427,7 @@ export async function exportVideo(opts: ExportOptions): Promise<ExportResult> {
     brollByBlock,
     reaction,
     fps = 30,
+    backgroundBlur = 0,
     projectName,
     onProgress,
     shouldCancel,
@@ -637,7 +640,16 @@ export async function exportVideo(opts: ExportOptions): Promise<ExportResult> {
 
       // Desenha o frame.
       drawBackground(ctx, background, EXPORT_W, EXPORT_H, videoEl, cachedBgImage)
-      drawVideoCover(ctx, videoEl, EXPORT_W, EXPORT_H, 0, true)
+      // Desfoque de fundo (backgroundBlur): aplica ctx.filter ao desenhar o
+      // vídeo sobre o fundo. Não afeta fundo/título/overlays desenhados depois.
+      if (backgroundBlur > 0) {
+        ctx.save()
+        ctx.filter = `blur(${backgroundBlur}px)`
+        drawVideoCover(ctx, videoEl, EXPORT_W, EXPORT_H, 0, true)
+        ctx.restore()
+      } else {
+        drawVideoCover(ctx, videoEl, EXPORT_W, EXPORT_H, 0, true)
+      }
       const activeBlock = findActiveBlock(blocks, rawTime)
       if (activeBlock) {
         const arts = artsByBlock[activeBlock.id] || []
