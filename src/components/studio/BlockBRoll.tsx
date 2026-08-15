@@ -162,12 +162,17 @@ export function BlockBRoll({ blockId, blockText, stopPropagation = true }: Block
       )}
 
       {/* Erro / fallback */}
-      {error && (
-        <div className="flex items-start gap-1.5 text-[9px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-md px-1.5 py-1 mb-1.5">
+      {error && error === 'Falha na busca — tente novamente' ? (
+        <div className="flex items-start gap-1.5 text-[9px] text-red-300 bg-red-500/10 border border-red-500/30 rounded-md px-1.5 py-1 mb-1.5">
           <AlertCircle className="w-3 h-3 shrink-0 mt-px" />
           <span className="leading-tight">{error}</span>
         </div>
-      )}
+      ) : error ? (
+        <div className="flex items-start gap-1.5 text-[9px] text-[#A78BFA]/70 bg-[#7C5CFC]/10 border border-[#7C5CFC]/30 rounded-md px-1.5 py-1 mb-1.5">
+          <AlertCircle className="w-3 h-3 shrink-0 mt-px text-[#A78BFA]" />
+          <span className="leading-tight">{error}</span>
+        </div>
+      ) : null}
 
       {/* B-roll selecionado */}
       {broll && (
@@ -218,6 +223,28 @@ export function BlockBRoll({ blockId, blockText, stopPropagation = true }: Block
         </div>
       )}
 
+      {/* Estados: vazio / carregando / sem resultados / sucesso */}
+      {!loading && !error && results.length === 0 && !broll ? (
+        <div className="flex flex-col items-center justify-center py-4 gap-1 text-center">
+          <Search className="w-4 h-4 text-[#A78BFA]/40" />
+          <p className="text-[9px] text-[#A78BFA]/50">Busque por um termo</p>
+        </div>
+      ) : null}
+
+      {loading && (
+        <div className="flex flex-col items-center justify-center py-4 gap-1">
+          <Loader2 className="w-4 h-4 animate-spin text-[#7C5CFC]" />
+          <p className="text-[9px] text-[#A78BFA]/70">Buscando vídeos…</p>
+        </div>
+      )}
+
+      {!loading && error === 'Nenhum vídeo encontrado para este termo.' && results.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-4 gap-1 text-center">
+          <AlertCircle className="w-4 h-4 text-[#A78BFA]/40" />
+          <p className="text-[9px] text-[#A78BFA]/50">Nada encontrado</p>
+        </div>
+      )}
+
       {/* Grade de resultados */}
       {results.length > 0 && (
         <div className="grid grid-cols-3 gap-1 max-h-40 overflow-y-auto scrollbar-thin">
@@ -233,10 +260,10 @@ export function BlockBRoll({ blockId, blockText, stopPropagation = true }: Block
                   stop(e)
                   selectResult(r)
                 }}
-                className={`relative rounded-md overflow-hidden border text-left transition-all ${
+                className={`relative rounded-lg overflow-hidden border text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
                   isSelected
                     ? 'border-emerald-400 ring-1 ring-emerald-400'
-                    : 'border-white/10 hover:border-white/30'
+                    : 'border-[#1E1E2A] hover:border-[#22D3EE]/40'
                 }`}
                 title={`Selecionar vídeo de ${r.user?.name ?? 'Pexels'}`}
               >
@@ -254,7 +281,7 @@ export function BlockBRoll({ blockId, blockText, stopPropagation = true }: Block
                   </div>
                 )}
                 <div className="px-1 py-0.5 bg-[#1C1C27]">
-                  <span className="text-[7px] text-[#9494A8] truncate block">
+                  <span className="text-[10px] text-[#A78BFA]/50 truncate block">
                     {r.user?.name ?? 'Pexels'}
                   </span>
                 </div>

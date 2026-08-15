@@ -652,15 +652,15 @@ export function Whiteboard() {
       {/* Coluna principal */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Toolbar */}
-        <div className="flex items-center gap-1 px-2 py-1.5 border-b border-white/5 shrink-0 flex-wrap">
+        <div className="flex items-center gap-1 px-2 py-1.5 border-b border-[#1E1E2A] shrink-0 flex-wrap">
           {TOOL_BUTTONS.map((b) => (
             <button
               key={b.id}
               onClick={() => setTool(b.id)}
-              className={`p-1.5 rounded-md transition-colors ${
+              className={`p-1.5 rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
                 tool === b.id
                   ? 'bg-[#7C5CFC] text-white'
-                  : 'text-[#9494A8] hover:text-white hover:bg-white/5'
+                  : 'bg-[#1E1E2A] text-[#9494A8] hover:text-white hover:bg-[#7C5CFC]/20'
               }`}
               title={b.label}
             >
@@ -668,7 +668,7 @@ export function Whiteboard() {
             </button>
           ))}
 
-          <div className="w-px h-5 bg-white/10 mx-0.5" />
+          <div className="w-px h-5 bg-[#1E1E2A] mx-0.5" />
 
           {/* Cores */}
           <div className="flex items-center gap-0.5">
@@ -676,8 +676,8 @@ export function Whiteboard() {
               <button
                 key={c}
                 onClick={() => setColor(c)}
-                className={`w-4 h-4 rounded-full border-2 transition-transform ${
-                  color === c ? 'border-white scale-110' : 'border-white/20'
+                className={`w-4 h-4 rounded-full border-2 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
+                  color === c ? 'border-white scale-110' : 'border-[#1E1E2A]'
                 }`}
                 style={{ backgroundColor: c }}
                 title={c}
@@ -685,7 +685,7 @@ export function Whiteboard() {
             ))}
           </div>
 
-          <div className="w-px h-5 bg-white/10 mx-0.5" />
+          <div className="w-px h-5 bg-[#1E1E2A] mx-0.5" />
 
           {/* Espessura */}
           <div className="flex items-center gap-1 w-20">
@@ -695,7 +695,7 @@ export function Whiteboard() {
               max={10}
               value={strokeWidth}
               onChange={(e) => setStrokeWidth(parseInt(e.target.value))}
-              className="w-full accent-[#7C5CFC]"
+              className="w-full accent-[#7C5CFC] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
               title="Espessura"
             />
             <span className="text-[9px] text-[#9494A8] font-mono w-4">{strokeWidth}</span>
@@ -706,7 +706,7 @@ export function Whiteboard() {
           <button
             onClick={undo}
             disabled={!canUndo}
-            className="p-1.5 rounded-md text-[#9494A8] hover:text-white hover:bg-white/5 disabled:opacity-30"
+            className="p-1.5 rounded-md text-[#9494A8] hover:text-white hover:bg-[#7C5CFC]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] disabled:opacity-40 disabled:cursor-not-allowed"
             title="Desfazer"
           >
             <Undo2 className="w-3.5 h-3.5" />
@@ -714,7 +714,7 @@ export function Whiteboard() {
           <button
             onClick={redo}
             disabled={!canRedo}
-            className="p-1.5 rounded-md text-[#9494A8] hover:text-white hover:bg-white/5 disabled:opacity-30"
+            className="p-1.5 rounded-md text-[#9494A8] hover:text-white hover:bg-[#7C5CFC]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] disabled:opacity-40 disabled:cursor-not-allowed"
             title="Refazer"
           >
             <Redo2 className="w-3.5 h-3.5" />
@@ -724,13 +724,13 @@ export function Whiteboard() {
               <span className="text-[9px] text-red-300">Limpar?</span>
               <button
                 onClick={clearAll}
-                className="text-[9px] text-red-400 hover:bg-red-500/20 px-1.5 py-0.5 rounded font-bold"
+                className="text-[9px] text-red-400 hover:bg-red-500/20 px-1.5 py-0.5 rounded font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
               >
                 Sim
               </button>
               <button
                 onClick={() => setConfirmClear(false)}
-                className="text-[9px] text-[#9494A8] hover:text-white px-1.5 py-0.5 rounded"
+                className="text-[9px] text-[#9494A8] hover:text-white px-1.5 py-0.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
               >
                 Não
               </button>
@@ -738,7 +738,7 @@ export function Whiteboard() {
           ) : (
             <button
               onClick={() => setConfirmClear(true)}
-              className="p-1.5 rounded-md text-[#9494A8] hover:text-red-400 hover:bg-red-500/10"
+              className="p-1.5 rounded-md text-[#9494A8] hover:text-red-400 hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
               title="Limpar quadro"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -746,7 +746,7 @@ export function Whiteboard() {
           )}
           <button
             onClick={exportPNG}
-            className="flex items-center gap-1 p-1.5 rounded-md text-[#22D3EE] hover:bg-[#22D3EE]/10 text-[10px] font-semibold"
+            className="flex items-center gap-1 p-1.5 rounded-md text-[#22D3EE] hover:bg-[#22D3EE]/10 text-[10px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
             title="Exportar coluna central como PNG"
           >
             <Download className="w-3.5 h-3.5" /> Exportar
@@ -890,15 +890,15 @@ export function Whiteboard() {
       </div>
 
       {/* Painel de camadas */}
-      <div className="w-44 shrink-0 bg-[#14141C] border-l border-white/5 flex flex-col">
-        <div className="px-2 py-1.5 border-b border-white/5 shrink-0">
+      <div className="w-44 shrink-0 bg-[#14141C] border-l border-[#1E1E2A] flex flex-col">
+        <div className="px-2 py-1.5 border-b border-[#1E1E2A] shrink-0">
           <span className="text-[9px] font-bold text-white uppercase tracking-wider flex items-center gap-1">
             <Layers className="w-3 h-3 text-[#7C5CFC]" /> Camadas ({elements.length})
           </span>
         </div>
         <div className="flex-1 overflow-y-auto p-1.5 space-y-1 scrollbar-thin">
           {elements.length === 0 ? (
-            <p className="text-[9px] text-[#9494A8]/60 text-center py-3">
+            <p className="text-[9px] text-[#A78BFA]/50 text-center py-3">
               Sem camadas. Desenhe no quadro.
             </p>
           ) : (

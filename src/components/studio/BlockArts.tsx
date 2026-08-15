@@ -44,7 +44,7 @@ export function BlockArts({ blockId, stopPropagation = true }: BlockArtsProps) {
   }
 
   return (
-    <div onClick={stop} className="mt-2 rounded-lg border border-white/10 bg-black/30 p-2">
+    <div onClick={stop} className="mt-2 rounded-lg border border-[#1E1E2A] bg-black/30 p-2">
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-[9px] font-bold text-white uppercase tracking-wider flex items-center gap-1">
           <ImagePlus className="w-3 h-3 text-[#7C5CFC]" /> Artes do bloco
@@ -59,7 +59,7 @@ export function BlockArts({ blockId, stopPropagation = true }: BlockArtsProps) {
             stop(e)
             fileRef.current?.click()
           }}
-          className="flex items-center gap-1 text-[9px] text-[#7C5CFC] hover:bg-[#7C5CFC]/10 px-1.5 py-0.5 rounded font-semibold"
+          className="flex items-center gap-1 text-[9px] bg-[#7C5CFC]/10 hover:bg-[#7C5CFC]/20 text-[#7C5CFC] px-1.5 py-0.5 rounded font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
         >
           <ImagePlus className="w-3 h-3" /> Adicionar arte
         </button>
@@ -74,9 +74,16 @@ export function BlockArts({ blockId, stopPropagation = true }: BlockArtsProps) {
       </div>
 
       {arts.length === 0 ? (
-        <p className="text-[9px] text-[#9494A8]/70 py-1">
-          Nenhuma arte. As artes aparecem sobre o canvas quando "Sincronizar artes" está ativo.
-        </p>
+        <button
+          onClick={(e) => {
+            stop(e)
+            fileRef.current?.click()
+          }}
+          className="w-full flex flex-col items-center justify-center gap-1 py-3 border border-dashed border-[#2A2A3A] rounded-md text-[#A78BFA]/50 hover:border-[#7C5CFC]/50 hover:text-[#A78BFA]/70 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
+        >
+          <ImagePlus className="w-4 h-4" />
+          <span className="text-[9px]">Arraste ou clique para adicionar</span>
+        </button>
       ) : (
         <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
           {arts.map((art) => (

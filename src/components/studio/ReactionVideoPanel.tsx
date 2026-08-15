@@ -163,10 +163,10 @@ export function ReactionVideoPanel() {
 
               {/* Tamanho */}
               <div className="space-y-1">
-                <div className="flex justify-between text-[10px] text-[#9494A8]">
+                <label className="flex justify-between text-[10px] text-[#9494A8]">
                   <span>Tamanho do overlay</span>
                   <span className="font-mono">{Math.round(reaction.size * 100)}%</span>
-                </div>
+                </label>
                 <input
                   type="range"
                   min={0.1}
@@ -174,7 +174,7 @@ export function ReactionVideoPanel() {
                   step={0.01}
                   value={reaction.size}
                   onChange={(e) => setReaction({ ...reaction, size: parseFloat(e.target.value) })}
-                  className="w-full accent-[#7C5CFC]"
+                  className="w-full accent-[#7C5CFC] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
                 />
               </div>
 
@@ -186,10 +186,10 @@ export function ReactionVideoPanel() {
                     <button
                       key={c.id}
                       onClick={() => setReaction({ ...reaction, corner: c.id })}
-                      className={`aspect-square rounded-lg border text-lg flex items-center justify-center transition-colors ${
+                      className={`aspect-square rounded-lg border text-lg flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
                         reaction.corner === c.id
                           ? 'border-[#7C5CFC] bg-[#7C5CFC]/20 text-white'
-                          : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'
+                          : 'border-[#1E1E2A] bg-[#1C1C27] text-[#9494A8] hover:text-white hover:border-[#7C5CFC]/50'
                       }`}
                       title={c.id}
                     >
@@ -201,7 +201,7 @@ export function ReactionVideoPanel() {
 
               <button
                 onClick={() => fileRef.current?.click()}
-                className="flex items-center gap-1.5 text-[10px] text-[#7C5CFC] hover:bg-[#7C5CFC]/10 px-2 py-1 rounded font-semibold"
+                className="flex items-center gap-1.5 text-[10px] bg-[#7C5CFC]/10 hover:bg-[#7C5CFC]/20 text-[#7C5CFC] px-2 py-1 rounded font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
               >
                 <Upload className="w-3 h-3" /> Trocar vídeo
               </button>
