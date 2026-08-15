@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePlatform } from '@/context/PlatformContext'
 import { Button } from '@/components/ui/button'
@@ -19,6 +19,17 @@ import {
   BookOpen,
   FileBarChart,
   CheckCircle2,
+  RefreshCw,
+  AlertCircle,
+  Loader2,
+  Target,
+  Users,
+  MessageSquare,
+  Zap,
+  Megaphone,
+  Tv,
+  Crown,
+  Quote,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { BrandAsset, BrandProfile } from '@/types/platform'
@@ -28,33 +39,40 @@ const COLORS = {
   purple: '#7C5CFC',
   cyan: '#22D3EE',
   amber: '#F59E0B',
+  green: '#22c55e',
+  red: '#ef4444',
   bg: '#0e0e15',
   card: '#14141C',
   border: '#ffffff14',
 }
 
-const LAYER_LABELS: Record<string, string> = {
-  quem_voce_e: 'Quem Você É',
-  como_voce_fala: 'Como Você Fala',
-  como_voce_prova: 'Como Você Prova',
-  como_voce_publica: 'Como Você Publica',
-  como_voce_vende: 'Como Você Vende',
-}
+/* =====================================================================
+   COMPONENTE PRINCIPAL
+   ===================================================================== */
 
-function getAsset(assets: BrandAsset[], type: string) {
-  return assets.find((a) => a.type === type)
-}
+type LoadState = 'loading' | 'ready' | 'error'
 
 export default function PosicionamentoDocumento() {
   const navigate = useNavigate()
   const { brandProfile } = usePlatform()
   const [view, setView] = useState<'completa' | 'resumida'>('completa')
+  const [loadState, setLoadState] = useState<LoadState>('loading')
 
   const hasAssets = brandProfile.assets.length > 0
 
   const data = useMemo(() => buildDocData(brandProfile), [brandProfile])
 
-  // Seções: 1 (mapa mental), 3 (arquétipo), 5 (concorrência), 8 (storytelling) no resumido
+  // Simula carregamento dos dados (estado de loading skeleton)
+  useEffect(() => {
+    setLoadState('loading')
+    const t = setTimeout(() => {
+      if (hasAssets) setLoadState('ready')
+      else setLoadState('ready')
+    }, 500)
+    return () => clearTimeout(t)
+  }, [hasAssets])
+
+  // Seções presentes na versão resumida: 1 (mapa), 3 (arquétipo), 5 (concorrência), 8 (storytelling)
   const showSection = (n: number) => view === 'completa' || [1, 3, 5, 8].includes(n)
 
   const handleCopyLink = () => {
@@ -66,7 +84,13 @@ export default function PosicionamentoDocumento() {
     }
   }
 
-  if (!hasAssets) {
+  const handleRetry = () => {
+    setLoadState('loading')
+    setTimeout(() => setLoadState('ready'), 600)
+  }
+
+  /* ---- Estado vazio: sem Brand OS ---- */
+  if (!hasAssets && loadState === 'ready') {
     return (
       <div className="p-6 max-w-3xl mx-auto animate-fade-in">
         <div className="rounded-2xl bg-[#14141C] border border-white/5 p-10 text-center space-y-4">
@@ -76,13 +100,13 @@ export default function PosicionamentoDocumento() {
           <div>
             <h2 className="text-lg font-bold text-white">Documento Visual Indisponível</h2>
             <p className="text-sm text-[#9494A8] max-w-md mx-auto mt-1">
-              Você ainda não gerou seu Brand OS. Gere os ativos de marca no módulo de Posicionamento
-              para liberar o documento visual completo.
+              Gere o Brand OS primeiro no módulo de Posicionamento para liberar o documento visual
+              completo da sua marca.
             </p>
           </div>
           <Button
             onClick={() => navigate('/posicionamento')}
-            className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs gap-1.5"
+            className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs gap-1.5 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
           >
             <ArrowLeft className="w-4 h-4" /> Ir para Posicionamento
           </Button>
@@ -91,9 +115,57 @@ export default function PosicionamentoDocumento() {
     )
   }
 
+  /* ---- Estado de erro ---- */
+  if (loadState === 'error') {
+    return (
+      <div className="p-6 max-w-3xl mx-auto animate-fade-in">
+        <div className="rounded-2xl bg-red-500/10 border border-red-500/30 p-8 text-center space-y-4">
+          <div className="flex h-14 w-14 mx-auto items-center justify-center rounded-2xl bg-red-500/15 border border-red-500/30">
+            <AlertCircle className="w-7 h-7 text-red-400" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-white">Falha ao carregar o documento</h2>
+            <p className="text-sm text-[#9494A8] max-w-md mx-auto mt-1">
+              Não foi possível montar o documento visual. Verifique sua conexão e tente novamente.
+            </p>
+          </div>
+          <Button
+            onClick={handleRetry}
+            className="bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30 text-xs gap-1.5 focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
+          >
+            <RefreshCw className="w-4 h-4" /> Tentar novamente
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  /* ---- Estado de carregamento (skeleton) ---- */
+  if (loadState === 'loading') {
+    return (
+      <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto space-y-6 animate-fade-in">
+        <div className="flex items-center justify-between">
+          <SkeletonBlock className="h-10 w-24" />
+          <div className="flex gap-2">
+            <SkeletonBlock className="h-8 w-32" />
+            <SkeletonBlock className="h-8 w-28" />
+            <SkeletonBlock className="h-8 w-32" />
+          </div>
+        </div>
+        <SkeletonBlock className="h-36 w-full rounded-2xl" />
+        <SkeletonBlock className="h-64 w-full rounded-2xl" />
+        <SkeletonBlock className="h-48 w-full rounded-2xl" />
+        <SkeletonBlock className="h-72 w-full rounded-2xl" />
+        <SkeletonBlock className="h-56 w-full rounded-2xl" />
+      </div>
+    )
+  }
+
+  /* ---- Documento pronto ---- */
   return (
     <div className="lumen-doc p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto space-y-6 animate-fade-in">
       <style>{PRINT_STYLES}</style>
+      <style>{ANIM_STYLES}</style>
 
       {/* Barra de ações (não imprime) */}
       <div className="doc-no-print flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sticky top-0 z-20 bg-[#0e0e15]/90 backdrop-blur-md py-2 -mx-2 px-2 rounded-xl">
@@ -101,15 +173,20 @@ export default function PosicionamentoDocumento() {
           variant="outline"
           size="sm"
           onClick={() => navigate('/posicionamento')}
-          className="border-white/10 text-xs gap-1.5"
+          className="border-white/10 text-xs gap-1.5 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0e0e15]"
         >
           <ArrowLeft className="w-3.5 h-3.5" /> Voltar
         </Button>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex rounded-lg overflow-hidden border border-white/10">
+          <div
+            className="flex rounded-lg overflow-hidden border border-white/10"
+            role="tablist"
+            aria-label="Versão do documento"
+          >
             <button
               onClick={() => setView('resumida')}
-              className={`px-3 py-1.5 text-[11px] font-semibold transition-colors ${
+              aria-pressed={view === 'resumida'}
+              className={`px-3 py-1.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-inset ${
                 view === 'resumida'
                   ? 'bg-[#7C5CFC] text-white'
                   : 'bg-[#14141C] text-[#9494A8] hover:text-white'
@@ -119,7 +196,8 @@ export default function PosicionamentoDocumento() {
             </button>
             <button
               onClick={() => setView('completa')}
-              className={`px-3 py-1.5 text-[11px] font-semibold transition-colors ${
+              aria-pressed={view === 'completa'}
+              className={`px-3 py-1.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-inset ${
                 view === 'completa'
                   ? 'bg-[#7C5CFC] text-white'
                   : 'bg-[#14141C] text-[#9494A8] hover:text-white'
@@ -132,21 +210,21 @@ export default function PosicionamentoDocumento() {
             variant="outline"
             size="sm"
             onClick={handleCopyLink}
-            className="border-white/10 text-xs gap-1.5"
+            className="border-white/10 text-xs gap-1.5 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0e0e15]"
           >
             <Link2 className="w-3.5 h-3.5" /> Copiar link
           </Button>
           <Button
             size="sm"
             onClick={() => window.print()}
-            className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs gap-1.5"
+            className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs gap-1.5 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0e0e15]"
           >
             <Printer className="w-3.5 h-3.5" /> Salvar como PDF
           </Button>
         </div>
       </div>
 
-      {/* Cabeçalho do documento */}
+      {/* Cabeçalho */}
       <DocHeader data={data} />
 
       {/* Seção 1 — Mapa Mental da Marca */}
@@ -161,23 +239,23 @@ export default function PosicionamentoDocumento() {
         </Section>
       )}
 
-      {/* Seção 2 — Gráfico de Pilares de Conteúdo (radar) */}
+      {/* Seção 2 — Radar dos Pilares da Marca */}
       {showSection(2) && (
         <Section
           n={2}
-          title="Pilares de Conteúdo"
+          title="Pilares da Marca"
           icon={<RadarIcon className="w-4 h-4" />}
           color={COLORS.cyan}
         >
-          <PillarsRadar data={data} />
+          <BrandPillarsRadar data={data} />
         </Section>
       )}
 
-      {/* Seção 3 — Arquétipo Visual */}
+      {/* Seção 3 — Arquétipo */}
       {showSection(3) && (
         <Section
           n={3}
-          title="Arquétipo Visual"
+          title="Arquétipo da Marca"
           icon={<Palette className="w-4 h-4" />}
           color={COLORS.amber}
         >
@@ -197,7 +275,7 @@ export default function PosicionamentoDocumento() {
         </Section>
       )}
 
-      {/* Seção 5 — Matriz de Concorrência */}
+      {/* Seção 5 — Matriz de Concorrência (2x2) */}
       {showSection(5) && (
         <Section
           n={5}
@@ -259,12 +337,24 @@ export default function PosicionamentoDocumento() {
 }
 
 /* =====================================================================
+   SKELETON
+   ===================================================================== */
+
+function SkeletonBlock({ className = '' }: { className?: string }) {
+  return (
+    <div
+      className={`bg-gradient-to-r from-[#1C1C27] to-[#14141C] rounded-lg animate-pulse ${className}`}
+    />
+  )
+}
+
+/* =====================================================================
    HEADER
    ===================================================================== */
 
 function DocHeader({ data }: { data: DocData }) {
   return (
-    <div className="doc-header rounded-2xl bg-gradient-to-br from-[#1C1C27] via-[#14141C] to-[#0e0e15] border border-[#7C5CFC]/30 p-6 sm:p-8">
+    <header className="doc-header rounded-2xl bg-gradient-to-br from-[#1C1C27] via-[#14141C] to-[#0e0e15] border border-[#7C5CFC]/30 p-6 sm:p-8 animate-fade-in-up">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#7C5CFC] to-[#22D3EE]">
@@ -292,12 +382,12 @@ function DocHeader({ data }: { data: DocData }) {
           <span>• Gerado em {data.generatedAtLabel}</span>
         </div>
       </div>
-    </div>
+    </header>
   )
 }
 
 /* =====================================================================
-   SECTION WRAPPER
+   SECTION WRAPPER — acessível via teclado (focus ring)
    ===================================================================== */
 
 function Section({
@@ -314,8 +404,12 @@ function Section({
   children: React.ReactNode
 }) {
   return (
-    <section className="doc-section rounded-2xl bg-[#14141C] border border-white/5 p-5 sm:p-6 space-y-4">
-      <div className="flex items-center gap-2.5">
+    <section
+      tabIndex={-1}
+      className="doc-section rounded-2xl bg-[#14141C] border border-white/5 p-5 sm:p-6 space-y-4 outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] animate-fade-in-up"
+      aria-labelledby={`sec-${n}`}
+    >
+      <div className="flex items-center gap-2.5" id={`sec-${n}`}>
         <div
           className="flex h-8 w-8 items-center justify-center rounded-lg text-white text-xs font-bold"
           style={{ background: color }}
@@ -333,17 +427,29 @@ function Section({
 }
 
 /* =====================================================================
-   SEÇÃO 1 — MAPA MENTAL (CSS puro)
+   SEÇÃO 1 — MAPA MENTAL (8 ramificações nomeadas, nós coloridos, animação)
    ===================================================================== */
+
+const MINDMAP_ICONS: React.ComponentType<{ className?: string; style?: React.CSSProperties }>[] = [
+  Target, // Propósito
+  Users, // Público
+  MessageSquare, // Tom de Voz
+  Zap, // Diferencial
+  TrendingUp, // Oferta
+  Megaphone, // Canais
+  Swords, // Concorrentes
+  Trophy, // Resultado
+]
 
 function MindMap({ data }: { data: DocData }) {
   const center = data.niche || 'Sua Marca'
   const branches = data.mindMapBranches
+  const W = 760
   return (
     <div className="mind-map w-full overflow-x-auto">
       <div className="min-w-[680px] flex flex-col items-center gap-4 py-2">
         {/* Nó central */}
-        <div className="relative">
+        <div className="relative animate-mindmap-center">
           <div
             className="absolute inset-0 rounded-2xl blur-xl opacity-50"
             style={{ background: COLORS.purple }}
@@ -356,50 +462,60 @@ function MindMap({ data }: { data: DocData }) {
         {/* Linhas conectoras SVG */}
         <svg
           className="absolute pointer-events-none"
-          width="680"
-          height="60"
-          style={{ marginTop: -8 }}
+          width={W}
+          height="70"
+          style={{ marginTop: -6 }}
         >
           {branches.map((_, i) => {
-            const x = 80 + (i * (680 - 160)) / (branches.length - 1)
+            const x = 70 + (i * (W - 140)) / Math.max(branches.length - 1, 1)
             return (
-              <line
+              <path
                 key={i}
-                x1="340"
-                y1="0"
-                x2={x}
-                y2="60"
+                d={`M ${W / 2} 0 Q ${(W / 2 + x) / 2} 35 ${x} 70`}
+                fill="none"
                 stroke={branches[i].color}
                 strokeWidth="1.5"
                 strokeOpacity="0.5"
+                className="animate-mindmap-line"
+                style={{ animationDelay: `${i * 80}ms` }}
               />
             )
           })}
         </svg>
 
         {/* Ramificações */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 w-full mt-4">
-          {branches.map((b, i) => (
-            <div
-              key={i}
-              className="rounded-xl border p-3 space-y-1.5"
-              style={{ borderColor: `${b.color}40`, background: `${b.color}0d` }}
-            >
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full mt-6">
+          {branches.map((b, i) => {
+            const Icon = MINDMAP_ICONS[i] || Brain
+            return (
               <div
-                className="text-[10px] font-bold uppercase tracking-wider"
-                style={{ color: b.color }}
+                key={i}
+                className="rounded-xl border p-3 space-y-1.5 transition-transform hover:scale-[1.03] animate-mindmap-node"
+                style={{
+                  borderColor: `${b.color}40`,
+                  background: `${b.color}0d`,
+                  animationDelay: `${i * 80 + 200}ms`,
+                }}
               >
-                {b.title}
+                <div className="flex items-center gap-1.5">
+                  <Icon className="w-3.5 h-3.5" style={{ color: b.color }} />
+                  <span
+                    className="text-[10px] font-bold uppercase tracking-wider"
+                    style={{ color: b.color }}
+                  >
+                    {b.title}
+                  </span>
+                </div>
+                <ul className="space-y-1">
+                  {b.items.map((item, j) => (
+                    <li key={j} className="text-[10px] text-slate-300 leading-snug">
+                      <span style={{ color: b.color }}>•</span> {item}
+                    </li>
+                  ))}
+                </ul>
               </div>
-              <ul className="space-y-1">
-                {b.items.map((item, j) => (
-                  <li key={j} className="text-[10px] text-slate-300 leading-snug">
-                    <span style={{ color: b.color }}>•</span> {item}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
     </div>
@@ -407,17 +523,16 @@ function MindMap({ data }: { data: DocData }) {
 }
 
 /* =====================================================================
-   SEÇÃO 2 — RADAR DE PILARES (SVG)
+   SEÇÃO 2 — RADAR DOS PILARES DA MARCA (6-8 eixos, preenchimento roxo)
    ===================================================================== */
 
-function PillarsRadar({ data }: { data: DocData }) {
-  const pillars = data.pillars
-  const cx = 130
-  const cy = 130
-  const r = 100
+function BrandPillarsRadar({ data }: { data: DocData }) {
+  const pillars = data.brandPillars
+  const cx = 140
+  const cy = 140
+  const r = 105
   const n = pillars.length
 
-  // pontos do polígono de dados
   const points = pillars
     .map((p, i) => {
       const angle = (Math.PI * 2 * i) / n - Math.PI / 2
@@ -428,7 +543,13 @@ function PillarsRadar({ data }: { data: DocData }) {
 
   return (
     <div className="flex flex-col lg:flex-row items-center gap-6">
-      <svg width="260" height="260" className="shrink-0">
+      <svg
+        width="280"
+        height="280"
+        className="shrink-0 animate-radar-in"
+        role="img"
+        aria-label="Gráfico radar dos pilares da marca"
+      >
         {/* Grades concêntricas */}
         {[0.25, 0.5, 0.75, 1].map((f) => {
           const pts = pillars
@@ -454,7 +575,7 @@ function PillarsRadar({ data }: { data: DocData }) {
             />
           )
         })}
-        {/* Polígono de dados */}
+        {/* Polígono de dados (roxo semitransparente) */}
         <polygon
           points={points}
           fill={`${COLORS.purple}33`}
@@ -470,7 +591,7 @@ function PillarsRadar({ data }: { data: DocData }) {
               key={i}
               cx={cx + Math.cos(angle) * dist}
               cy={cy + Math.sin(angle) * dist}
-              r="3"
+              r="3.5"
               fill={COLORS.cyan}
             />
           )
@@ -478,8 +599,8 @@ function PillarsRadar({ data }: { data: DocData }) {
         {/* Labels */}
         {pillars.map((p, i) => {
           const angle = (Math.PI * 2 * i) / n - Math.PI / 2
-          const lx = cx + Math.cos(angle) * (r + 18)
-          const ly = cy + Math.sin(angle) * (r + 18)
+          const lx = cx + Math.cos(angle) * (r + 20)
+          const ly = cy + Math.sin(angle) * (r + 20)
           return (
             <text
               key={i}
@@ -487,10 +608,11 @@ function PillarsRadar({ data }: { data: DocData }) {
               y={ly}
               textAnchor="middle"
               dominantBaseline="middle"
-              fill="#9494A8"
+              fill="#A78BFA"
               fontSize="9"
+              fontWeight="600"
             >
-              {p.label.split(' ')[0]}
+              {p.label}
             </text>
           )
         })}
@@ -498,15 +620,11 @@ function PillarsRadar({ data }: { data: DocData }) {
       <div className="flex-1 space-y-2 w-full">
         {pillars.map((p, i) => (
           <div key={i} className="flex items-center gap-2">
-            <span className="text-[11px] text-white w-40 truncate">{p.label}</span>
+            <span className="text-[11px] text-white w-32 truncate">{p.label}</span>
             <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
               <div
-                className="h-full rounded-full transition-all duration-500"
-                style={{
-                  width: `${p.pct}%`,
-                  background:
-                    i % 3 === 0 ? COLORS.purple : i % 3 === 1 ? COLORS.cyan : COLORS.amber,
-                }}
+                className="h-full rounded-full transition-all duration-700"
+                style={{ width: `${p.pct}%`, background: COLORS.purple }}
               />
             </div>
             <span className="text-[11px] font-bold text-white w-8 text-right">{p.pct}%</span>
@@ -518,23 +636,65 @@ function PillarsRadar({ data }: { data: DocData }) {
 }
 
 /* =====================================================================
-   SEÇÃO 3 — ARQUÉTIPO VISUAL
+   SEÇÃO 3 — ARQUÉTIPO (ícone grande, descrição, manifesto, tom de voz)
    ===================================================================== */
+
+const ARCHETYPE_ICONS: Record<
+  string,
+  React.ComponentType<{ className?: string; style?: React.CSSProperties }>
+> = {
+  Herói: Crown,
+  Explorador: Compass,
+  Sábio: BookOpen,
+  Guia: Target,
+  Mago: Sparkles,
+  Cuidador: Users,
+  Criador: Palette,
+  Governante: Trophy,
+}
 
 function ArchetypeCard({ data }: { data: DocData }) {
   const a = data.archetype
+  const Icon = ARCHETYPE_ICONS[a.iconKey] || Palette
   return (
     <div
-      className="rounded-2xl border p-5 space-y-4"
+      className="rounded-2xl border p-5 space-y-4 animate-fade-in-up"
       style={{ borderColor: `${COLORS.amber}40`, background: `${COLORS.amber}0a` }}
     >
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h3 className="text-lg font-extrabold text-white">{a.name}</h3>
-        <Badge className="bg-[#F59E0B]/20 text-[#F59E0B] border-[#F59E0B]/40 text-[10px]">
-          Arquétipo Dominante
-        </Badge>
+      <div className="flex items-start gap-4 flex-wrap">
+        {/* Ícone grande */}
+        <div className="relative shrink-0">
+          <div
+            className="absolute inset-0 rounded-2xl blur-xl opacity-40"
+            style={{ background: COLORS.amber }}
+          />
+          <div
+            className="relative flex h-16 w-16 items-center justify-center rounded-2xl border"
+            style={{ background: `${COLORS.amber}1a`, borderColor: `${COLORS.amber}40` }}
+          >
+            <Icon className="w-8 h-8" style={{ color: COLORS.amber }} />
+          </div>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-lg font-extrabold text-white">{a.name}</h3>
+            <Badge className="bg-[#F59E0B]/20 text-[#F59E0B] border-[#F59E0B]/40 text-[10px]">
+              Arquétipo Dominante
+            </Badge>
+          </div>
+          <p className="text-xs text-slate-300 leading-relaxed mt-1">{a.description}</p>
+        </div>
       </div>
-      <p className="text-xs text-slate-300 leading-relaxed">{a.description}</p>
+
+      {/* Frase de manifesto */}
+      <div
+        className="rounded-xl border-l-4 p-4 flex items-start gap-2"
+        style={{ borderColor: COLORS.amber, background: `${COLORS.amber}08` }}
+      >
+        <Quote className="w-4 h-4 shrink-0 mt-0.5" style={{ color: COLORS.amber }} />
+        <p className="text-sm text-white italic leading-relaxed font-medium">“{a.manifesto}”</p>
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="rounded-lg bg-[#0e0e15]/60 p-3">
           <div className="text-[10px] font-bold text-[#F59E0B] uppercase mb-1.5">Cores</div>
@@ -565,85 +725,201 @@ function ArchetypeCard({ data }: { data: DocData }) {
 }
 
 /* =====================================================================
-   SEÇÃO 4 — ESTEIRA DE OFERTAS (linha do tempo)
+   SEÇÃO 4 — ESTEIRA DE OFERTAS (Isca → Entrada → Core → Upsell → Recorrência)
    ===================================================================== */
 
 function OfferTimeline({ data }: { data: DocData }) {
   const offers = data.offers
   return (
-    <div className="flex flex-col lg:flex-row items-stretch gap-2">
-      {offers.map((o, i) => (
-        <React.Fragment key={i}>
-          <div
-            className="flex-1 rounded-xl border p-3 space-y-1 min-w-[140px]"
-            style={{
-              borderColor: `${o.color}40`,
-              background: `${o.color}0d`,
-            }}
-          >
+    <div className="flex flex-col lg:flex-row items-stretch gap-2 overflow-x-auto pb-1">
+      <div className="flex flex-col lg:flex-row items-stretch gap-2 min-w-max lg:min-w-0">
+        {offers.map((o, i) => (
+          <React.Fragment key={i}>
             <div
-              className="text-[9px] font-bold uppercase tracking-wider"
-              style={{ color: o.color }}
+              className="flex-1 rounded-xl border p-3 space-y-1 min-w-[150px] transition-transform hover:scale-[1.02] animate-fade-in-up"
+              style={{
+                borderColor: `${o.color}40`,
+                background: `${o.color}0d`,
+                animationDelay: `${i * 100}ms`,
+              }}
             >
-              {o.tier}
+              <div
+                className="text-[9px] font-bold uppercase tracking-wider"
+                style={{ color: o.color }}
+              >
+                {o.tier}
+              </div>
+              <div className="text-xs font-bold text-white">{o.name}</div>
+              <div className="text-[10px] text-slate-300 leading-snug">{o.description}</div>
+              {o.price && <div className="text-[11px] font-bold text-white mt-0.5">{o.price}</div>}
             </div>
-            <div className="text-xs font-bold text-white">{o.name}</div>
-            <div className="text-[10px] text-slate-300 leading-snug">{o.description}</div>
-            {o.price && <div className="text-[11px] font-bold text-white">{o.price}</div>}
-          </div>
-          {i < offers.length - 1 && (
-            <div className="flex items-center justify-center">
-              <div className="hidden lg:block w-6 h-0.5" style={{ background: COLORS.purple }} />
-              <span className="lg:hidden text-[#7C5CFC]">↓</span>
-            </div>
-          )}
-        </React.Fragment>
-      ))}
+            {i < offers.length - 1 && (
+              <div className="flex items-center justify-center">
+                <div className="hidden lg:block w-6 h-0.5" style={{ background: COLORS.purple }} />
+                <span className="lg:hidden text-[#7C5CFC]">↓</span>
+              </div>
+            )}
+          </React.Fragment>
+        ))}
+      </div>
     </div>
   )
 }
 
 /* =====================================================================
-   SEÇÃO 5 — MATRIZ DE CONCORRÊNCIA
+   SEÇÃO 5 — MATRIZ DE CONCORRÊNCIA (quadrantes 2x2)
    ===================================================================== */
 
 function CompetitorMatrix({ data }: { data: DocData }) {
-  const { competitors } = data
+  const { competitors, ownPositioning, niche } = data
+  // Pontos: eixo X = Diferenciação (0-100), eixo Y = Preço/Valor percebido (0-100)
+  const size = 280
+  const pad = 40
+  const plot = size - pad * 2
+
+  const own = {
+    name: niche || 'Sua Marca',
+    x: 78,
+    y: 70,
+    isOwn: true,
+  }
+  const compPoints = competitors.map((c, i) => ({
+    name: c.name,
+    x: 30 + i * 18,
+    y: 45 - i * 12,
+    isOwn: false,
+  }))
+  const all = [own, ...compPoints]
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs border-collapse">
-        <thead>
-          <tr className="border-b border-white/10">
-            <th className="text-left py-2 px-3 text-[#9494A8] font-semibold">Critério</th>
-            <th className="text-left py-2 px-3 text-[#7C5CFC] font-semibold">
-              {data.niche || 'Sua Marca'}
-            </th>
-            {competitors.map((c, i) => (
-              <th key={i} className="text-left py-2 px-3 text-[#9494A8] font-semibold">
-                {c.name}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {[
-            { label: 'Diferencial', key: 'differential' as const },
-            { label: 'Preço', key: 'price' as const },
-            { label: 'Público', key: 'audience' as const },
-            { label: 'Fraqueza', key: 'weakness' as const },
-          ].map((row) => (
-            <tr key={row.key} className="border-b border-white/5">
-              <td className="py-2 px-3 text-[#9494A8] font-medium">{row.label}</td>
-              <td className="py-2 px-3 text-white">{data.ownPositioning[row.key]}</td>
-              {competitors.map((c, i) => (
-                <td key={i} className="py-2 px-3 text-slate-300">
-                  {c[row.key]}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="flex flex-col lg:flex-row items-start gap-6">
+      <div className="overflow-x-auto w-full lg:w-auto">
+        <svg
+          width={size}
+          height={size}
+          className="shrink-0 mx-auto"
+          role="img"
+          aria-label="Matriz de concorrência: Diferenciação vs Valor percebido"
+        >
+          {/* Quadrantes */}
+          <rect x={pad} y={pad} width={plot} height={plot} fill="#0e0e15" stroke="#ffffff14" />
+          {/* Linhas centrais (eixos 2x2) */}
+          <line
+            x1={pad + plot / 2}
+            y1={pad}
+            x2={pad + plot / 2}
+            y2={pad + plot}
+            stroke="#ffffff20"
+            strokeWidth="1"
+            strokeDasharray="4 3"
+          />
+          <line
+            x1={pad}
+            y1={pad + plot / 2}
+            x2={pad + plot}
+            y2={pad + plot / 2}
+            stroke="#ffffff20"
+            strokeWidth="1"
+            strokeDasharray="4 3"
+          />
+          {/* Labels dos quadrantes */}
+          <text x={pad + 6} y={pad + 14} fill="#9494A8" fontSize="8">
+            Alto valor · Baixa diferenciação
+          </text>
+          <text x={pad + plot / 2 + 6} y={pad + 14} fill="#9494A8" fontSize="8">
+            Alto valor · Alta diferenciação
+          </text>
+          <text x={pad + 6} y={pad + plot - 6} fill="#9494A8" fontSize="8">
+            Baixo valor · Baixa diferenciação
+          </text>
+          <text x={pad + plot / 2 + 6} y={pad + plot - 6} fill="#9494A8" fontSize="8">
+            Baixo valor · Alta diferenciação
+          </text>
+          {/* Eixos */}
+          <text
+            x={pad + plot / 2}
+            y={size - 8}
+            fill="#A78BFA"
+            fontSize="9"
+            textAnchor="middle"
+            fontWeight="600"
+          >
+            Diferenciação →
+          </text>
+          <text
+            x={12}
+            y={pad + plot / 2}
+            fill="#A78BFA"
+            fontSize="9"
+            textAnchor="middle"
+            fontWeight="600"
+            transform={`rotate(-90 12 ${pad + plot / 2})`}
+          >
+            Valor percebido →
+          </text>
+          {/* Pontos */}
+          {all.map((p, i) => {
+            const px = pad + (p.x / 100) * plot
+            const py = pad + plot - (p.y / 100) * plot
+            return (
+              <g
+                key={i}
+                className="animate-mindmap-node"
+                style={{ animationDelay: `${i * 120}ms` }}
+              >
+                {p.isOwn ? (
+                  <>
+                    <circle cx={px} cy={py} r="10" fill={`${COLORS.purple}33`} />
+                    <circle
+                      cx={px}
+                      cy={py}
+                      r="6"
+                      fill={COLORS.purple}
+                      stroke="#fff"
+                      strokeWidth="1.5"
+                    />
+                  </>
+                ) : (
+                  <circle cx={px} cy={py} r="5" fill={COLORS.cyan} stroke="#fff" strokeWidth="1" />
+                )}
+                <text
+                  x={px}
+                  y={py - 12}
+                  fill={p.isOwn ? '#fff' : '#9494A8'}
+                  fontSize="8"
+                  textAnchor="middle"
+                  fontWeight={p.isOwn ? '700' : '400'}
+                >
+                  {p.name.length > 14 ? p.name.slice(0, 13) + '…' : p.name}
+                </text>
+              </g>
+            )
+          })}
+        </svg>
+      </div>
+
+      {/* Legenda / tabela compacta */}
+      <div className="flex-1 space-y-2 w-full">
+        <div className="rounded-lg bg-[#0e0e15]/60 p-3 border border-white/5">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="w-3 h-3 rounded-full" style={{ background: COLORS.purple }} />
+            <span className="text-xs font-bold text-white">{own.name}</span>
+            <Badge className="bg-[#7C5CFC]/20 text-[#7C5CFC] border-[#7C5CFC]/40 text-[9px]">
+              Você
+            </Badge>
+          </div>
+          <p className="text-[10px] text-[#9494A8]">{ownPositioning.differential}</p>
+        </div>
+        {competitors.map((c, i) => (
+          <div key={i} className="rounded-lg bg-[#0e0e15]/60 p-3 border border-white/5">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="w-3 h-3 rounded-full" style={{ background: COLORS.cyan }} />
+              <span className="text-xs font-bold text-white">{c.name}</span>
+            </div>
+            <p className="text-[10px] text-[#9494A8]">{c.differential || '—'}</p>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -661,9 +937,9 @@ function FunnelProcess({ data }: { data: DocData }) {
         return (
           <React.Fragment key={i}>
             <div
-              className="rounded-xl border p-3 flex items-center gap-3 transition-all"
+              className="rounded-xl border p-3 flex items-center gap-3 transition-transform hover:scale-[1.02] w-full"
               style={{
-                width: `${width}%`,
+                maxWidth: `${width}%`,
                 borderColor: `${COLORS.purple}40`,
                 background: `linear-gradient(90deg, ${COLORS.purple}1a, ${COLORS.purple}05)`,
               }}
@@ -717,13 +993,14 @@ function ProofCards({ data }: { data: DocData }) {
 }
 
 /* =====================================================================
-   SEÇÃO 8 — STORYTELLING DE ORIGEM
+   SEÇÃO 8 — STORYTELLING DE ORIGEM (linha do tempo)
    ===================================================================== */
 
 function OriginStory({ data }: { data: DocData }) {
+  const events = data.originTimeline
   return (
     <div
-      className="rounded-2xl border-l-4 p-5 space-y-2"
+      className="rounded-2xl border-l-4 p-5 space-y-4"
       style={{ borderColor: COLORS.cyan, background: `${COLORS.cyan}08` }}
     >
       <div className="flex items-center gap-2">
@@ -732,10 +1009,40 @@ function OriginStory({ data }: { data: DocData }) {
           className="text-[10px] font-bold uppercase tracking-wider"
           style={{ color: COLORS.cyan }}
         >
-          História do Fundador
+          História de Origem
         </span>
       </div>
-      <p className="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">
+
+      {/* Linha do tempo */}
+      {events.length > 0 && (
+        <ol
+          className="relative space-y-4 pl-5 border-l-2"
+          style={{ borderColor: `${COLORS.cyan}40` }}
+        >
+          {events.map((ev, i) => (
+            <li
+              key={i}
+              className="relative animate-fade-in-up"
+              style={{ animationDelay: `${i * 120}ms` }}
+            >
+              <span
+                className="absolute -left-[1.65rem] top-1 flex h-3 w-3 items-center justify-center rounded-full border-2"
+                style={{ background: COLORS.cyan, borderColor: '#0e0e15' }}
+              />
+              <div
+                className="text-[10px] font-bold uppercase tracking-wider"
+                style={{ color: COLORS.cyan }}
+              >
+                {ev.label}
+              </div>
+              <p className="text-xs text-slate-200 leading-relaxed mt-0.5">{ev.text}</p>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {/* Prosa destacada */}
+      <p className="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap italic">
         {data.originStory}
       </p>
     </div>
@@ -752,10 +1059,12 @@ interface DocData {
   version: number
   generatedAtLabel: string
   mindMapBranches: { title: string; color: string; items: string[] }[]
-  pillars: { label: string; pct: number }[]
+  brandPillars: { label: string; pct: number }[]
   archetype: {
     name: string
+    iconKey: string
     description: string
+    manifesto: string
     colors: string[]
     tone: string
     wordsUse: string
@@ -773,6 +1082,11 @@ interface DocData {
   process: { name: string; description: string }[]
   proofs: { type: string; content: string }[]
   originStory: string
+  originTimeline: { label: string; text: string }[]
+}
+
+function getAsset(assets: BrandAsset[], type: string) {
+  return assets.find((a) => a.type === type)
 }
 
 function buildDocData(profile: BrandProfile): DocData {
@@ -788,118 +1102,152 @@ function buildDocData(profile: BrandProfile): DocData {
   const niche = base.niche?.trim() || 'Sua Marca'
   const subniche = base.subniche?.trim() || ''
 
-  // Mapa mental — ramificações com conteúdo real
+  /* ---- Mapa mental — 8 ramificações nomeadas ---- */
   const mindMapBranches = [
     {
-      title: 'Quem Você É',
+      title: 'Propósito',
       color: COLORS.purple,
       items: [
-        asset('posicionamento').slice(0, 80),
-        asset('promessa').slice(0, 60),
-        asset('arquetipo').slice(0, 60),
-        asset('inimigo_narrativo').slice(0, 60),
-      ].map((s) => s.split('\n')[0].slice(0, 70)),
+        asset('posicionamento').split('\n')[0].slice(0, 70),
+        asset('promessa').split('\n')[0].slice(0, 70),
+      ],
     },
     {
-      title: 'Como Você Fala',
+      title: 'Público',
       color: COLORS.cyan,
-      items: [asset('tom_de_voz'), asset('vocabulario'), asset('storytelling')].map((s) =>
-        s.split('\n')[0].slice(0, 70),
-      ),
+      items: [
+        base.audience?.split('\n')[0].slice(0, 70) || '—',
+        r('idade_ideal') || r('renda_media') || '—',
+      ],
     },
     {
-      title: 'Como Você Prova',
+      title: 'Tom de Voz',
       color: COLORS.amber,
-      items: [asset('stack_de_prova'), asset('identidade_visual')].map((s) =>
-        s.split('\n')[0].slice(0, 70),
-      ),
+      items: [
+        base.voice || asset('tom_de_voz').split('\n')[0].slice(0, 70) || '—',
+        asset('vocabulario').split('\n')[0].slice(0, 70),
+      ],
     },
     {
-      title: 'Como Você Publica',
+      title: 'Diferencial',
       color: COLORS.purple,
-      items: [asset('pilares_de_conteudo'), asset('linha_editorial'), asset('bio_taglines')].map(
-        (s) => s.split('\n')[0].slice(0, 70),
-      ),
+      items: [base.differential?.split('\n')[0].slice(0, 70) || '—'],
     },
     {
-      title: 'Como Você Vende',
+      title: 'Oferta',
       color: COLORS.cyan,
-      items: [asset('oferta_principal').split('\n')[0].slice(0, 70)],
+      items: [
+        base.mainOffer?.split('\n')[0].slice(0, 70) ||
+          asset('oferta_principal').split('\n')[0].slice(0, 70),
+      ],
+    },
+    {
+      title: 'Canais',
+      color: COLORS.amber,
+      items: [
+        r('consome_conteudo') || 'Instagram, YouTube',
+        asset('linha_editorial').split('\n')[0].slice(0, 70),
+      ],
+    },
+    {
+      title: 'Concorrentes',
+      color: COLORS.red,
+      items: (r('concorrentes') || '—')
+        .split(/[,;]/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .slice(0, 2),
+    },
+    {
+      title: 'Resultado',
+      color: COLORS.green,
+      items: [base.result?.split('\n')[0].slice(0, 70) || '—'],
     },
   ]
 
-  // Pilares — distribuição simulada 20-35%
-  const pillarLines = asset('pilares_de_conteudo')
-    .split('\n')
-    .map((l) => l.replace(/^\d+\.\s*/, '').trim())
-    .filter(Boolean)
-    .slice(0, 5)
-  const pcts = [30, 25, 22, 13, 10].slice(0, pillarLines.length || 1)
-  // normaliza para somar ~100 considerando qtd
-  const sum = pcts.reduce((a, b) => a + b, 0) || 1
-  const pillars = (
-    pillarLines.length ? pillarLines : ['Educação', 'Bastidores', 'Prova', 'Conexão', 'Conversão']
-  ).map((label, idx) => ({
-    label: label.split(':')[0].slice(0, 24) || `Pilar ${idx + 1}`,
-    pct: pcts[idx] != null ? Math.round((pcts[idx] / sum) * 100) : 20,
-  }))
+  /* ---- Pilares da marca (6-8 eixos de força) ---- */
+  const hasPos = !!asset('posicionamento').trim()
+  const hasArq = !!asset('arquetipo').trim()
+  const hasTom = !!asset('tom_de_voz').trim()
+  const hasProva = !!asset('stack_de_prova').trim()
+  const hasVisual = !!asset('identidade_visual').trim()
+  const hasPilares = !!asset('pilares_de_conteudo').trim()
+  const hasStory = !!asset('storytelling').trim()
+  const hasOferta = !!asset('oferta_principal').trim()
+  const brandPillars = [
+    { label: 'Clareza', pct: hasPos ? 82 : 45 },
+    { label: 'Autoridade', pct: hasProva ? 78 : 40 },
+    { label: 'Diferenciação', pct: base.differential ? 85 : 35 },
+    { label: 'Conexão', pct: hasStory ? 74 : 38 },
+    { label: 'Consistência', pct: hasPilares && hasTom ? 80 : 42 },
+    { label: 'Identidade', pct: hasVisual ? 72 : 30 },
+    { label: 'Oferta', pct: hasOferta ? 88 : 33 },
+    { label: 'Arquétipo', pct: hasArq ? 76 : 28 },
+  ]
 
-  // Arquétipo
+  /* ---- Arquétipo ---- */
   const archetype = {
     name: 'O Sábio + O Guia',
-    description: asset('arquetipo'),
+    iconKey: 'Sábio',
+    description:
+      asset('arquetipo') ||
+      `Você traduz complexidade de ${niche} em clareza prática e conduz o cliente até a transformação.`,
+    manifesto:
+      i('G7')?.slice(0, 180) ||
+      `Nasci para mostrar que ${base.result || 'a transformação'} é possível quando se tem método, e não sorte.`,
     colors: (r('cores_marca') || `${COLORS.purple},${COLORS.cyan}`)
       .split(/[,;]/)
       .map((c) => c.trim())
       .filter(Boolean)
       .slice(0, 5),
-    tone: asset('tom_de_voz'),
+    tone: asset('tom_de_voz') || base.voice || 'Direto, técnico-acessível e motivador.',
     wordsUse: r('palavras_usa') || '—',
     wordsAvoid: r('palavras_nunca') || '—',
   }
 
-  // Esteira de ofertas
+  /* ---- Esteira de ofertas (Isca → Entrada → Core → Upsell → Recorrência) ---- */
   const offers = [
     {
-      tier: 'Entrada',
+      tier: 'Isca',
       name: r('oferta_entrada') || 'Isca gratuita',
       description: 'Atrai e qualifica o lead',
       price: 'Grátis',
       color: COLORS.cyan,
     },
     {
-      tier: 'Principal',
+      tier: 'Produto de Entrada',
+      name: 'Tripwire / Baixo ticket',
+      description: 'Converte lead em cliente pagante',
+      price: r('ticket_medio') ? `até R$97` : 'R$7–R$97',
+      color: COLORS.green,
+    },
+    {
+      tier: 'Oferta Core',
       name: r('oferta_principal') || base.service || 'Oferta principal',
       description: base.result || 'Transformação central',
       price: r('ticket_medio') || '',
       color: COLORS.purple,
     },
     {
-      tier: 'Upsell 1',
+      tier: 'Upsell',
       name: r('upsell_1') || 'Upsell',
-      description: 'Aprofundamento',
+      description: 'Aprofundamento do método',
       color: COLORS.amber,
     },
     {
-      tier: 'Upsell 2',
-      name: r('upsell_2') || 'Upsell premium',
-      description: 'Acesso exclusivo',
-      color: COLORS.amber,
-    },
-    {
-      tier: 'Premium',
-      name: r('oferta_premium') || 'Oferta premium',
-      description: 'Done-for-you / alta exigência',
+      tier: 'Recorrência',
+      name: r('upsell_2') || r('oferta_premium') || 'Assinatura / Mastermind',
+      description: 'Acesso exclusivo contínuo',
       color: COLORS.purple,
     },
   ].filter((o) => o.name)
 
-  // Concorrentes
+  /* ---- Concorrentes ---- */
   const compNames = (r('concorrentes') || 'Concorrente A, Concorrente B')
     .split(/[,;]/)
     .map((s) => s.trim())
     .filter(Boolean)
-    .slice(0, 2)
+    .slice(0, 4)
   while (compNames.length < 2)
     compNames.push(`Concorrente ${String.fromCharCode(65 + compNames.length)}`)
   const competitors = compNames.map((name, idx) => ({
@@ -916,13 +1264,13 @@ function buildDocData(profile: BrandProfile): DocData {
     weakness: '—',
   }
 
-  // Processo de 5 etapas
+  /* ---- Processo de 5 etapas ---- */
   const process = [1, 2, 3, 4, 5].map((n) => ({
     name: r(`etapa_${n}`) || `Etapa ${n}`,
     description: `Passo ${n} do método`,
   }))
 
-  // Provas
+  /* ---- Provas ---- */
   const proofs: { type: string; content: string }[] = []
   if (r('depoimentos')) proofs.push({ type: 'Depoimentos', content: r('depoimentos') })
   if (r('cases')) proofs.push({ type: 'Cases', content: r('cases') })
@@ -930,11 +1278,36 @@ function buildDocData(profile: BrandProfile): DocData {
   if (r('selos_premiacoes')) proofs.push({ type: 'Premiações', content: r('selos_premiacoes') })
   if (r('midia')) proofs.push({ type: 'Mídia', content: r('midia') })
 
-  // Storytelling
+  /* ---- Storytelling + linha do tempo ---- */
   const originStory =
     i('G1') ||
     asset('storytelling') ||
     `A jornada começa quando você percebeu que ${base.audience || 'seus clientes'} precisavam de ${base.result || 'transformação'}, mas as opções de ${niche} não entregavam ${base.differential?.toLowerCase() || 'diferencial'}. Decidiu construir um caminho próprio.`
+
+  const originTimeline = [
+    {
+      label: 'O insight',
+      text:
+        i('momento_aha') ||
+        `Percebi que ${base.audience || 'meus clientes'} não tinham clareza em ${niche}.`,
+    },
+    {
+      label: 'A virada',
+      text: `Construí um método próprio focado em ${base.differential?.toLowerCase() || 'resultados reais'}.`,
+    },
+    {
+      label: 'A prova',
+      text:
+        r('cases') ||
+        `Os primeiros clientes alcançaram ${base.result?.toLowerCase() || 'transformação'}.`,
+    },
+    {
+      label: 'O legado',
+      text:
+        i('G7')?.slice(0, 160) ||
+        `Hoje a missão é levar ${base.result?.toLowerCase() || 'esse método'} para mais pessoas.`,
+    },
+  ]
 
   return {
     niche,
@@ -944,7 +1317,7 @@ function buildDocData(profile: BrandProfile): DocData {
       ? new Date(profile.lastGeneratedAt).toLocaleDateString('pt-BR')
       : '—',
     mindMapBranches,
-    pillars,
+    brandPillars,
     archetype,
     offers,
     competitors,
@@ -952,12 +1325,41 @@ function buildDocData(profile: BrandProfile): DocData {
     process,
     proofs,
     originStory,
+    originTimeline,
   }
 }
 
 /* =====================================================================
-   ESTILOS DE IMPRESSÃO (print = fundo branco, texto escuro)
+   ESTILOS — animações + impressão
    ===================================================================== */
+
+const ANIM_STYLES = `
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in-up { animation: fade-in-up 0.5s ease-out both; }
+@keyframes mindmap-center {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1); }
+}
+.animate-mindmap-center { animation: mindmap-center 0.5s ease-out both; }
+@keyframes mindmap-line {
+  from { stroke-dashoffset: 200; opacity: 0; }
+  to { stroke-dashoffset: 0; opacity: 0.5; }
+}
+.animate-mindmap-line { stroke-dasharray: 200; animation: mindmap-line 0.8s ease-out both; }
+@keyframes mindmap-node {
+  from { opacity: 0; transform: translateY(8px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.animate-mindmap-node { animation: mindmap-node 0.5s ease-out both; }
+@keyframes radar-in {
+  from { opacity: 0; transform: scale(0.7); transform-origin: center; }
+  to { opacity: 1; transform: scale(1); }
+}
+.animate-radar-in { animation: radar-in 0.7s ease-out both; }
+`
 
 const PRINT_STYLES = `
 @media print {

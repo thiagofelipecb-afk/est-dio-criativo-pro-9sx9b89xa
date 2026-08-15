@@ -553,7 +553,12 @@ export default function Gravadora() {
     }
 
     const onKey = (e: KeyboardEvent) => {
+      // Nunca dispara atalhos globais quando o foco está em um campo de
+      // entrada — isso evita conflitar com digitação, Ctrl+Z, Ctrl+Shift+Z,
+      // Delete, S, etc.
       if (isTypingTarget(e.target)) return
+      // Permite combos com Ctrl/Cmd/Meta passar (desfazer/refazer etc.)
+      if (e.ctrlKey || e.metaKey || e.altKey) return
       const key = e.key.toLowerCase()
       if (key === 't') {
         e.preventDefault()
@@ -1098,10 +1103,14 @@ export default function Gravadora() {
       className="relative bg-[#0B0B10] border border-white/10 overflow-hidden shadow-2xl rounded-xl"
       style={{
         aspectRatio: '9 / 16',
-        maxHeight: focusMode ? 'calc(100vh - 120px)' : 'calc(100vh - 180px)',
-        maxWidth: 'min(calc((100vh - 180px) * 9 / 16), 100%)',
+        maxHeight: focusMode
+          ? 'calc(100vh - 120px)'
+          : showLowerPanel
+            ? 'calc(100vh - 320px)'
+            : 'calc(100vh - 180px)',
+        maxWidth: '100%',
         margin: '0 auto',
-        width: '100%',
+        width: 'auto',
       }}
     >
       {/* FASE 4.1 — Fundo atrás do canvas (preenche toda a área do canvas) */}
@@ -1504,7 +1513,7 @@ export default function Gravadora() {
               variant="outline"
               size="sm"
               onClick={() => setFocusMode(false)}
-              className="border-white/10 bg-[#14141C] text-xs text-white hover:bg-white/5 gap-1.5"
+              className="border-white/10 bg-[#14141C] text-xs text-white hover:bg-white/5 gap-1.5 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
             >
               <Minimize2 className="w-4 h-4 text-[#22D3EE]" /> Sair do foco
             </Button>
@@ -1546,7 +1555,7 @@ export default function Gravadora() {
             variant="outline"
             size="sm"
             onClick={() => setShowMobileQR(true)}
-            className="border-white/10 bg-[#14141C] text-xs text-white hover:bg-white/5 gap-1.5"
+            className="border-white/10 bg-[#14141C] text-xs text-white hover:bg-white/5 gap-1.5 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
           >
             <QrCode className="w-4 h-4 text-[#22D3EE]" />
             Câmera do Celular
@@ -1555,7 +1564,7 @@ export default function Gravadora() {
             variant="outline"
             size="sm"
             onClick={() => setShowLowerPanel((v) => !v)}
-            className={`border-white/10 bg-[#14141C] text-xs gap-1.5 ${
+            className={`border-white/10 bg-[#14141C] text-xs gap-1.5 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none ${
               showLowerPanel ? 'text-[#7C5CFC] border-[#7C5CFC]/40' : 'text-white hover:bg-white/5'
             }`}
             title="Painel de Roteiro & Teleprompter"
@@ -1566,7 +1575,7 @@ export default function Gravadora() {
           <Button
             size="sm"
             onClick={() => setFocusMode(true)}
-            className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs font-semibold text-white gap-1.5 shadow-lg shadow-[#7C5CFC]/25"
+            className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs font-semibold text-white gap-1.5 shadow-lg shadow-[#7C5CFC]/25 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
             title="Modo foco (F)"
           >
             <Maximize2 className="w-4 h-4" /> Modo foco
@@ -1580,7 +1589,7 @@ export default function Gravadora() {
               }
               handleSendToEditor(recordedClips[0])
             }}
-            className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs font-semibold text-white gap-1.5 shadow-lg shadow-[#7C5CFC]/25"
+            className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs font-semibold text-white gap-1.5 shadow-lg shadow-[#7C5CFC]/25 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
           >
             <Sparkles className="w-4 h-4" /> Editar Último Take
           </Button>
@@ -1605,17 +1614,17 @@ export default function Gravadora() {
               variant="ghost"
               size="sm"
               onClick={handleDiscardInterrupted}
-              className="text-xs text-[#9494A8] hover:text-white"
+              className="text-xs text-[#9494A8] hover:text-white focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
             >
               Descartar
             </Button>
             <Button
               size="sm"
               onClick={handleRecoverRecording}
-              className="bg-amber-500 hover:bg-amber-600 text-black text-xs font-bold gap-1.5"
+              className="bg-amber-500 hover:bg-amber-600 text-black text-xs font-bold gap-1.5 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
             >
               <RotateCcw className="w-3.5 h-3.5" /> Recuperar
-            </Button>
+            </Button>{' '}
           </div>
         </div>
       )}
@@ -1646,14 +1655,14 @@ export default function Gravadora() {
                 if (recoveredBlobUrl) URL.revokeObjectURL(recoveredBlobUrl)
                 setRecoveredBlobUrl(null)
               }}
-              className="text-xs text-[#9494A8] hover:text-white"
+              className="text-xs text-[#9494A8] hover:text-white focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
             >
               Descartar
             </Button>
             <Button
               size="sm"
               onClick={handleSendRecoveredToEditor}
-              className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-white text-xs font-bold gap-1.5"
+              className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-white text-xs font-bold gap-1.5 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
             >
               Editar no Editor
             </Button>
@@ -1715,7 +1724,7 @@ export default function Gravadora() {
                         <Button
                           size="sm"
                           onClick={() => handleSendToEditor(clip)}
-                          className="h-7 text-[10px] bg-[#7C5CFC] hover:bg-[#6A48E0] text-white flex-1"
+                          className="h-7 text-[10px] bg-[#7C5CFC] hover:bg-[#6A48E0] text-white flex-1 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
                         >
                           Editar
                         </Button>
@@ -1723,7 +1732,7 @@ export default function Gravadora() {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleSaveToMediaLibrary(clip)}
-                          className="h-7 px-2 text-[10px] text-[#22D3EE] hover:bg-[#22D3EE]/10"
+                          className="h-7 px-2 text-[10px] text-[#22D3EE] hover:bg-[#22D3EE]/10 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
                           title="Salvar na Biblioteca"
                         >
                           Salvar
@@ -2236,7 +2245,7 @@ export default function Gravadora() {
             >
               <GripHorizontal className="w-4 h-3 text-[#9494A8] group-hover:text-[#7C5CFC]" />
             </div>
-            <div className="flex-1 min-h-0">
+            <div className="flex-1 min-h-0 overflow-y-auto">
               <ScriptPanel
                 isRecording={isRecording}
                 onTeleprompterActiveChange={setTeleprompterActive}
@@ -2306,7 +2315,7 @@ export default function Gravadora() {
                 transition('prepare')
                 setPermissionErrorModal(false)
               }}
-              className="text-xs text-[#9494A8] hover:text-white"
+              className="text-xs text-[#9494A8] hover:text-white focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
             >
               Usar prévia simulada
             </Button>
@@ -2318,7 +2327,7 @@ export default function Gravadora() {
                 setPermissionErrorModal(false)
                 startCamera()
               }}
-              className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-white text-xs font-semibold"
+              className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-white text-xs font-semibold focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
             >
               Tentar novamente
             </Button>
@@ -2361,7 +2370,7 @@ export default function Gravadora() {
 
           <Button
             onClick={() => setShowMobileQR(false)}
-            className="w-full bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs font-semibold py-2"
+            className="w-full bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs font-semibold py-2 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
           >
             Entendi
           </Button>

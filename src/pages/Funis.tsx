@@ -78,6 +78,12 @@ import {
   XCircle,
   ArrowRight,
   Link2,
+  Network,
+  Target,
+  Zap,
+  Users,
+  TrendingUp,
+  Info,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -467,6 +473,7 @@ export default function Funis() {
       {funnelPlans.length > 0 && (status === 'aprovado' || status === 'em_revisao') && (
         <PlansSection
           plans={funnelPlans}
+          ecosystem={ecosystem}
           selectedPlanId={selectedPlanId}
           setSelectedPlanId={setSelectedPlanId}
         />
@@ -923,51 +930,90 @@ function EcosystemPanel({
 
 function PlansSection({
   plans,
+  ecosystem,
   selectedPlanId,
   setSelectedPlanId,
 }: {
   plans: FunnelPlan[]
+  ecosystem: FunnelEcosystem | null
   selectedPlanId: string | null
   setSelectedPlanId: (id: string | null) => void
 }) {
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <h3 className="text-sm font-bold text-white flex items-center gap-2">
         <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Planos por Funil
       </h3>
+
+      {/* Mapa mental do ecossistema */}
+      <EcosystemMindMap plans={plans} />
+
       {plans.map((p) => {
         const item = FUNNEL_CATALOG.find((f) => f.id === p.catalogItemId)
         const isOpen = selectedPlanId === p.catalogItemId
         const done = p.checklist.filter((c) => c.concluido_em).length
+        const total = p.checklist.length || 1
+        const pct = Math.round((done / total) * 100)
         const color = item ? ETAPA_COLOR[item.etapa] : '#7C5CFC'
+        const Icon = FUNNEL_ICON[p.catalogItemId] || GitBranch
         return (
           <div
             key={p.catalogItemId}
-            className="rounded-2xl bg-[#14141C] border overflow-hidden"
+            className="rounded-2xl bg-[#14141C] border overflow-hidden transition-all hover:shadow-[0_0_20px_rgba(124,92,252,0.12)] focus-within:ring-2 focus-within:ring-[#7C5CFC]"
             style={{ borderColor: `${color}33` }}
           >
             <button
               onClick={() => setSelectedPlanId(isOpen ? null : p.catalogItemId)}
-              className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5"
+              className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-inset"
+              aria-expanded={isOpen}
             >
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                {/* Indicador de progresso circular */}
+                <div className="relative shrink-0">
+                  <svg width="34" height="34" className="-rotate-90">
+                    <circle cx="17" cy="17" r="14" fill="none" stroke="#ffffff14" strokeWidth="3" />
+                    <circle
+                      cx="17"
+                      cy="17"
+                      r="14"
+                      fill="none"
+                      stroke={color}
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeDasharray={`${(pct / 100) * 88} 88`}
+                    />
+                  </svg>
+                  <span className="absolute inset-0 flex items-center justify-center text-[8px] font-bold text-white">
+                    {pct}%
+                  </span>
+                </div>
                 <span
-                  className="flex h-6 w-6 items-center justify-center rounded-full text-white text-[10px] font-bold shrink-0"
-                  style={{ background: color }}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg text-white shrink-0"
+                  style={{ background: `${color}1a`, color }}
                 >
-                  {p.order}
+                  <Icon className="w-3.5 h-3.5" />
                 </span>
-                <span className="text-sm font-bold text-white truncate">
-                  {item?.nome || p.catalogItemId}
-                </span>
-                {item && (
-                  <Badge
-                    className="text-[10px] border"
-                    style={{ background: `${color}1a`, color, borderColor: `${color}40` }}
-                  >
-                    {ETAPA_LABEL[item.etapa]}
-                  </Badge>
-                )}
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-bold text-white truncate">
+                      {item?.nome || p.catalogItemId}
+                    </span>
+                    {item && (
+                      <Badge
+                        className="text-[10px] border"
+                        style={{ background: `${color}1a`, color, borderColor: `${color}40` }}
+                      >
+                        {ETAPA_LABEL[item.etapa]}
+                      </Badge>
+                    )}
+                    <Badge className="bg-white/5 text-[#9494A8] border-white/10 text-[9px]">
+                      {item ? labelDificuldade(item.dificuldade) : ''}
+                    </Badge>
+                  </div>
+                  <p className="text-[10px] text-[#9494A8] truncate mt-0.5">
+                    {item?.descricao || p.analysis?.split('\n')[0] || ''}
+                  </p>
+                </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[10px]">
@@ -1043,10 +1089,17 @@ function FunnelPlanDetail({ plan }: { plan: FunnelPlan }) {
         </TabsList>
 
         <TabsContent value="analise" className="mt-3">
-          <div className="rounded-lg bg-[#0e0e15]/60 p-3 border-l-2 border-[#7C5CFC]">
+          <div className="rounded-lg bg-[#0e0e15]/60 p-3 border-l-2 border-[#7C5CFC] space-y-2">
             <p className="text-xs text-slate-200 whitespace-pre-wrap leading-relaxed">
               {plan.analysis}
             </p>
+            <div className="flex flex-wrap gap-2 pt-1 border-t border-white/5">
+              <Info className="w-3 h-3 text-[#9494A8] mt-0.5" />
+              <p className="text-[10px] text-[#9494A8]">
+                Métricas-chave deste funil: <Term>CAC</Term> · <Term>LTV</Term> · <Term>ROAS</Term>{' '}
+                · <Term>CTR</Term> · <Term>CPL</Term>
+              </p>
+            </div>
           </div>
         </TabsContent>
 
@@ -1121,6 +1174,187 @@ const PRIO_COLOR: Record<string, string> = {
   alta: '#f97316',
   media: '#F59E0B',
   baixa: '#22c55e',
+}
+
+/* Ícones por funil (catálogo) */
+const FUNNEL_ICON: Record<
+  string,
+  React.ComponentType<{ className?: string; style?: React.CSSProperties }>
+> = {
+  reativacao_base: RefreshCw,
+  isca_digital: Target,
+  reels_manychat: Zap,
+  nissin_miojo: Zap,
+  diagnostico_publico: Users,
+  jornada_documentada: MapIcon,
+  ia_em_acao: Sparkles,
+  tripwire: Target,
+  emprestimo_audiencia: Users,
+  destaques_sequencia: Network,
+  conteudo_fixado: MapIcon,
+  serie_semanal: TrendingUp,
+  broadcast: Network,
+  close_friends_vip: Users,
+  diagnostico: Target,
+  link_bio_vsl: Zap,
+  link_bio_carta: TrendingUp,
+  grupo_whatsapp: Users,
+  aplicacao_formulario: CheckCircle2,
+  webinario_aula_vivo: Users,
+  aula_gravada_aplicacao: TrendingUp,
+}
+
+/* =====================================================================
+   GLOSSÁRIO — tooltips de termos técnicos
+   ===================================================================== */
+const GLOSSARY: Record<string, string> = {
+  CAC: 'Custo de Aquisição de Cliente — quanto se gasta em tráfego/mídia para conquistar um cliente.',
+  LTV: 'Lifetime Value — receita total que um cliente gera ao longo do relacionamento.',
+  ROAS: 'Return on Ad Spend — receita gerada para cada R$1 investido em anúncios.',
+  CTR: 'Click-Through Rate — % de pessoas que clicam no anúncio ou link após ver.',
+  CPL: 'Custo por Lead — valor médio pago para capturar um lead qualificado.',
+}
+
+/* Componente inline que envolve um termo com tooltip de definição. */
+function Term({ children }: { children: string }) {
+  const def = GLOSSARY[children]
+  if (!def) return <>{children}</>
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          tabIndex={0}
+          className="underline decoration-dotted decoration-[#7C5CFC]/60 underline-offset-2 cursor-help text-[#A78BFA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] rounded"
+        >
+          {children}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="bg-[#1C1C27] border-white/10 text-[11px] max-w-[220px] text-white">
+        {def}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+/* =====================================================================
+   MAPA MENTAL DO ECOSSISTEMA — Nó central "Seu Negócio" → 3 etapas
+   ===================================================================== */
+function EcosystemMindMap({ plans }: { plans: FunnelPlan[] }) {
+  const grouped = useMemo(() => {
+    const g: Record<'entrada' | 'nutricao' | 'conversao', FunnelPlan[]> = {
+      entrada: [],
+      nutricao: [],
+      conversao: [],
+    }
+    for (const p of plans) {
+      const item = FUNNEL_CATALOG.find((f) => f.id === p.catalogItemId)
+      const etapa = item?.etapa || 'conversao'
+      g[etapa].push(p)
+    }
+    return g
+  }, [plans])
+
+  const cols: {
+    key: 'entrada' | 'nutricao' | 'conversao'
+    label: string
+    color: string
+    icon: React.ReactNode
+  }[] = [
+    {
+      key: 'entrada',
+      label: 'Entrada',
+      color: ETAPA_COLOR.entrada,
+      icon: <Target className="w-3.5 h-3.5" />,
+    },
+    {
+      key: 'nutricao',
+      label: 'Nutrição',
+      color: ETAPA_COLOR.nutricao,
+      icon: <Network className="w-3.5 h-3.5" />,
+    },
+    {
+      key: 'conversao',
+      label: 'Conversão',
+      color: ETAPA_COLOR.conversao,
+      icon: <TrendingUp className="w-3.5 h-3.5" />,
+    },
+  ]
+
+  return (
+    <div className="rounded-2xl bg-[#14141C] border border-white/5 p-4 overflow-x-auto">
+      <div className="min-w-[560px] flex flex-col items-center gap-3 py-2">
+        {/* Nó central */}
+        <div className="relative animate-fade-in">
+          <div className="absolute inset-0 rounded-2xl blur-xl opacity-50 bg-[#7C5CFC]" />
+          <div className="relative px-6 py-2.5 rounded-2xl bg-gradient-to-r from-[#7C5CFC] to-[#22D3EE] text-white font-extrabold text-sm shadow-lg flex items-center gap-2">
+            <Sparkles className="w-4 h-4" /> Seu Negócio
+          </div>
+        </div>
+
+        {/* Linhas conectoras SVG do centro para as 3 colunas */}
+        <svg width="560" height="44" className="overflow-visible">
+          {cols.map((c, i) => {
+            const x = 90 + (i * (560 - 180)) / 2
+            return (
+              <path
+                key={c.key}
+                d={`M 280 0 Q ${(280 + x) / 2} 22 ${x} 44`}
+                fill="none"
+                stroke={c.color}
+                strokeWidth="1.5"
+                strokeOpacity="0.45"
+                className="funnel-eco-line"
+                style={{ animationDelay: `${i * 100}ms` }}
+              />
+            )
+          })}
+          <style>{`
+            @keyframes ecoLine { from { stroke-dashoffset: 120; opacity: 0; } to { stroke-dashoffset: 0; opacity: 0.45; } }
+            .funnel-eco-line { stroke-dasharray: 120; animation: ecoLine 0.8s ease-out both; }
+          `}</style>
+        </svg>
+
+        {/* Colunas com os funis de cada etapa */}
+        <div className="grid grid-cols-3 gap-3 w-full">
+          {cols.map((c) => (
+            <div key={c.key} className="space-y-2">
+              <div
+                className="flex items-center gap-1.5 justify-center rounded-lg py-1.5"
+                style={{ background: `${c.color}1a`, color: c.color }}
+              >
+                {c.icon}
+                <span className="text-[10px] font-bold uppercase tracking-wider">{c.label}</span>
+              </div>
+              {grouped[c.key].length === 0 && (
+                <p className="text-[9px] text-[#9494A8] text-center py-2">—</p>
+              )}
+              {grouped[c.key].map((p) => {
+                const item = FUNNEL_CATALOG.find((f) => f.id === p.catalogItemId)
+                const Icon = FUNNEL_ICON[p.catalogItemId] || GitBranch
+                return (
+                  <div
+                    key={p.catalogItemId}
+                    className="rounded-lg border p-2 space-y-0.5 transition-transform hover:scale-[1.02]"
+                    style={{ borderColor: `${c.color}33`, background: `${c.color}0d` }}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Icon className="w-3 h-3 shrink-0" style={{ color: c.color }} />
+                      <span className="text-[10px] font-bold text-white truncate">
+                        {item?.nome || p.catalogItemId}
+                      </span>
+                    </div>
+                    <p className="text-[9px] text-[#9494A8] leading-snug line-clamp-2">
+                      {item?.descricao || ''}
+                    </p>
+                  </div>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 /* --- Mapa Mental do Funil (aba Mapa) --- */
@@ -1416,16 +1650,16 @@ function FunnelStructureFlow({ plan }: { plan: FunnelPlan }) {
   const color = ETAPA_COLOR[etapa] || '#7C5CFC'
   return (
     <div className="rounded-lg bg-[#0e0e15]/40 p-3 border border-white/5">
-      <div className="flex flex-col lg:flex-row items-stretch gap-1">
+      <div className="flex flex-col lg:flex-row items-stretch gap-1 overflow-x-auto pb-1">
         {plan.estrutura.map((s, i) => (
           <React.Fragment key={i}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <div
-                  className="flex-1 rounded-xl border p-3 cursor-help transition-transform hover:scale-[1.02] min-w-[120px]"
+                  className="flex-1 rounded-xl border p-3 cursor-help transition-transform hover:scale-[1.02] min-w-[140px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC]"
                   style={{ borderColor: `${color}40`, background: `${color}0d` }}
                 >
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex items-center gap-2 mb-1.5">
                     <span
                       className="flex h-6 w-6 items-center justify-center rounded-full text-white text-[10px] font-bold shrink-0"
                       style={{ background: color }}
@@ -1434,17 +1668,28 @@ function FunnelStructureFlow({ plan }: { plan: FunnelPlan }) {
                     </span>
                     <span className="text-[11px] font-bold text-white truncate">{s.nome}</span>
                   </div>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <Badge
-                      className="text-[8px]"
-                      style={{
-                        background: '#22D3EE1a',
-                        color: '#22D3EE',
-                        borderColor: '#22D3EE40',
-                      }}
-                    >
-                      {s.canal}
-                    </Badge>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[8px] uppercase tracking-wider text-[#9494A8]">
+                        Gatilho
+                      </span>
+                      <Badge
+                        className="text-[8px]"
+                        style={{
+                          background: '#22D3EE1a',
+                          color: '#22D3EE',
+                          borderColor: '#22D3EE40',
+                        }}
+                      >
+                        {s.canal}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[8px] uppercase tracking-wider text-[#9494A8]">
+                        Ação
+                      </span>
+                      <span className="text-[9px] text-slate-200 truncate">{s.descricao}</span>
+                    </div>
                     <span className="text-[9px] text-[#9494A8]">⏱ {s.duracao}</span>
                   </div>
                 </div>
