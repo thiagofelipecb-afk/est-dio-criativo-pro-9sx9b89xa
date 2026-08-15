@@ -6,6 +6,7 @@ import {
   CarouselProject,
   StaticPostProject,
   AISuggestion,
+  ScriptBlock,
 } from '@/types/studio'
 
 interface StudioContextType {
@@ -47,6 +48,14 @@ interface StudioContextType {
   // Teleprompter script temporary store
   teleprompterScript: string
   setTeleprompterScript: (text: string) => void
+
+  // FASE 2 — Roteiro por blocos na Gravadora
+  /** Blocos do roteiro (persistidos em lumen_gravadora_blocks). */
+  scriptBlocks: ScriptBlock[]
+  setScriptBlocks: (blocks: ScriptBlock[]) => void
+  /** Texto bruto do roteiro na Gravadora (persistido em lumen_gravadora_script). */
+  gravadoraScript: string
+  setGravadoraScript: (text: string) => void
 
   // AI History / suggestions
   appliedAiSuggestions: AISuggestion[]
@@ -514,6 +523,31 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [teleprompterScript, setTeleprompterScript] = useState(
     'Bem-vindos ao LUMEN Studio! Hoje vamos gravar nosso novo vídeo com inteligência artificial.\n\nLembre-se de olhar fixamente para a lente da câmera, manter uma postura confiante e fazer pausas expressivas nos momentos-chave.\n\nO teleprompter sincroniza automaticamente com seu ritmo de fala.',
   )
+
+  // FASE 2 — Roteiro por blocos na Gravadora (persistência própria)
+  const [gravadoraScript, setGravadoraScript] = useState<string>(() => {
+    const saved = localStorage.getItem('lumen_gravadora_script')
+    return saved ?? ''
+  })
+  const [scriptBlocks, setScriptBlocks] = useState<ScriptBlock[]>(() => {
+    const saved = localStorage.getItem('lumen_gravadora_blocks')
+    if (saved) {
+      try {
+        return JSON.parse(saved) as ScriptBlock[]
+      } catch {
+        return []
+      }
+    }
+    return []
+  })
+
+  useEffect(() => {
+    localStorage.setItem('lumen_gravadora_script', gravadoraScript)
+  }, [gravadoraScript])
+  useEffect(() => {
+    localStorage.setItem('lumen_gravadora_blocks', JSON.stringify(scriptBlocks))
+  }, [scriptBlocks])
+
   const [appliedAiSuggestions, setAppliedAiSuggestions] = useState<AISuggestion[]>([])
 
   // Brand OS — versão resumida persistida em localStorage (lumen_brand_os)
@@ -740,6 +774,10 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setIsCreateModalOpen,
         teleprompterScript,
         setTeleprompterScript,
+        scriptBlocks,
+        setScriptBlocks,
+        gravadoraScript,
+        setGravadoraScript,
         appliedAiSuggestions,
         addAiSuggestion,
         revertAiSuggestion,

@@ -220,3 +220,40 @@ export interface RecordingTake {
     scriptText?: string
   }
 }
+
+/* ===========================================================================
+   LUMEN Studio — Roteiro & Teleprompter por Blocos (FASE 2)
+   Tipos aditivos. Nenhum tipo existente foi removido ou alterado.
+   =========================================================================== */
+
+/** Status de gravação de um bloco de roteiro. */
+export type ScriptBlockStatus = 'ready' | 'pending'
+
+/** Modo de exibição do teleprompter integrado na Gravadora. */
+export type TeleprompterMode = 'blocks' | 'continuous'
+
+/** Cor do texto do teleprompter. */
+export type TeleprompterTextColor = 'white' | 'green' | 'yellow'
+
+/** Bloco de roteiro gerado pelo parser a partir do texto livre. */
+export interface ScriptBlock {
+  id: string
+  /** Texto completo do bloco. */
+  text: string
+  /** Rótulo opcional (ex.: "Bloco 1", "Cena 2") detectado no parser. */
+  title?: string
+  /** Status de gravação — alterna manualmente. */
+  status: ScriptBlockStatus
+  /** Duração estimada em segundos, com base em ~150 palavras/min. */
+  estimatedSeconds: number
+}
+
+/** Estado completo do roteiro dentro da Gravadora. */
+export interface ScriptState {
+  /** Texto bruto no editor (fonte da verdade para re-parse). */
+  rawText: string
+  /** Blocos derivados do rawText. */
+  blocks: ScriptBlock[]
+  /** Índice do bloco ativo/selecionado no teleprompter. */
+  activeBlockIndex: number
+}

@@ -42,6 +42,8 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { StageLayout, LowerPanelMode, AudioConfig, RecordingTake } from '@/types/studio'
+import ScriptPanel from '@/components/ScriptPanel'
+import { PanelBottom, GripHorizontal } from 'lucide-react'
 
 /* ───────────────────────────────────────────────────────────────────────────
    LUMEN Studio — Núcleo do Estúdio de Gravação (FASE 1)
@@ -123,6 +125,16 @@ export default function Gravadora() {
 
   /* ── Mobile QR (legado) ────────────────────────────────────────────────── */
   const [showMobileQR, setShowMobileQR] = useState(false)
+
+  /* ── FASE 2: Lower Panel (Roteiro / Teleprompter por blocos) ───────────── */
+  const [showLowerPanel, setShowLowerPanel] = useState(false)
+  const [lowerPanelHeight, setLowerPanelHeight] = useState(38) // % da altura
+  const [teleprompterActive, setTeleprompterActive] = useState(false)
+  const [syncArts, setSyncArts] = useState(true)
+  const [autoStartOnRecord, setAutoStartOnRecord] = useState(false)
+  const draggingPanelRef = useRef(false)
+  const panelDragStartY = useRef(0)
+  const panelDragStartH = useRef(0)
 
   /* ═══════════════════════════════════════════════════════════════════════
      Web Audio: configura o AudioContext, GainNode e AnalyserNode sobre o
@@ -452,6 +464,33 @@ export default function Gravadora() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     FASE 2 — Redimensionamento do painel inferior (arrastar borda superior).
+     ═══════════════════════════════════════════════════════════════════════ */
+  const onPanelDragStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault()
+      draggingPanelRef.current = true
+      panelDragStartY.current = e.clientY
+      panelDragStartH.current = lowerPanelHeight
+      const onMove = (ev: MouseEvent) => {
+        if (!draggingPanelRef.current) return
+        const delta = panelDragStartY.current - ev.clientY
+        const windowH = window.innerHeight
+        const next = Math.min(70, Math.max(20, panelDragStartH.current + (delta / windowH) * 100))
+        setLowerPanelHeight(next)
+      }
+      const onUp = () => {
+        draggingPanelRef.current = false
+        window.removeEventListener('mousemove', onMove)
+        window.removeEventListener('mouseup', onUp)
+      }
+      window.addEventListener('mousemove', onMove)
+      window.addEventListener('mouseup', onUp)
+    },
+    [lowerPanelHeight],
+  )
 
   /* ═══════════════════════════════════════════════════════════════════════
      Gravação: MediaRecorder real quando há stream; fallback simulado quando
@@ -981,7 +1020,10 @@ export default function Gravadora() {
      Layout normal
      ═══════════════════════════════════════════════════════════════════════ */
   return (
-    <div className="h-full flex flex-col p-3 sm:p-6 max-w-[1600px] mx-auto gap-4 overflow-y-auto animate-fade-in">
+    <div
+      className="h-full flex flex-col p-3 sm:p-6 max-w-[1600px] mx-auto gap-4 animate-fade-in"
+      style={{ overflow: showLowerPanel ? 'hidden' : 'auto' }}
+    >
       {/* Studio Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
         <div>
@@ -1011,6 +1053,18 @@ export default function Gravadora() {
             Câmera do Celular
           </Button>
           <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowLowerPanel((v) => !v)}
+            className={`border-white/10 bg-[#14141C] text-xs gap-1.5 ${
+              showLowerPanel ? 'text-[#7C5CFC] border-[#7C5CFC]/40' : 'text-white hover:bg-white/5'
+            }`}
+            title="Painel de Roteiro & Teleprompter"
+          >
+            <PanelBottom className="w-4 h-4" />
+            {showLowerPanel ? 'Fechar Painel' : 'Roteiro'}
+          </Button>
+          <Button
             size="sm"
             onClick={() => setFocusMode(true)}
             className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs font-semibold text-white gap-1.5 shadow-lg shadow-[#7C5CFC]/25"
@@ -1034,522 +1088,561 @@ export default function Gravadora() {
         </div>
       </div>
 
-      {/* Main Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-[500px]">
-        {/* LEFT: Canvas 9:16 + takes */}
-        <div className="lg:col-span-7 xl:col-span-8 flex flex-col gap-3">
-          <div className="flex justify-center">{renderCanvas()}</div>
+      {/* Main Grid + Lower Panel wrapper */}
+      <div className="flex-1 min-h-0 flex flex-col gap-4">
+        <div
+          className={`grid grid-cols-1 lg:grid-cols-12 gap-4 ${showLowerPanel ? 'min-h-0' : 'min-h-[500px]'} ${showLowerPanel ? 'flex-1' : 'flex-1'}`}
+        >
+          {/* LEFT: Canvas 9:16 + takes */}
+          <div className="lg:col-span-7 xl:col-span-8 flex flex-col gap-3">
+            <div className="flex justify-center">{renderCanvas()}</div>
 
-          {/* Takes gravados */}
-          <div className="bg-[#14141C] border border-white/5 rounded-2xl p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                <FolderPlus className="w-4 h-4 text-[#7C5CFC]" />
-                Takes Gravados Nesta Sessão ({recordedClips.length})
-              </span>
-              <span className="text-[11px] text-[#9494A8]">
-                Salvos automaticamente em Meus Projetos
-              </span>
-            </div>
-
-            {recordedClips.length === 0 ? (
-              <p className="text-xs text-[#9494A8] py-4 text-center">
-                Nenhum take gravado ainda. Clique no botão vermelho para gravar o primeiro take!
-              </p>
-            ) : (
-              <div className="flex gap-3 overflow-x-auto pb-1 pt-1">
-                {recordedClips.map((clip, idx) => (
-                  <div
-                    key={clip.id}
-                    className="group relative w-40 shrink-0 bg-[#1C1C27] rounded-xl border border-white/10 overflow-hidden flex flex-col justify-between"
-                  >
-                    <div className="relative aspect-[9/16] bg-black/40">
-                      {clip.url.startsWith('blob:') ? (
-                        <video
-                          src={clip.url}
-                          className="w-full h-full object-cover"
-                          muted
-                          playsInline
-                        />
-                      ) : (
-                        <img src={clip.url} alt="Take" className="w-full h-full object-cover" />
-                      )}
-                      <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/80 text-[10px] font-mono text-white">
-                        {clip.timeString}
-                      </span>
-                      <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-[#7C5CFC] text-[9px] font-bold text-white">
-                        Take #{recordedClips.length - idx}
-                      </span>
-                    </div>
-                    <div className="p-2 flex items-center justify-between gap-1">
-                      <Button
-                        size="sm"
-                        onClick={() => handleSendToEditor(clip)}
-                        className="h-7 text-[10px] bg-[#7C5CFC] hover:bg-[#6A48E0] text-white flex-1"
-                      >
-                        Editar
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleSaveToMediaLibrary(clip)}
-                        className="h-7 px-2 text-[10px] text-[#22D3EE] hover:bg-[#22D3EE]/10"
-                        title="Salvar na Biblioteca"
-                      >
-                        Salvar
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* RIGHT: Controles */}
-        <div className="lg:col-span-5 xl:col-span-4 flex flex-col gap-4 overflow-y-auto pr-1">
-          {/* 1. Layout do palco (T) + cover + preview + foco + guias */}
-          <div className="p-4 rounded-2xl bg-[#14141C] border border-white/5 space-y-3">
-            <h3 className="text-xs font-bold text-white flex items-center gap-1.5 uppercase tracking-wider">
-              <Columns2 className="w-3.5 h-3.5 text-[#7C5CFC]" />
-              Layout do Palco (tecla T)
-            </h3>
-
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setStageLayout('split')}
-                className={`p-2 rounded-xl border text-left transition-all ${
-                  stageLayout === 'split'
-                    ? 'border-[#7C5CFC] bg-[#7C5CFC]/10'
-                    : 'border-white/10 bg-[#1C1C27] hover:border-white/20'
-                }`}
-                title="Layout Dividido (T)"
-              >
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <RectangleHorizontal
-                    className={`w-4 h-4 ${stageLayout === 'split' ? 'text-[#7C5CFC]' : 'text-[#9494A8]'}`}
-                  />
-                  <span className="text-[11px] font-semibold text-white">Dividido</span>
-                </div>
-                {/* mini-preview dividido */}
-                <div className="aspect-[9/16] w-full rounded-md overflow-hidden border border-white/10 flex flex-col">
-                  <div className="flex-[1.3] bg-[#7C5CFC]/30" />
-                  <div className="flex-[0.7] bg-[#22D3EE]/20" />
-                </div>
-              </button>
-
-              <button
-                onClick={() => setStageLayout('full')}
-                className={`p-2 rounded-xl border text-left transition-all ${
-                  stageLayout === 'full'
-                    ? 'border-[#7C5CFC] bg-[#7C5CFC]/10'
-                    : 'border-white/10 bg-[#1C1C27] hover:border-white/20'
-                }`}
-                title="Câmera Cheia (T)"
-              >
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <Maximize2
-                    className={`w-4 h-4 ${stageLayout === 'full' ? 'text-[#7C5CFC]' : 'text-[#9494A8]'}`}
-                  />
-                  <span className="text-[11px] font-semibold text-white">Câmera cheia</span>
-                </div>
-                <div className="aspect-[9/16] w-full rounded-md overflow-hidden border border-white/10 bg-[#7C5CFC]/30" />
-              </button>
-            </div>
-
-            {/* Enquadramento cover */}
-            <div className="space-y-1 pt-1">
-              <div className="flex justify-between text-[11px] text-[#9494A8]">
-                <span className="flex items-center gap-1">
-                  <Maximize2 className="w-3 h-3 text-[#22D3EE]" /> Enquadramento cover
+            {/* Takes gravados */}
+            <div className="bg-[#14141C] border border-white/5 rounded-2xl p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <FolderPlus className="w-4 h-4 text-[#7C5CFC]" />
+                  Takes Gravados Nesta Sessão ({recordedClips.length})
                 </span>
-                <span className="font-mono">{cameraCover.toFixed(2)}</span>
+                <span className="text-[11px] text-[#9494A8]">
+                  Salvos automaticamente em Meus Projetos
+                </span>
               </div>
-              <Slider
-                value={[cameraCover]}
-                min={0}
-                max={1}
-                step={0.01}
-                onValueChange={(v) => setCameraCover(v[0])}
-              />
-            </div>
 
-            {/* Botões de preview / foco / guias */}
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPreviewHidden(!previewHidden)}
-                className="border-white/10 bg-[#1C1C27] text-[11px] text-white hover:bg-white/5 gap-1.5 justify-start"
-                title={previewHidden ? 'Mostrar preview' : 'Ocultar preview'}
-              >
-                {previewHidden ? (
-                  <Eye className="w-4 h-4 text-[#22D3EE]" />
-                ) : (
-                  <EyeOff className="w-4 h-4 text-[#9494A8]" />
-                )}
-                {previewHidden ? 'Mostrar preview' : 'Ocultar preview'}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setFocusMode(true)}
-                className="border-white/10 bg-[#1C1C27] text-[11px] text-white hover:bg-white/5 gap-1.5 justify-start"
-                title="Modo foco (F)"
-              >
-                <Maximize2 className="w-4 h-4 text-[#7C5CFC]" /> Modo foco (F)
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowSafeGuides(!showSafeGuides)}
-                className={`border-white/10 bg-[#1C1C27] text-[11px] gap-1.5 justify-start ${
-                  showSafeGuides ? 'text-[#22D3EE]' : 'text-[#9494A8] hover:text-white'
-                } hover:bg-white/5`}
-                title="Guias de segurança (Botões/Legenda)"
-              >
-                <ShieldCheck className="w-4 h-4" /> Guias
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowGrid(!showGrid)}
-                className={`border-white/10 bg-[#1C1C27] text-[11px] gap-1.5 justify-start ${
-                  showGrid ? 'text-[#7C5CFC]' : 'text-[#9494A8] hover:text-white'
-                } hover:bg-white/5`}
-                title="Grade de Terços"
-              >
-                <Grid className="w-4 h-4" /> Terços
-              </Button>
-            </div>
-
-            {/* Seletor do modo da parte inferior (split) */}
-            {stageLayout === 'split' && (
-              <div className="pt-2 border-t border-white/5 space-y-2">
-                <label className="text-[11px] text-[#9494A8] block">Parte inferior</label>
-                <div className="grid grid-cols-5 gap-1">
-                  {(
-                    [
-                      { id: 'none', label: 'Nenhum' },
-                      { id: 'arts', label: 'Artes' },
-                      { id: 'reaction', label: 'Reação' },
-                      { id: 'board', label: 'Quadro' },
-                      { id: 'broll', label: 'B-roll' },
-                    ] as { id: LowerPanelMode; label: string }[]
-                  ).map((m) => (
-                    <button
-                      key={m.id}
-                      onClick={() => setLowerPanelMode(m.id)}
-                      className={`py-1.5 rounded-lg font-medium text-[10px] transition-colors ${
-                        lowerPanelMode === m.id
-                          ? 'bg-[#7C5CFC] text-white'
-                          : 'bg-[#1C1C27] text-[#9494A8] hover:text-white'
-                      }`}
+              {recordedClips.length === 0 ? (
+                <p className="text-xs text-[#9494A8] py-4 text-center">
+                  Nenhum take gravado ainda. Clique no botão vermelho para gravar o primeiro take!
+                </p>
+              ) : (
+                <div className="flex gap-3 overflow-x-auto pb-1 pt-1">
+                  {recordedClips.map((clip, idx) => (
+                    <div
+                      key={clip.id}
+                      className="group relative w-40 shrink-0 bg-[#1C1C27] rounded-xl border border-white/10 overflow-hidden flex flex-col justify-between"
                     >
-                      {m.label}
-                    </button>
+                      <div className="relative aspect-[9/16] bg-black/40">
+                        {clip.url.startsWith('blob:') ? (
+                          <video
+                            src={clip.url}
+                            className="w-full h-full object-cover"
+                            muted
+                            playsInline
+                          />
+                        ) : (
+                          <img src={clip.url} alt="Take" className="w-full h-full object-cover" />
+                        )}
+                        <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/80 text-[10px] font-mono text-white">
+                          {clip.timeString}
+                        </span>
+                        <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-[#7C5CFC] text-[9px] font-bold text-white">
+                          Take #{recordedClips.length - idx}
+                        </span>
+                      </div>
+                      <div className="p-2 flex items-center justify-between gap-1">
+                        <Button
+                          size="sm"
+                          onClick={() => handleSendToEditor(clip)}
+                          className="h-7 text-[10px] bg-[#7C5CFC] hover:bg-[#6A48E0] text-white flex-1"
+                        >
+                          Editar
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleSaveToMediaLibrary(clip)}
+                          className="h-7 px-2 text-[10px] text-[#22D3EE] hover:bg-[#22D3EE]/10"
+                          title="Salvar na Biblioteca"
+                        >
+                          Salvar
+                        </Button>
+                      </div>
+                    </div>
                   ))}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
-          {/* 2. Dispositivos */}
-          <div className="p-4 rounded-2xl bg-[#14141C] border border-white/5 space-y-3">
-            <div className="flex items-center justify-between">
+          {/* RIGHT: Controles */}
+          <div className="lg:col-span-5 xl:col-span-4 flex flex-col gap-4 overflow-y-auto pr-1">
+            {/* 1. Layout do palco (T) + cover + preview + foco + guias */}
+            <div className="p-4 rounded-2xl bg-[#14141C] border border-white/5 space-y-3">
               <h3 className="text-xs font-bold text-white flex items-center gap-1.5 uppercase tracking-wider">
-                <Sliders className="w-3.5 h-3.5 text-[#7C5CFC]" />
-                Dispositivos de Entrada
+                <Columns2 className="w-3.5 h-3.5 text-[#7C5CFC]" />
+                Layout do Palco (tecla T)
               </h3>
-              <button
-                onClick={async () => {
-                  try {
-                    const devices = await navigator.mediaDevices.enumerateDevices()
-                    setVideoDevices(devices.filter((d) => d.kind === 'videoinput'))
-                    setAudioDevices(devices.filter((d) => d.kind === 'audioinput'))
-                    toast.success('Dispositivos atualizados.')
-                  } catch {
-                    toast.error('Não foi possível listar dispositivos.')
-                  }
-                }}
-                className="text-[10px] text-[#9494A8] hover:text-white flex items-center gap-1"
-                title="Reenumerar dispositivos"
-              >
-                <RefreshCw className="w-3 h-3" /> Atualizar
-              </button>
-            </div>
 
-            <div className="space-y-2.5">
-              <div>
-                <label className="text-[11px] text-[#9494A8] flex items-center gap-1 mb-1">
-                  <Camera className="w-3.5 h-3.5" /> Câmera Principal
-                </label>
-                <select
-                  value={selectedCamera}
-                  onChange={(e) => setSelectedCamera(e.target.value)}
-                  className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setStageLayout('split')}
+                  className={`p-2 rounded-xl border text-left transition-all ${
+                    stageLayout === 'split'
+                      ? 'border-[#7C5CFC] bg-[#7C5CFC]/10'
+                      : 'border-white/10 bg-[#1C1C27] hover:border-white/20'
+                  }`}
+                  title="Layout Dividido (T)"
                 >
-                  <option value="">Webcam Padrão / Câmera Integrada</option>
-                  {videoDevices.map((d) => (
-                    <option key={d.deviceId} value={d.deviceId}>
-                      {d.label || `Câmera ${d.deviceId.slice(0, 5)}`}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[11px] text-[#9494A8] flex items-center gap-1 mb-1">
-                  <Mic className="w-3.5 h-3.5" /> Microfone de Captura
-                </label>
-                <select
-                  value={selectedMic}
-                  onChange={(e) => {
-                    setSelectedMic(e.target.value)
-                    setAudioConfig((prev) => ({ ...prev, inputDeviceId: e.target.value }))
-                  }}
-                  className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
-                >
-                  <option value="">Microfone Padrão do Sistema</option>
-                  {audioDevices.map((d) => (
-                    <option key={d.deviceId} value={d.deviceId}>
-                      {d.label || `Microfone ${d.deviceId.slice(0, 5)}`}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* 3. Cadeia de Áudio + Medidor */}
-          <div className="p-4 rounded-2xl bg-[#14141C] border border-white/5 space-y-3">
-            <h3 className="text-xs font-bold text-white flex items-center gap-1.5 uppercase tracking-wider">
-              <AudioLines className="w-3.5 h-3.5 text-[#22D3EE]" />
-              Cadeia de Áudio
-            </h3>
-
-            {/* Medidor de nível */}
-            <div className="space-y-1">
-              <div className="flex justify-between text-[11px] text-[#9494A8]">
-                <span className="flex items-center gap-1">
-                  <Volume2 className="w-3 h-3 text-[#22D3EE]" /> Nível do microfone
-                </span>
-                <span className="font-mono">{Math.round(audioLevel * 100)}%</span>
-              </div>
-              <div className="h-2.5 rounded-full bg-[#1C1C27] overflow-hidden border border-white/5">
-                <div
-                  className="h-full rounded-full transition-[width] duration-75"
-                  style={{
-                    width: `${Math.min(100, audioLevel * 100)}%`,
-                    backgroundColor:
-                      audioLevel > 0.9 ? '#EF4444' : audioLevel > 0.7 ? '#FBBF24' : '#22C55E',
-                  }}
-                />
-              </div>
-              <p className="text-[10px] text-[#9494A8]/70">
-                Verde &lt; 70% · Amarelo 70–90% · Vermelho &gt; 90%
-              </p>
-            </div>
-
-            {/* Toggles da cadeia de áudio */}
-            <div className="space-y-2 pt-1">
-              <AudioToggle
-                label="Redução de ruído"
-                description="noiseSuppression"
-                checked={audioConfig.noiseSuppression}
-                onChange={(v) => setAudioConfig((prev) => ({ ...prev, noiseSuppression: v }))}
-              />
-              <AudioToggle
-                label="Ganho automático"
-                description="autoGainControl — pode elevar ruído ambiente"
-                checked={audioConfig.autoGainControl}
-                onChange={(v) => setAudioConfig((prev) => ({ ...prev, autoGainControl: v }))}
-              />
-              <AudioToggle
-                label="Cancelamento de eco"
-                description="echoCancellation"
-                checked={audioConfig.echoCancellation}
-                onChange={(v) => setAudioConfig((prev) => ({ ...prev, echoCancellation: v }))}
-              />
-            </div>
-
-            {/* Ganho manual (Web Audio API) */}
-            <div className="space-y-1 pt-2 border-t border-white/5">
-              <div className="flex justify-between text-[11px] text-[#9494A8]">
-                <span className="flex items-center gap-1">
-                  <Volume2 className="w-3 h-3 text-[#7C5CFC]" /> Ganho manual
-                </span>
-                <span className="font-mono">{Math.round(audioConfig.manualGain * 100)}%</span>
-              </div>
-              <Slider
-                value={[Math.round(audioConfig.manualGain * 100)]}
-                min={0}
-                max={200}
-                step={5}
-                onValueChange={(v) =>
-                  setAudioConfig((prev) => ({ ...prev, manualGain: v[0] / 100 }))
-                }
-              />
-              <p className="text-[10px] text-[#9494A8]/70">
-                Aplicado em tempo real via Web Audio API (GainNode).
-              </p>
-            </div>
-          </div>
-
-          {/* 4. Filtros & Fundo (legado) */}
-          <div className="p-4 rounded-2xl bg-[#14141C] border border-white/5 space-y-3">
-            <h3 className="text-xs font-bold text-white flex items-center gap-1.5 uppercase tracking-wider">
-              <Sparkles className="w-3.5 h-3.5 text-[#22D3EE]" />
-              Iluminação & Filtros
-            </h3>
-
-            <div className="space-y-3 pt-1">
-              <div className="space-y-1">
-                <div className="flex justify-between text-[11px] text-[#9494A8]">
-                  <span className="flex items-center gap-1">
-                    <Sun className="w-3 h-3 text-amber-400" /> Iluminação
-                  </span>
-                  <span>{brightness}%</span>
-                </div>
-                <Slider
-                  value={[brightness]}
-                  min={50}
-                  max={150}
-                  step={1}
-                  onValueChange={(val) => setBrightness(val[0])}
-                />
-              </div>
-
-              <div className="space-y-1">
-                <div className="flex justify-between text-[11px] text-[#9494A8]">
-                  <span className="flex items-center gap-1">
-                    <Contrast className="w-3 h-3 text-[#7C5CFC]" /> Contraste
-                  </span>
-                  <span>{contrast}%</span>
-                </div>
-                <Slider
-                  value={[contrast]}
-                  min={50}
-                  max={150}
-                  step={1}
-                  onValueChange={(val) => setContrast(val[0])}
-                />
-              </div>
-
-              <div className="space-y-1">
-                <div className="flex justify-between text-[11px] text-[#9494A8]">
-                  <span className="flex items-center gap-1">
-                    <Smile className="w-3 h-3 text-pink-400" /> Suavização (Beleza)
-                  </span>
-                  <span>{beautySmooth}%</span>
-                </div>
-                <Slider
-                  value={[beautySmooth]}
-                  min={0}
-                  max={100}
-                  step={1}
-                  onValueChange={(val) => setBeautySmooth(val[0])}
-                />
-              </div>
-
-              <div className="pt-2 border-t border-white/5 space-y-2">
-                <label className="text-[11px] text-[#9494A8] block">Tratamento de Fundo</label>
-                <div className="grid grid-cols-4 gap-1.5 text-xs">
-                  {[
-                    { id: 'none', label: 'Original' },
-                    { id: 'blur', label: 'Desfocar' },
-                    { id: 'virtual', label: 'Cenário' },
-                    { id: 'chroma', label: 'Chroma' },
-                  ].map((m) => (
-                    <button
-                      key={m.id}
-                      onClick={() => setBgMode(m.id as any)}
-                      className={`py-1.5 rounded-lg font-medium text-[11px] transition-colors ${
-                        bgMode === m.id
-                          ? 'bg-[#7C5CFC] text-white'
-                          : 'bg-[#1C1C27] text-[#9494A8] hover:text-white'
-                      }`}
-                    >
-                      {m.label}
-                    </button>
-                  ))}
-                </div>
-
-                {bgMode === 'blur' && (
-                  <div className="space-y-1 pt-1">
-                    <div className="flex justify-between text-[10px] text-[#9494A8]">
-                      <span>Intensidade do Desfoque</span>
-                      <span>{bgBlurAmount}px</span>
-                    </div>
-                    <Slider
-                      value={[bgBlurAmount]}
-                      min={4}
-                      max={25}
-                      step={1}
-                      onValueChange={(val) => setBgBlurAmount(val[0])}
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <RectangleHorizontal
+                      className={`w-4 h-4 ${stageLayout === 'split' ? 'text-[#7C5CFC]' : 'text-[#9494A8]'}`}
                     />
+                    <span className="text-[11px] font-semibold text-white">Dividido</span>
                   </div>
-                )}
+                  {/* mini-preview dividido */}
+                  <div className="aspect-[9/16] w-full rounded-md overflow-hidden border border-white/10 flex flex-col">
+                    <div className="flex-[1.3] bg-[#7C5CFC]/30" />
+                    <div className="flex-[0.7] bg-[#22D3EE]/20" />
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => setStageLayout('full')}
+                  className={`p-2 rounded-xl border text-left transition-all ${
+                    stageLayout === 'full'
+                      ? 'border-[#7C5CFC] bg-[#7C5CFC]/10'
+                      : 'border-white/10 bg-[#1C1C27] hover:border-white/20'
+                  }`}
+                  title="Câmera Cheia (T)"
+                >
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <Maximize2
+                      className={`w-4 h-4 ${stageLayout === 'full' ? 'text-[#7C5CFC]' : 'text-[#9494A8]'}`}
+                    />
+                    <span className="text-[11px] font-semibold text-white">Câmera cheia</span>
+                  </div>
+                  <div className="aspect-[9/16] w-full rounded-md overflow-hidden border border-white/10 bg-[#7C5CFC]/30" />
+                </button>
+              </div>
+
+              {/* Enquadramento cover */}
+              <div className="space-y-1 pt-1">
+                <div className="flex justify-between text-[11px] text-[#9494A8]">
+                  <span className="flex items-center gap-1">
+                    <Maximize2 className="w-3 h-3 text-[#22D3EE]" /> Enquadramento cover
+                  </span>
+                  <span className="font-mono">{cameraCover.toFixed(2)}</span>
+                </div>
+                <Slider
+                  value={[cameraCover]}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  onValueChange={(v) => setCameraCover(v[0])}
+                />
+              </div>
+
+              {/* Botões de preview / foco / guias */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPreviewHidden(!previewHidden)}
+                  className="border-white/10 bg-[#1C1C27] text-[11px] text-white hover:bg-white/5 gap-1.5 justify-start"
+                  title={previewHidden ? 'Mostrar preview' : 'Ocultar preview'}
+                >
+                  {previewHidden ? (
+                    <Eye className="w-4 h-4 text-[#22D3EE]" />
+                  ) : (
+                    <EyeOff className="w-4 h-4 text-[#9494A8]" />
+                  )}
+                  {previewHidden ? 'Mostrar preview' : 'Ocultar preview'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setFocusMode(true)}
+                  className="border-white/10 bg-[#1C1C27] text-[11px] text-white hover:bg-white/5 gap-1.5 justify-start"
+                  title="Modo foco (F)"
+                >
+                  <Maximize2 className="w-4 h-4 text-[#7C5CFC]" /> Modo foco (F)
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowSafeGuides(!showSafeGuides)}
+                  className={`border-white/10 bg-[#1C1C27] text-[11px] gap-1.5 justify-start ${
+                    showSafeGuides ? 'text-[#22D3EE]' : 'text-[#9494A8] hover:text-white'
+                  } hover:bg-white/5`}
+                  title="Guias de segurança (Botões/Legenda)"
+                >
+                  <ShieldCheck className="w-4 h-4" /> Guias
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowGrid(!showGrid)}
+                  className={`border-white/10 bg-[#1C1C27] text-[11px] gap-1.5 justify-start ${
+                    showGrid ? 'text-[#7C5CFC]' : 'text-[#9494A8] hover:text-white'
+                  } hover:bg-white/5`}
+                  title="Grade de Terços"
+                >
+                  <Grid className="w-4 h-4" /> Terços
+                </Button>
+              </div>
+
+              {/* Seletor do modo da parte inferior (split) */}
+              {stageLayout === 'split' && (
+                <div className="pt-2 border-t border-white/5 space-y-2">
+                  <label className="text-[11px] text-[#9494A8] block">Parte inferior</label>
+                  <div className="grid grid-cols-5 gap-1">
+                    {(
+                      [
+                        { id: 'none', label: 'Nenhum' },
+                        { id: 'arts', label: 'Artes' },
+                        { id: 'reaction', label: 'Reação' },
+                        { id: 'board', label: 'Quadro' },
+                        { id: 'broll', label: 'B-roll' },
+                      ] as { id: LowerPanelMode; label: string }[]
+                    ).map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => setLowerPanelMode(m.id)}
+                        className={`py-1.5 rounded-lg font-medium text-[10px] transition-colors ${
+                          lowerPanelMode === m.id
+                            ? 'bg-[#7C5CFC] text-white'
+                            : 'bg-[#1C1C27] text-[#9494A8] hover:text-white'
+                        }`}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 2. Dispositivos */}
+            <div className="p-4 rounded-2xl bg-[#14141C] border border-white/5 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-white flex items-center gap-1.5 uppercase tracking-wider">
+                  <Sliders className="w-3.5 h-3.5 text-[#7C5CFC]" />
+                  Dispositivos de Entrada
+                </h3>
+                <button
+                  onClick={async () => {
+                    try {
+                      const devices = await navigator.mediaDevices.enumerateDevices()
+                      setVideoDevices(devices.filter((d) => d.kind === 'videoinput'))
+                      setAudioDevices(devices.filter((d) => d.kind === 'audioinput'))
+                      toast.success('Dispositivos atualizados.')
+                    } catch {
+                      toast.error('Não foi possível listar dispositivos.')
+                    }
+                  }}
+                  className="text-[10px] text-[#9494A8] hover:text-white flex items-center gap-1"
+                  title="Reenumerar dispositivos"
+                >
+                  <RefreshCw className="w-3 h-3" /> Atualizar
+                </button>
+              </div>
+
+              <div className="space-y-2.5">
+                <div>
+                  <label className="text-[11px] text-[#9494A8] flex items-center gap-1 mb-1">
+                    <Camera className="w-3.5 h-3.5" /> Câmera Principal
+                  </label>
+                  <select
+                    value={selectedCamera}
+                    onChange={(e) => setSelectedCamera(e.target.value)}
+                    className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
+                  >
+                    <option value="">Webcam Padrão / Câmera Integrada</option>
+                    {videoDevices.map((d) => (
+                      <option key={d.deviceId} value={d.deviceId}>
+                        {d.label || `Câmera ${d.deviceId.slice(0, 5)}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-[#9494A8] flex items-center gap-1 mb-1">
+                    <Mic className="w-3.5 h-3.5" /> Microfone de Captura
+                  </label>
+                  <select
+                    value={selectedMic}
+                    onChange={(e) => {
+                      setSelectedMic(e.target.value)
+                      setAudioConfig((prev) => ({ ...prev, inputDeviceId: e.target.value }))
+                    }}
+                    className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
+                  >
+                    <option value="">Microfone Padrão do Sistema</option>
+                    {audioDevices.map((d) => (
+                      <option key={d.deviceId} value={d.deviceId}>
+                        {d.label || `Microfone ${d.deviceId.slice(0, 5)}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* 5. Teleprompter (legado) */}
-          <div className="p-4 rounded-2xl bg-[#14141C] border border-white/5 space-y-3">
-            <div className="flex items-center justify-between">
+            {/* 3. Cadeia de Áudio + Medidor */}
+            <div className="p-4 rounded-2xl bg-[#14141C] border border-white/5 space-y-3">
               <h3 className="text-xs font-bold text-white flex items-center gap-1.5 uppercase tracking-wider">
-                <ScrollText className="w-3.5 h-3.5 text-[#22D3EE]" />
-                Roteiro do Teleprompter
+                <AudioLines className="w-3.5 h-3.5 text-[#22D3EE]" />
+                Cadeia de Áudio
               </h3>
-              <button
-                onClick={() => setIsPromptScrolling(!isPromptScrolling)}
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                  isPromptScrolling
-                    ? 'bg-emerald-500/20 text-emerald-400'
-                    : 'bg-white/10 text-[#9494A8]'
-                }`}
-              >
-                {isPromptScrolling ? 'Rolando' : 'Pausado'}
-              </button>
-            </div>
 
-            <textarea
-              value={teleprompterScript}
-              onChange={(e) => setTeleprompterScript(e.target.value)}
-              rows={3}
-              placeholder="Digite ou cole aqui o texto que você vai falar no vídeo..."
-              className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
-            />
-
-            <div className="grid grid-cols-2 gap-3 pt-1">
+              {/* Medidor de nível */}
               <div className="space-y-1">
-                <span className="text-[10px] text-[#9494A8] block">
-                  Velocidade: {teleprompterSpeed}x
-                </span>
-                <Slider
-                  value={[teleprompterSpeed]}
-                  min={1}
-                  max={8}
-                  step={1}
-                  onValueChange={(v) => setTeleprompterSpeed(v[0])}
+                <div className="flex justify-between text-[11px] text-[#9494A8]">
+                  <span className="flex items-center gap-1">
+                    <Volume2 className="w-3 h-3 text-[#22D3EE]" /> Nível do microfone
+                  </span>
+                  <span className="font-mono">{Math.round(audioLevel * 100)}%</span>
+                </div>
+                <div className="h-2.5 rounded-full bg-[#1C1C27] overflow-hidden border border-white/5">
+                  <div
+                    className="h-full rounded-full transition-[width] duration-75"
+                    style={{
+                      width: `${Math.min(100, audioLevel * 100)}%`,
+                      backgroundColor:
+                        audioLevel > 0.9 ? '#EF4444' : audioLevel > 0.7 ? '#FBBF24' : '#22C55E',
+                    }}
+                  />
+                </div>
+                <p className="text-[10px] text-[#9494A8]/70">
+                  Verde &lt; 70% · Amarelo 70–90% · Vermelho &gt; 90%
+                </p>
+              </div>
+
+              {/* Toggles da cadeia de áudio */}
+              <div className="space-y-2 pt-1">
+                <AudioToggle
+                  label="Redução de ruído"
+                  description="noiseSuppression"
+                  checked={audioConfig.noiseSuppression}
+                  onChange={(v) => setAudioConfig((prev) => ({ ...prev, noiseSuppression: v }))}
+                />
+                <AudioToggle
+                  label="Ganho automático"
+                  description="autoGainControl — pode elevar ruído ambiente"
+                  checked={audioConfig.autoGainControl}
+                  onChange={(v) => setAudioConfig((prev) => ({ ...prev, autoGainControl: v }))}
+                />
+                <AudioToggle
+                  label="Cancelamento de eco"
+                  description="echoCancellation"
+                  checked={audioConfig.echoCancellation}
+                  onChange={(v) => setAudioConfig((prev) => ({ ...prev, echoCancellation: v }))}
                 />
               </div>
-              <div className="space-y-1">
-                <span className="text-[10px] text-[#9494A8] block">
-                  Tamanho: {teleprompterFontSize}px
-                </span>
+
+              {/* Ganho manual (Web Audio API) */}
+              <div className="space-y-1 pt-2 border-t border-white/5">
+                <div className="flex justify-between text-[11px] text-[#9494A8]">
+                  <span className="flex items-center gap-1">
+                    <Volume2 className="w-3 h-3 text-[#7C5CFC]" /> Ganho manual
+                  </span>
+                  <span className="font-mono">{Math.round(audioConfig.manualGain * 100)}%</span>
+                </div>
                 <Slider
-                  value={[teleprompterFontSize]}
-                  min={14}
-                  max={36}
-                  step={2}
-                  onValueChange={(v) => setTeleprompterFontSize(v[0])}
+                  value={[Math.round(audioConfig.manualGain * 100)]}
+                  min={0}
+                  max={200}
+                  step={5}
+                  onValueChange={(v) =>
+                    setAudioConfig((prev) => ({ ...prev, manualGain: v[0] / 100 }))
+                  }
                 />
+                <p className="text-[10px] text-[#9494A8]/70">
+                  Aplicado em tempo real via Web Audio API (GainNode).
+                </p>
+              </div>
+            </div>
+
+            {/* 4. Filtros & Fundo (legado) */}
+            <div className="p-4 rounded-2xl bg-[#14141C] border border-white/5 space-y-3">
+              <h3 className="text-xs font-bold text-white flex items-center gap-1.5 uppercase tracking-wider">
+                <Sparkles className="w-3.5 h-3.5 text-[#22D3EE]" />
+                Iluminação & Filtros
+              </h3>
+
+              <div className="space-y-3 pt-1">
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[11px] text-[#9494A8]">
+                    <span className="flex items-center gap-1">
+                      <Sun className="w-3 h-3 text-amber-400" /> Iluminação
+                    </span>
+                    <span>{brightness}%</span>
+                  </div>
+                  <Slider
+                    value={[brightness]}
+                    min={50}
+                    max={150}
+                    step={1}
+                    onValueChange={(val) => setBrightness(val[0])}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[11px] text-[#9494A8]">
+                    <span className="flex items-center gap-1">
+                      <Contrast className="w-3 h-3 text-[#7C5CFC]" /> Contraste
+                    </span>
+                    <span>{contrast}%</span>
+                  </div>
+                  <Slider
+                    value={[contrast]}
+                    min={50}
+                    max={150}
+                    step={1}
+                    onValueChange={(val) => setContrast(val[0])}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[11px] text-[#9494A8]">
+                    <span className="flex items-center gap-1">
+                      <Smile className="w-3 h-3 text-pink-400" /> Suavização (Beleza)
+                    </span>
+                    <span>{beautySmooth}%</span>
+                  </div>
+                  <Slider
+                    value={[beautySmooth]}
+                    min={0}
+                    max={100}
+                    step={1}
+                    onValueChange={(val) => setBeautySmooth(val[0])}
+                  />
+                </div>
+
+                <div className="pt-2 border-t border-white/5 space-y-2">
+                  <label className="text-[11px] text-[#9494A8] block">Tratamento de Fundo</label>
+                  <div className="grid grid-cols-4 gap-1.5 text-xs">
+                    {[
+                      { id: 'none', label: 'Original' },
+                      { id: 'blur', label: 'Desfocar' },
+                      { id: 'virtual', label: 'Cenário' },
+                      { id: 'chroma', label: 'Chroma' },
+                    ].map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => setBgMode(m.id as any)}
+                        className={`py-1.5 rounded-lg font-medium text-[11px] transition-colors ${
+                          bgMode === m.id
+                            ? 'bg-[#7C5CFC] text-white'
+                            : 'bg-[#1C1C27] text-[#9494A8] hover:text-white'
+                        }`}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {bgMode === 'blur' && (
+                    <div className="space-y-1 pt-1">
+                      <div className="flex justify-between text-[10px] text-[#9494A8]">
+                        <span>Intensidade do Desfoque</span>
+                        <span>{bgBlurAmount}px</span>
+                      </div>
+                      <Slider
+                        value={[bgBlurAmount]}
+                        min={4}
+                        max={25}
+                        step={1}
+                        onValueChange={(val) => setBgBlurAmount(val[0])}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* 5. Teleprompter (legado) */}
+            <div className="p-4 rounded-2xl bg-[#14141C] border border-white/5 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-white flex items-center gap-1.5 uppercase tracking-wider">
+                  <ScrollText className="w-3.5 h-3.5 text-[#22D3EE]" />
+                  Roteiro do Teleprompter
+                </h3>
+                <button
+                  onClick={() => setIsPromptScrolling(!isPromptScrolling)}
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                    isPromptScrolling
+                      ? 'bg-emerald-500/20 text-emerald-400'
+                      : 'bg-white/10 text-[#9494A8]'
+                  }`}
+                >
+                  {isPromptScrolling ? 'Rolando' : 'Pausado'}
+                </button>
+              </div>
+
+              <textarea
+                value={teleprompterScript}
+                onChange={(e) => setTeleprompterScript(e.target.value)}
+                rows={3}
+                placeholder="Digite ou cole aqui o texto que você vai falar no vídeo..."
+                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
+              />
+
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div className="space-y-1">
+                  <span className="text-[10px] text-[#9494A8] block">
+                    Velocidade: {teleprompterSpeed}x
+                  </span>
+                  <Slider
+                    value={[teleprompterSpeed]}
+                    min={1}
+                    max={8}
+                    step={1}
+                    onValueChange={(v) => setTeleprompterSpeed(v[0])}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] text-[#9494A8] block">
+                    Tamanho: {teleprompterFontSize}px
+                  </span>
+                  <Slider
+                    value={[teleprompterFontSize]}
+                    min={14}
+                    max={36}
+                    step={2}
+                    onValueChange={(v) => setTeleprompterFontSize(v[0])}
+                  />
+                </div>
               </div>
             </div>
           </div>
         </div>
+
+        {/* FASE 2 — Lower Panel (Roteiro / Teleprompter por blocos) */}
+        {showLowerPanel && (
+          <div
+            className="shrink-0 rounded-2xl overflow-hidden border border-white/10 shadow-2xl flex flex-col"
+            style={{ height: `${lowerPanelHeight}vh` }}
+          >
+            {/* Handle de redimensionamento */}
+            <div
+              onMouseDown={onPanelDragStart}
+              className="h-1.5 bg-[#1C1C27] hover:bg-[#7C5CFC]/40 cursor-row-resize flex items-center justify-center group transition-colors"
+              title="Arraste para redimensionar"
+            >
+              <GripHorizontal className="w-4 h-3 text-[#9494A8] group-hover:text-[#7C5CFC]" />
+            </div>
+            <div className="flex-1 min-h-0">
+              <ScriptPanel
+                isRecording={isRecording}
+                onTeleprompterActiveChange={setTeleprompterActive}
+                syncArts={syncArts}
+                setSyncArts={setSyncArts}
+                autoStartOnRecord={autoStartOnRecord}
+                setAutoStartOnRecord={setAutoStartOnRecord}
+              />
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Indicador "Teleprompter ativo" flutuante durante gravação */}
+      {isRecording && teleprompterActive && !focusMode && (
+        <div className="fixed bottom-4 right-4 z-40 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 backdrop-blur-md shadow-lg">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-[11px] font-bold text-emerald-300">Teleprompter ativo</span>
+        </div>
+      )}
 
       {/* Modal: Permissão negada */}
       <Dialog open={permissionErrorModal} onOpenChange={setPermissionErrorModal}>
