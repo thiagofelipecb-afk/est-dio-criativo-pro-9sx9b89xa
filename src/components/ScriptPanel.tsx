@@ -34,6 +34,9 @@ import { BlockArts } from '@/components/studio/BlockArts'
 import { BlockBRoll } from '@/components/studio/BlockBRoll'
 import { ReactionVideoPanel } from '@/components/studio/ReactionVideoPanel'
 import { Whiteboard } from '@/components/studio/Whiteboard'
+import { BackgroundPanel } from '@/components/studio/BackgroundPanel'
+import { TitlePanel } from '@/components/studio/TitlePanel'
+import { ImagePlus, Type as TypeIcon } from 'lucide-react'
 
 const TEXT_COLORS: Record<TeleprompterTextColor, string> = {
   white: '#FFFFFF',
@@ -75,7 +78,9 @@ export default function ScriptPanel({
   setAutoStartOnRecord,
 }: ScriptPanelProps) {
   const { gravadoraScript, setGravadoraScript, scriptBlocks, setScriptBlocks } = useStudio()
-  const [tab, setTab] = useState<'script' | 'teleprompter' | 'reaction' | 'board'>('script')
+  const [tab, setTab] = useState<
+    'script' | 'teleprompter' | 'reaction' | 'board' | 'background' | 'title'
+  >('script')
   const [activeBlockIndex, setActiveBlockIndex] = useState(0)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
@@ -325,6 +330,26 @@ export default function ScriptPanel({
               <PenLine className="w-3.5 h-3.5" /> Quadro
             </button>
           )}
+          <button
+            onClick={() => setTab('background')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+              tab === 'background'
+                ? 'bg-[#7C5CFC] text-white'
+                : 'text-[#9494A8] hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <ImagePlus className="w-3.5 h-3.5" /> Fundo
+          </button>
+          <button
+            onClick={() => setTab('title')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+              tab === 'title'
+                ? 'bg-[#7C5CFC] text-white'
+                : 'text-[#9494A8] hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <TypeIcon className="w-3.5 h-3.5" /> Título
+          </button>
         </div>
 
         <div className="flex items-center gap-2">
@@ -381,6 +406,10 @@ export default function ScriptPanel({
           <ReactionVideoPanel />
         ) : tab === 'board' ? (
           <Whiteboard />
+        ) : tab === 'background' ? (
+          <BackgroundPanel />
+        ) : tab === 'title' ? (
+          <TitlePanel />
         ) : (
           <TeleprompterTab
             blocks={blocks}

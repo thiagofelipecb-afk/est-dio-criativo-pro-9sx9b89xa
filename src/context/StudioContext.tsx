@@ -7,7 +7,37 @@ import {
   StaticPostProject,
   AISuggestion,
   ScriptBlock,
+  BackgroundConfig,
+  TitleConfig,
 } from '@/types/studio'
+
+/** Defaults FASE 4 — Fundo. */
+const DEFAULT_BACKGROUND_CONFIG: BackgroundConfig = {
+  type: 'none',
+  blurAmount: 12,
+  presetColor: '#1E3A5F',
+  imageDataUrl: undefined,
+  imageName: undefined,
+  segmentationEnabled: false,
+}
+
+/** Defaults FASE 4 — Título. */
+const DEFAULT_TITLE_CONFIG: TitleConfig = {
+  enabled: false,
+  text: '',
+  font: 'Anton',
+  fontSize: 64,
+  width: 80,
+  color: '#FFFFFF',
+  bgEnabled: false,
+  bgColor: 'transparent',
+  alignment: 'center',
+  position: 'middle',
+  normalizedX: 0.5,
+  normalizedY: 0.5,
+  duration: 'full',
+  durationSeconds: 5,
+}
 
 interface StudioContextType {
   projects: Project[]
@@ -55,6 +85,7 @@ interface StudioContextType {
   setScriptBlocks: (blocks: ScriptBlock[]) => void
   /** Texto bruto do roteiro na Gravadora (persistido em lumen_gravadora_script). */
   gravadoraScript: string
+>>>>>>>
   setGravadoraScript: (text: string) => void
 
   // AI History / suggestions
@@ -66,6 +97,14 @@ interface StudioContextType {
   brandOS: BrandOSContext | null
   setBrandOS: (b: BrandOSContext | null) => void
   updateBrandOS: (updates: Partial<BrandOSContext>) => void
+
+  // FASE 4 — Fundo e Título do Modo Estúdio
+  /** Configuração de fundo da Gravadora (persistida em lumen_gravadora_fundo). */
+  backgroundConfig: BackgroundConfig
+  setBackgroundConfig: (cfg: BackgroundConfig) => void
+  /** Configuração de título da Gravadora (persistida em lumen_gravadora_titulo). */
+  titleConfig: TitleConfig
+  setTitleConfig: (cfg: TitleConfig) => void
 }
 
 // Versão resumida do Brand OS consumida pelos geradores do estúdio
@@ -548,6 +587,40 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     localStorage.setItem('lumen_gravadora_blocks', JSON.stringify(scriptBlocks))
   }, [scriptBlocks])
 
+  // FASE 4 — Fundo & Título (persistência própria em localStorage)
+  const [backgroundConfig, setBackgroundConfigState] = useState<BackgroundConfig>(() => {
+    const saved = localStorage.getItem('lumen_gravadora_fundo')
+    if (saved) {
+      try {
+        return { ...DEFAULT_BACKGROUND_CONFIG, ...(JSON.parse(saved) as BackgroundConfig) }
+      } catch {
+        return DEFAULT_BACKGROUND_CONFIG
+      }
+    }
+    return DEFAULT_BACKGROUND_CONFIG
+  })
+  const [titleConfig, setTitleConfigState] = useState<TitleConfig>(() => {
+    const saved = localStorage.getItem('lumen_gravadora_titulo')
+    if (saved) {
+      try {
+        return { ...DEFAULT_TITLE_CONFIG, ...(JSON.parse(saved) as TitleConfig) }
+      } catch {
+        return DEFAULT_TITLE_CONFIG
+      }
+    }
+    return DEFAULT_TITLE_CONFIG
+  })
+
+  useEffect(() => {
+    localStorage.setItem('lumen_gravadora_fundo', JSON.stringify(backgroundConfig))
+  }, [backgroundConfig])
+  useEffect(() => {
+    localStorage.setItem('lumen_gravadora_titulo', JSON.stringify(titleConfig))
+  }, [titleConfig])
+
+  const setBackgroundConfig = (cfg: BackgroundConfig) => setBackgroundConfigState(cfg)
+  const setTitleConfig = (cfg: TitleConfig) => setTitleConfigState(cfg)
+
   const [appliedAiSuggestions, setAppliedAiSuggestions] = useState<AISuggestion[]>([])
 
   // Brand OS — versão resumida persistida em localStorage (lumen_brand_os)
@@ -784,6 +857,10 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         brandOS,
         setBrandOS,
         updateBrandOS,
+        backgroundConfig,
+        setBackgroundConfig,
+        titleConfig,
+        setTitleConfig,
       }}
     >
       {children}

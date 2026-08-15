@@ -339,6 +339,80 @@ export interface WhiteboardState {
   zoom: number
 }
 
+/* ===========================================================================
+   LUMEN Studio — Fundo e Título do Modo Estúdio (FASE 4)
+   Tipos aditivos. Nenhum tipo existente foi removido ou alterado.
+   =========================================================================== */
+
+/** Tipo de fundo do canvas 9:16 da Gravadora. */
+export type BackgroundType = 'none' | 'blur' | 'preset' | 'image'
+
+/** Cor de fundo preset disponível no seletor. */
+export interface BackgroundPresetColor {
+  id: string
+  name: string
+  value: string
+}
+
+/** Configuração persistida do fundo do canvas (lumen_gravadora_fundo). */
+export interface BackgroundConfig {
+  type: BackgroundType
+  /** Intensidade do desfoque (quando type='blur'): 4–25px. Padrão 12. */
+  blurAmount?: number
+  /** Cor selecionada nos presets (quando type='preset'). */
+  presetColor?: string
+  /** Data URL base64 da imagem (quando type='image'). */
+  imageDataUrl?: string
+  /** Nome original do arquivo de imagem. */
+  imageName?: string
+  /** Tenta remover o fundo da câmera via segmentação do navegador. */
+  segmentationEnabled: boolean
+}
+
+/** Fontes de título disponíveis no seletor. */
+export type TitleFont = 'Anton' | 'Montserrat' | 'Caveat'
+
+/** Alinhamento horizontal do título. */
+export type TitleAlignment = 'left' | 'center' | 'right'
+
+/** Posição vertical preset do título. */
+export type TitleVerticalPosition = 'top' | 'middle' | 'bottom' | 'custom'
+
+/** Duração de exibição do título. */
+export type TitleDuration = 'full' | 'seconds'
+
+/** Configuração persistida do título do canvas (lumen_gravadora_titulo). */
+export interface TitleConfig {
+  /** Toggle "Exibir título". Padrão OFF. */
+  enabled: boolean
+  /** Texto do título (até 100 caracteres). */
+  text: string
+  /** Família tipográfica. */
+  font: TitleFont
+  /** Tamanho em px (30–180, passo 2). Padrão 64. */
+  fontSize: number
+  /** Largura relativa ao canvas em % (20–100, passo 5). Padrão 80. */
+  width: number
+  /** Cor do texto. */
+  color: string
+  /** Fundo do texto ativado. */
+  bgEnabled: boolean
+  /** Cor do fundo do texto (ou 'transparent'). */
+  bgColor: string
+  /** Alinhamento horizontal. */
+  alignment: TitleAlignment
+  /** Posição vertical preset (ou 'custom' para arraste livre). */
+  position: TitleVerticalPosition
+  /** Coordenada X normalizada (0–1) usada no arraste livre / custom. */
+  normalizedX: number
+  /** Coordenada Y normalizada (0–1) usada no arraste livre / custom. */
+  normalizedY: number
+  /** Tipo de duração. */
+  duration: TitleDuration
+  /** Segundos de exibição (1–120) quando duration='seconds'. */
+  durationSeconds: number
+}
+
 /** B-roll (vídeo do Pexels) anexado a um bloco de roteiro. */
 export interface BlockBRoll {
   /** ID do vídeo no Pexels. */

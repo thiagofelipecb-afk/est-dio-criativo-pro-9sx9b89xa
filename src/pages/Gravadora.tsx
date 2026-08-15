@@ -52,6 +52,8 @@ import {
   readBlockBRoll,
   readReactionVideo,
 } from '@/hooks/use-block-media'
+import { BackgroundRenderer } from '@/components/studio/BackgroundRenderer'
+import { TitleOverlay } from '@/components/studio/TitleOverlay'
 
 /* ───────────────────────────────────────────────────────────────────────────
    LUMEN Studio — Núcleo do Estúdio de Gravação (FASE 1)
@@ -73,8 +75,17 @@ const DEFAULT_AUDIO: AudioConfig = {
 
 export default function Gravadora() {
   const navigate = useNavigate()
-  const { addMediaItem, createProject, teleprompterScript, setTeleprompterScript, scriptBlocks } =
-    useStudio()
+  const {
+    addMediaItem,
+    createProject,
+    teleprompterScript,
+    setTeleprompterScript,
+    scriptBlocks,
+    backgroundConfig,
+    setBackgroundConfig,
+    titleConfig,
+    setTitleConfig,
+  } = useStudio()
 
   // FASE 3 — mantém lista de IDs dos blocos sincronizada para overlays.
   useEffect(() => {
@@ -761,6 +772,9 @@ export default function Gravadora() {
         margin: '0 auto',
       }}
     >
+      {/* FASE 4.1 — Fundo atrás do canvas (preenche toda a área do canvas) */}
+      <BackgroundRenderer config={backgroundConfig} />
+
       {/* Resolução de trabalho (indicador) */}
       <div className="absolute top-2 left-2 z-20 px-2 py-0.5 rounded-md bg-black/60 text-[9px] font-mono text-[#9494A8] border border-white/10">
         {CANVAS_W}×{CANVAS_H} · 9:16
@@ -999,6 +1013,14 @@ export default function Gravadora() {
           </div>
         </>
       )}
+
+      {/* FASE 4.2 — Overlay de título (acima de todas as camadas do canvas) */}
+      <TitleOverlay
+        config={titleConfig}
+        onChange={(patch) => setTitleConfig({ ...titleConfig, ...patch })}
+        locked={isRecording}
+        elapsedSeconds={recordedSeconds}
+      />
 
       {/* Barra flutuante de gravação (não aparece no modo foco — lá é separada) */}
       {!focusMode && (
