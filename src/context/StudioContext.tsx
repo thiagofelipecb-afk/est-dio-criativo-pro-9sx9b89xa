@@ -120,6 +120,17 @@ interface StudioContextType {
   gravadoraScript: string
   setGravadoraScript: (text: string) => void
 
+  // FASE 2C/2D — Estado compartilhado da Gravadora (HUD / modo foco).
+  /** Bloco ativo do roteiro — fonte única entre Gravadora, ScriptPanel e PrompterHUD. */
+  activeBlockIndex: number
+  setActiveBlockIndex: (i: number) => void
+  /** Indica se a gravação está em andamento (lido pelo PrompterHUD). */
+  isRecording: boolean
+  setIsRecording: (b: boolean) => void
+  /** Modo foco global — quando true, o Layout oculta sidebar/topbar/Clara. */
+  isFocusMode: boolean
+  setIsFocusMode: (b: boolean) => void
+
   // AI History / suggestions
   appliedAiSuggestions: AISuggestion[]
   addAiSuggestion: (suggestion: AISuggestion) => void

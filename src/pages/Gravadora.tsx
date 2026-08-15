@@ -3685,37 +3685,33 @@ export default function Gravadora() {
         </DialogContent>
       </Dialog>
 
-      {/* Modal: QR Celular (legado) */}
+      {/* Modal: Câmera do Celular — Em desenvolvimento.
+          NÃO exibe "4K HDR" nem QR Code simulado: não há fluxo real de conexão
+          com o smartphone implementado. Mostra limitação honesta em vez de
+          simular uma funcionalidade que não existe. */}
       <Dialog open={showMobileQR} onOpenChange={setShowMobileQR}>
         <DialogContent className="max-w-md bg-[#14141C] border-white/10 text-white rounded-2xl p-6 text-center space-y-4">
           <DialogHeader>
-            <DialogTitle className="text-lg font-bold">Usar Câmera do Celular (4K HDR)</DialogTitle>
+            <div className="flex items-center justify-center mb-2">
+              <span className="p-3 rounded-xl bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                <QrCode className="w-6 h-6" />
+              </span>
+            </div>
+            <DialogTitle className="text-lg font-bold">
+              Câmera do Celular — Em desenvolvimento
+            </DialogTitle>
             <DialogDescription className="text-xs text-[#9494A8]">
-              Aponte a câmera do seu smartphone para o QR Code abaixo para sincronizar a gravação
-              como webcam sem fio.
+              A conexão do smartphone como câmera remota (webcam sem fio via QR Code/URL) ainda não
+              está disponível. Nenhuma capacidade de resolução (ex.: 4K HDR) é detectada ou
+              prometida enquanto não houver um fluxo real de pareamento.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex justify-center py-4">
-            <div className="p-4 bg-white rounded-2xl shadow-xl">
-              <div className="w-44 h-44 bg-black p-2 rounded-lg flex flex-col justify-between items-center text-white">
-                <div className="flex justify-between w-full">
-                  <div className="w-8 h-8 border-4 border-white" />
-                  <div className="w-8 h-8 border-4 border-white" />
-                </div>
-                <div className="text-center font-bold text-xs">LUMEN CONNECT</div>
-                <div className="flex justify-between w-full">
-                  <div className="w-8 h-8 border-4 border-white" />
-                  <div className="w-4 h-4 bg-white" />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="text-xs text-[#9494A8] space-y-1">
-            <p>1. Abra a câmera do iPhone/Android</p>
-            <p>2. Toque no link de conexão local segura</p>
-            <p>3. Use a câmera traseira com resolução máxima</p>
+          <div className="text-left text-xs text-[#9494A8] space-y-2 rounded-xl bg-[#1C1C27] border border-white/5 p-3">
+            <p className="font-semibold text-white">O que você pode usar agora:</p>
+            <p>• A webcam do computador (botão "Ativar Câmera" no palco).</p>
+            <p>• Importar um take gravado no celular ("Importar Take").</p>
+            <p>• Esta integração será ativada em uma versão futura.</p>
           </div>
 
           <Button
