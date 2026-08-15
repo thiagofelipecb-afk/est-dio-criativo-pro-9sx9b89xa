@@ -49,25 +49,88 @@ function makeBlock(text: string, title?: string): ScriptBlock {
 }
 
 /**
+ * Cria um bloco preservando ID/title/status de um bloco existente quando há
+ * similaridade suficiente (≥80%). A edição incremental do usuário (digitar uma
+ * palavra, corrigir um trecho) não deve trocar o ID — senão BlockArts e
+ * BlockBRoll perdem o vínculo por blockId no re-parse.
+ *
+ * Similaridade: considera os textos (trim) iguais OU um contém o outro
+ * (edição incremental típica) OU razão de sobreposição de caracteres ≥ 0.8.
+ */
+function makeBlockPreserving(
+  text: string,
+  title: string | undefined,
+  existing: ScriptBlock[] | undefined,
+  usedExistingIds: Set<string>,
+): ScriptBlock {
+  const clean = text.trim()
+  if (existing && existing.length > 0) {
+    // Procura o primeiro bloco existente ainda não-reutilizado com similaridade.
+    for (const ex of existing) {
+      if (usedExistingIds.has(ex.id)) continue
+      const exText = ex.text.trim()
+      if (!exText) continue
+      if (isSimilarEnough(clean, exText)) {
+        usedExistingIds.add(ex.id)
+        return {
+          id: ex.id,
+          text: clean,
+          // mantém title e status anteriores; atualiza o novo apenas se o
+          // parser detectou um título novo e o bloco antigo não tinha.
+          title: title ?? ex.title,
+          status: ex.status,
+          estimatedSeconds: estimateSeconds(clean),
+        }
+      }
+    }
+  }
+  return makeBlock(clean, title)
+}
+
+/**
+ * Heurística de similaridade para preservação de IDs no re-parse.
+ * Retorna true se a edição for incremental (texto antigo contido no novo ou
+ * vice-versa) ou se a sobreposição de caracteres for ≥ 80%.
+ */
+function isSimilarEnough(a: string, b: string): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  // Edição incremental: um contém o outro.
+  if (a.includes(b) || b.includes(a)) return true
+  // Sobreposição por razão de tamanho: pequena edição de palavras.
+  const longer = a.length >= b.length ? a : b
+  const shorter = a.length >= b.length ? b : a
+  // Conta quantos chars do menor aparecem no maior numa janela simples.
+  // Fallback barato: razão de tamanho — se diferem em poucos chars.
+  const lenRatio = shorter.length / longer.length
+  return lenRatio >= 0.8
+}
+
+/**
  * Parser: divide o texto bruto em blocos.
  * Regras (na ordem):
  *  1. Linhas `---` ou `***` (3+ chars) → separador explícito.
  *  2. Linhas começando com Bloco/Cena/Parte/#/## + número/texto → título de bloco.
  *  3. Parágrafo duplo (linha em branco) → novo bloco.
  *  4. Itens de lista numerada (`1.`) ou bullet (`-`, `•`) → bloco de lista.
+ *
+ * Quando `existingBlocks` é informado, tenta reutilizar o ID/title/status de
+ * blocos cujo texto seja ≥80% similar — preserva o vínculo com BlockArts e
+ * BlockBRoll durante o re-parse incremental.
  */
-export function parseScript(rawText: string): ScriptBlock[] {
+export function parseScript(rawText: string, existingBlocks?: ScriptBlock[]): ScriptBlock[] {
   if (!rawText || !rawText.trim()) return []
 
   const lines = rawText.replace(/\r\n/g, '\n').split('\n')
   const blocks: ScriptBlock[] = []
   let current: string[] = []
   let currentTitle: string | undefined
+  const usedExistingIds = new Set<string>()
 
   const flush = () => {
     const text = current.join('\n').trim()
     if (text) {
-      blocks.push(makeBlock(text, currentTitle))
+      blocks.push(makeBlockPreserving(text, currentTitle, existingBlocks, usedExistingIds))
     }
     current = []
     currentTitle = undefined
@@ -158,8 +221,11 @@ export function useScriptBlocks(initial: ScriptBlock[] = []): UseScriptBlocksRes
   const redoStack = useRef<ScriptBlock[][]>([])
 
   const reparse = useCallback((rawText: string) => {
-    const parsed = parseScript(rawText)
-    setBlocksState(parsed)
+    let parsed: ScriptBlock[] = []
+    setBlocksState((prev) => {
+      parsed = parseScript(rawText, prev)
+      return parsed
+    })
     return parsed
   }, [])
 
