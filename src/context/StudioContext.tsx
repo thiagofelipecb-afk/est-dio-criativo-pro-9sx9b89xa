@@ -640,6 +640,15 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
 
+  // FASE 2C/2D — Estado compartilhado da Gravadora (HUD / modo foco).
+  // Fonte única de verdade para bloco ativo, estado de gravação e modo foco,
+  // compartilhada entre Gravadora, ScriptPanel e PrompterHUD. (Consolidação
+  // do Modo Estúdio: anteriormente declarados na interface mas ausentes do
+  // provider, o que quebrava o typecheck e impedia o PrompterHUD de funcionar.)
+  const [activeBlockIndex, setActiveBlockIndex] = useState(0)
+  const [isRecording, setIsRecording] = useState(false)
+  const [isFocusMode, setIsFocusMode] = useState(false)
+
   // FASE 2 — Roteiro por blocos na Gravadora (persistência própria).
   // FONTE ÚNICA DE VERDADE: `gravadoraScript` é o roteiro canônico da Gravadora.
   // `teleprompterScript` é um alias (mesmo estado) para a página Teleprompter
@@ -1292,6 +1301,12 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setScriptBlocks,
         gravadoraScript,
         setGravadoraScript,
+        activeBlockIndex,
+        setActiveBlockIndex,
+        isRecording,
+        setIsRecording,
+        isFocusMode,
+        setIsFocusMode,
         appliedAiSuggestions,
         addAiSuggestion,
         revertAiSuggestion,

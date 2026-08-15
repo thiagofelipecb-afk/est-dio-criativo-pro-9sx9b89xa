@@ -18,6 +18,12 @@ const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY ||
 export interface SupabaseConnectionResult {
   ok: boolean
   message: string
+  /**
+   * Código de erro estruturado opcional. Consumidores (SupabaseProvider,
+   * useSync) usam `'ENV_MISSING'` para distinguir falta de variáveis de
+   * ambiente de uma falha de rede real.
+   */
+  error?: string | null
 }
 
 /** Indica se as variáveis de ambiente do Supabase estão configuradas. */
@@ -40,6 +46,7 @@ export async function checkSupabaseConnection(): Promise<SupabaseConnectionResul
       ok: false,
       message:
         'Supabase não configurado: variáveis VITE_SUPABASE_URL e/ou VITE_SUPABASE_ANON_KEY ausentes.',
+      error: 'ENV_MISSING',
     }
   }
   try {
@@ -55,6 +62,7 @@ export async function checkSupabaseConnection(): Promise<SupabaseConnectionResul
       return {
         ok: false,
         message: `Falha ao conectar com Supabase: ${error.message} (código ${code || 'desconhecido'})`,
+        error: code || 'QUERY_ERROR',
       }
     }
     if (typeof count === 'number') {
@@ -63,6 +71,10 @@ export async function checkSupabaseConnection(): Promise<SupabaseConnectionResul
     return { ok: true, message: '✅ Supabase conectado!' }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    return { ok: false, message: `Erro inesperado ao conectar com Supabase: ${msg}` }
+    return {
+      ok: false,
+      message: `Erro inesperado ao conectar com Supabase: ${msg}`,
+      error: 'EXCEPTION',
+    }
   }
 }

@@ -2201,7 +2201,12 @@ export default function Gravadora() {
       <div className="absolute inset-0 flex flex-col">
         {/* Área da câmera */}
         <div style={{ flex: cameraAreaFlex }} className="relative overflow-hidden bg-black">
-          {previewHidden ? (
+          {/* "Preview oculto" só faz sentido quando há de fato um stream de
+              câmera ativo para esconder. Sem permissão/stream, o usuário precisa
+              enxergar a tela de ativação da câmera — caso contrário o botão
+              "Ativar Câmera" fica escondido behind do placeholder de preview
+              oculto persistido (lumen_gravadora_stage.previewHidden). */}
+          {previewHidden && hasPermission && stream ? (
             <div className="absolute inset-0 bg-black flex items-center justify-center text-center p-4">
               <div className="space-y-1">
                 <EyeOff className="w-6 h-6 text-[#9494A8] mx-auto" />
