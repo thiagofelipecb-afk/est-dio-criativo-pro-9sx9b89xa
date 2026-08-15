@@ -402,6 +402,125 @@ function findActiveBlock(blocks: ScriptBlock[], rawTime: number): ScriptBlock | 
   return blocks[blocks.length - 1]
 }
 
+/* ===========================================================================
+   PROMPT 74-76 / GAP 1 — Cleanup de exportação abandonada.
+   Recursos de uma exportação em andamento, mantidos em um holder acessível
+   externamente para que abort() possa liberá-los quando o componente que
+   disparou a exportação for desmontado.
+   =========================================================================== */
+
+interface ExporterResources {
+  recorder: MediaRecorder | null
+  canvas: HTMLCanvasElement | null
+  videoEl: HTMLVideoElement | null
+  audioCtx: AudioContext | null
+  stream: MediaStream | null
+  /** Flag de cancelamento (substitui o antigo `cancelled` local). */
+  cancelled: boolean
+  /** True após resolve/reject — evita double-settle. */
+  settled: boolean
+  /** Object URL do resultado (para revogar em abort). */
+  resultUrl: string | null
+  /** Reject da promise em andamento (para abort manual quando recorder inativo). */
+  reject: ((reason?: unknown) => void) | null
+}
+
+/** Handle retornado por createVideoExporter: a promise + abort(). */
+export interface VideoExporterHandle {
+  /** Promise que resolve com o resultado da exportação. */
+  promise: Promise<ExportResult>
+  /**
+   * Aborta a exportação em andamento e libera TODOS os recursos criados
+   * (MediaRecorder, canvas, vídeo, AudioContext, tracks e object URLs).
+   * Seguro de chamar múltiplas vezes.
+   */
+  abort: () => void
+}
+
+/**
+ * Cria uma exportação MP4 controlável de fora. Retorna SINCRONAMENTE um
+ * handle com a promise da exportação e um método abort() — para que o
+ * componente que disparou a exportação possa cancelá-la e liberar recursos
+ * ao ser desmontado, mesmo durante o carregamento do vídeo bruto.
+ */
+export function createVideoExporter(opts: ExportOptions): VideoExporterHandle {
+  const resources: ExporterResources = {
+    recorder: null,
+    canvas: null,
+    videoEl: null,
+    audioCtx: null,
+    stream: null,
+    cancelled: false,
+    settled: false,
+    resultUrl: null,
+    reject: null,
+  }
+
+  const abort = () => {
+    if (resources.settled) return
+    resources.cancelled = true
+    // Para o MediaRecorder se ativo (dispara onstop → fluxo de cancelamento).
+    try {
+      if (resources.recorder && resources.recorder.state !== 'inactive') {
+        resources.recorder.stop()
+      }
+    } catch {
+      /* noop */
+    }
+    // Libera tracks do stream imediatamente.
+    try {
+      resources.stream?.getTracks().forEach((t) => t.stop())
+    } catch {
+      /* noop */
+    }
+    // Pausa e limpa o elemento de vídeo bruto.
+    try {
+      resources.videoEl?.pause()
+    } catch {
+      /* noop */
+    }
+    if (resources.videoEl) {
+      try {
+        resources.videoEl.src = ''
+        resources.videoEl.removeAttribute('src')
+        resources.videoEl.load()
+      } catch {
+        /* noop */
+      }
+    }
+    // Fecha o AudioContext (libera o recurso de áudio do navegador).
+    try {
+      resources.audioCtx?.close()
+    } catch {
+      /* noop */
+    }
+    // Zera o canvas para liberar a memória de framebuffer.
+    if (resources.canvas) {
+      resources.canvas.width = 0
+      resources.canvas.height = 0
+    }
+    // Revoga object URL do resultado (se já criado).
+    if (resources.resultUrl) {
+      URL.revokeObjectURL(resources.resultUrl)
+      resources.resultUrl = null
+    }
+    // Se o recorder não estava ativo (ex: ainda carregando vídeo), o onstop
+    // não dispara — rejeitamos a promise manualmente para destravar o caller.
+    if (!resources.recorder || resources.recorder.state === 'inactive') {
+      resources.settled = true
+      resources.reject?.(new Error('Exportação cancelada pelo usuário.'))
+    }
+  }
+
+  const promise = runExport(opts, resources)
+  return { promise, abort }
+}
+
+/** Wrapper legado: retorna apenas a promise (sem abort). */
+export function exportVideo(opts: ExportOptions): Promise<ExportResult> {
+  return createVideoExporter(opts).promise
+}
+
 /**
  * Executa a exportação MP4 real.
  *
@@ -415,7 +534,7 @@ function findActiveBlock(blocks: ScriptBlock[], rawTime: number): ScriptBlock | 
  *
  * @returns Blob URL do vídeo final + metadados.
  */
-export async function exportVideo(opts: ExportOptions): Promise<ExportResult> {
+async function runExport(opts: ExportOptions, resources: ExporterResources): Promise<ExportResult> {
   const {
     rawVideoUrl,
     rawVideoDuration,
@@ -453,6 +572,7 @@ export async function exportVideo(opts: ExportOptions): Promise<ExportResult> {
 
   const videoEl = await loadVideoElement(rawVideoUrl)
   videoEl.muted = true
+  resources.videoEl = videoEl
 
   // Pré-carrega as artes como imagens para desenhar durante o render.
   const cachedArts = new Map<string, HTMLImageElement>()
@@ -481,6 +601,7 @@ export async function exportVideo(opts: ExportOptions): Promise<ExportResult> {
   const canvas = document.createElement('canvas')
   canvas.width = EXPORT_W
   canvas.height = EXPORT_H
+  resources.canvas = canvas
   const ctx = canvas.getContext('2d', { alpha: false })
   if (!ctx) {
     throw new Error('Não foi possível obter o contexto 2D do canvas.')
@@ -488,11 +609,13 @@ export async function exportVideo(opts: ExportOptions): Promise<ExportResult> {
 
   // Stream do canvas → MediaRecorder.
   const stream = canvas.captureStream(fps)
+  resources.stream = stream
   // Tenta incluir o áudio do vídeo bruto.
   let audioStream: MediaStream | null = null
   try {
     const AC: typeof AudioContext = window.AudioContext || (window as any).webkitAudioContext
     const audioCtx = new AC()
+    resources.audioCtx = audioCtx
     const dest = audioCtx.createMediaStreamDestination()
     const srcNode = audioCtx.createMediaElementSource(videoEl)
     srcNode.connect(dest)
@@ -509,6 +632,7 @@ export async function exportVideo(opts: ExportOptions): Promise<ExportResult> {
     mimeType,
     videoBitsPerSecond: 8_000_000,
   })
+  resources.recorder = recorder
   const chunks: Blob[] = []
   recorder.ondataavailable = (e) => {
     if (e.data && e.data.size > 0) chunks.push(e.data)
@@ -526,10 +650,24 @@ export async function exportVideo(opts: ExportOptions): Promise<ExportResult> {
   const filename = `LUMEN_${sanitizeFilename(projectName)}_1080x1920.${mimeToExtension(mimeType)}`
 
   return new Promise<ExportResult>((resolve, reject) => {
-    let cancelled = false
     let currentSegmentIndex = 0
     let elapsedInResult = 0
     let rafId: number | null = null
+
+    // Guarda o reject no holder para que abort() possa rejeitar manualmente
+    // quando o recorder ainda não está ativo (fase de carregamento).
+    resources.reject = reject
+
+    const settleResolve = (value: ExportResult) => {
+      if (resources.settled) return
+      resources.settled = true
+      resolve(value)
+    }
+    const settleReject = (reason: unknown) => {
+      if (resources.settled) return
+      resources.settled = true
+      reject(reason as Error)
+    }
 
     const cleanup = () => {
       if (rafId !== null) cancelAnimationFrame(rafId)
@@ -541,7 +679,7 @@ export async function exportVideo(opts: ExportOptions): Promise<ExportResult> {
     }
 
     recorder.onstop = () => {
-      if (cancelled) {
+      if (resources.cancelled) {
         // Descarta o blob parcial — cancelamento seguro.
         emit({
           phase: 'cancelled',
@@ -549,7 +687,7 @@ export async function exportVideo(opts: ExportOptions): Promise<ExportResult> {
           message: 'Exportação cancelada.',
         })
         cleanup()
-        reject(new Error('Exportação cancelada pelo usuário.'))
+        settleReject(new Error('Exportação cancelada pelo usuário.'))
         return
       }
       emit({
@@ -559,6 +697,7 @@ export async function exportVideo(opts: ExportOptions): Promise<ExportResult> {
       })
       const blob = new Blob(chunks, { type: mimeType })
       const url = URL.createObjectURL(blob)
+      resources.resultUrl = url
       // Gera thumbnail do primeiro frame.
       let thumbnail: string | undefined
       try {
@@ -572,7 +711,7 @@ export async function exportVideo(opts: ExportOptions): Promise<ExportResult> {
         message: 'Exportação concluída!',
       })
       cleanup()
-      resolve({
+      settleResolve({
         url,
         blob,
         duration: totalDuration,
@@ -591,13 +730,13 @@ export async function exportVideo(opts: ExportOptions): Promise<ExportResult> {
         error: msg,
       })
       cleanup()
-      reject(new Error(msg))
+      settleReject(new Error(msg))
     }
 
     const renderFrame = () => {
-      if (cancelled) return
+      if (resources.cancelled) return
       if (shouldCancel && shouldCancel()) {
-        cancelled = true
+        resources.cancelled = true
         try {
           recorder.stop()
         } catch {
@@ -684,7 +823,7 @@ export async function exportVideo(opts: ExportOptions): Promise<ExportResult> {
       try {
         recorder.start(100)
       } catch (e) {
-        reject(e)
+        settleReject(e)
         return
       }
       videoEl.play().catch(() => {})

@@ -73,10 +73,11 @@ import {
 import { toast } from 'sonner'
 import EditTimeline from '@/components/studio/EditTimeline'
 import {
-  exportVideo,
+  createVideoExporter,
   computeResultDuration,
   computeEffectiveSegments,
   pickSupportedMimeType,
+  type VideoExporterHandle,
 } from '@/lib/exporter'
 import { readBlockArts, readBlockBRoll, readReactionVideo } from '@/hooks/use-block-media'
 
@@ -368,6 +369,12 @@ export default function EditorVideo() {
   const [exportResult, setExportResult] = useState<ExportResult | null>(null)
   const [exportUrlCopiable, setExportUrlCopiable] = useState<string>('')
   const cancelExportRef = useRef(false)
+  // PROMPT 74-76 / GAP 1 — Handle do exporter (com abort()) para cleanup ao desmontar.
+  const exporterHandleRef = useRef<VideoExporterHandle | null>(null)
+  // Object URLs criados pelo componente (resultado de exportações, etc.).
+  const createdObjectUrlsRef = useRef<string[]>([])
+  // Flag de desmontagem: suprime toasts e setStates tardios do fluxo de abort.
+  const isUnmountingRef = useRef(false)
 
   const handleStartRealExport = useCallback(async () => {
     if (!rawVideoUrl) {
@@ -394,7 +401,7 @@ export default function EditorVideo() {
     const reaction = readReactionVideo()
 
     try {
-      const result = await exportVideo({
+      const handle = createVideoExporter({
         rawVideoUrl,
         rawVideoDuration,
         timeline: timelineState,
@@ -431,6 +438,10 @@ export default function EditorVideo() {
         onProgress: (p) => setExportProgress(p),
         shouldCancel: () => cancelExportRef.current,
       })
+      exporterHandleRef.current = handle
+      const result = await handle.promise
+      // Registra o object URL do resultado para revogar no cleanup.
+      createdObjectUrlsRef.current.push(result.url)
       setExportResult(result)
       setExportUrlCopiable(result.url)
       setExportProgress({
@@ -457,12 +468,16 @@ export default function EditorVideo() {
     } catch (err: any) {
       const msg = err?.message || 'Erro desconhecido.'
       if (msg.includes('cancelada')) {
+        // Não mostra toast de cancelamento se foi abortado pelo cleanup
+        // de desmontagem (o componente já sumiu da tela).
+        if (!isUnmountingRef.current) {
+          toast.info('Exportação cancelada. Nenhum arquivo foi gerado.')
+        }
         setExportProgress({
           phase: 'cancelled',
           percent: 0,
           message: 'Exportação cancelada.',
         })
-        toast.info('Exportação cancelada. Nenhum arquivo foi gerado.')
       } else {
         setExportProgress({
           phase: 'error',
@@ -472,6 +487,8 @@ export default function EditorVideo() {
         })
         toast.error(`A exportação falhou: ${msg}`)
       }
+    } finally {
+      exporterHandleRef.current = null
     }
   }, [
     rawVideoUrl,
@@ -582,6 +599,54 @@ export default function EditorVideo() {
     }
     return () => clearInterval(interval)
   }, [isPlaying, currentProject?.duration])
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     PROMPT 74-76 / GAP 2 — Cleanup ao desmontar o EditorVideo.
+     Garante que uma exportação MP4 em andamento seja abortada e que todos os
+     recursos (canvas, vídeo, AudioContext, tracks, object URLs) sejam
+     liberados quando o usuário navega para outra página. Também reseta o
+     estado de "exportando" para evitar modal fantasma ao reentrar.
+     ═══════════════════════════════════════════════════════════════════════ */
+  useEffect(() => {
+    return () => {
+      isUnmountingRef.current = true
+      // 1. Aborta a exportação em andamento (se houver) — libera MediaRecorder,
+      //    canvas, vídeo, AudioContext, tracks e object URLs do exporter.
+      const handle = exporterHandleRef.current
+      if (handle) {
+        try {
+          handle.abort()
+        } catch {
+          /* noop */
+        }
+        exporterHandleRef.current = null
+      }
+      // 2. Revoga quaisquer object URLs criados pelo componente que ainda
+      //    não foram revogados (ex: resultado de exportações anteriores).
+      for (const url of createdObjectUrlsRef.current) {
+        try {
+          URL.revokeObjectURL(url)
+        } catch {
+          /* noop */
+        }
+      }
+      createdObjectUrlsRef.current = []
+      // 3. Pára animações/timers: o setInterval do player é limpo pelo seu
+      //    próprio useEffect, mas garantimos o pause do <video> do player.
+      try {
+        playerVideoRef.current?.pause()
+      } catch {
+        /* noop */
+      }
+      // 4. Limpa o estado de exportação para evitar modal fantasma ao reentrar.
+      cancelExportRef.current = true
+      setExportProgress({ phase: 'idle', percent: 0, message: '' })
+      setExportResult(null)
+      setExportUrlCopiable('')
+      setIsExportModalOpen(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Estado vazio acolhedor: snapshot/vídeo bruto não existem mais.
   if (videoUnavailable) {
