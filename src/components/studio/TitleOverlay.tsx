@@ -28,19 +28,6 @@ export function TitleOverlay({ config, onChange, locked, elapsedSeconds = 0 }: T
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [dragging, setDragging] = useState(false)
 
-  // Respeita a duração configurada
-  if (config.enabled && config.duration === 'seconds' && elapsedSeconds > config.durationSeconds) {
-    return null
-  }
-  if (!config.enabled || !config.text.trim()) return null
-
-  // Posição vertical preset → coordenada Y normalizada
-  let posY = config.normalizedY
-  let posX = config.normalizedX
-  if (config.position === 'top') posY = 0.1
-  else if (config.position === 'middle') posY = 0.5
-  else if (config.position === 'bottom') posY = 0.9
-
   const startDrag = useCallback(
     (clientX: number, clientY: number) => {
       if (locked) return
@@ -72,6 +59,19 @@ export function TitleOverlay({ config, onChange, locked, elapsedSeconds = 0 }: T
     },
     [locked, onChange],
   )
+
+  // Respeita a duração configurada
+  if (config.enabled && config.duration === 'seconds' && elapsedSeconds > config.durationSeconds) {
+    return null
+  }
+  if (!config.enabled || !config.text.trim()) return null
+
+  // Posição vertical preset → coordenada Y normalizada
+  let posY = config.normalizedY
+  let posX = config.normalizedX
+  if (config.position === 'top') posY = 0.1
+  else if (config.position === 'middle') posY = 0.5
+  else if (config.position === 'bottom') posY = 0.9
 
   // Alinhamento horizontal (textAlign) e posição X conforme alignment quando
   // não é custom.

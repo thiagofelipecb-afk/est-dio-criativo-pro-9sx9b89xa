@@ -85,7 +85,6 @@ interface StudioContextType {
   setScriptBlocks: (blocks: ScriptBlock[]) => void
   /** Texto bruto do roteiro na Gravadora (persistido em lumen_gravadora_script). */
   gravadoraScript: string
->>>>>>>
   setGravadoraScript: (text: string) => void
 
   // AI History / suggestions
