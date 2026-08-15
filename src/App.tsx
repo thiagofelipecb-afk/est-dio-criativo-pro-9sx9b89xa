@@ -5,6 +5,7 @@ import { Toaster as Sonner } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { StudioProvider } from './context/StudioContext'
 import { PlatformProvider } from './context/PlatformContext'
+import { SupabaseProvider } from './components/SupabaseProvider'
 import Layout from './components/Layout'
 
 // Pages
@@ -33,42 +34,44 @@ import Academy from './pages/Academy'
 
 const App = () => (
   <BrowserRouter>
-    <StudioProvider>
-      <PlatformProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner position="bottom-right" theme="dark" richColors />
-          <Routes>
-            <Route element={<Layout />}>
-              <Route path="/" element={<Index />} />
-              <Route path="/projetos" element={<Projetos />} />
-              <Route path="/gravadora" element={<Gravadora />} />
-              <Route path="/editor/:id" element={<EditorVideo />} />
-              <Route path="/carrossel" element={<Carrossel />} />
-              <Route path="/post" element={<PostEstatico />} />
-              <Route path="/teleprompter" element={<Teleprompter />} />
-              <Route path="/agendamento" element={<Agendamento />} />
-              {/* Plataforma de Marketing e Vendas com IA */}
-              <Route path="/modulo-1" element={<Posicionamento />} />
-              <Route path="/posicionamento" element={<Posicionamento />} />
-              <Route path="/modulo-2" element={<Conteudo />} />
-              <Route path="/modulo-3" element={<Navigate to="/funis" replace />} />
-              <Route path="/funis" element={<Funis />} />
-              <Route path="/modulo-4" element={<Ativos />} />
-              <Route path="/modulo-5" element={<Escala />} />
-              <Route path="/modulo-6" element={<Vendas />} />
-              <Route path="/biblioteca" element={<Biblioteca />} />
-              <Route path="/metricas" element={<Metricas />} />
-              <Route path="/configuracoes" element={<Configuracoes />} />
-              <Route path="/assessoria" element={<Assessoria />} />
-              <Route path="/versao-mobile" element={<VersaoMobile />} />
-              <Route path="/academy" element={<Academy />} />
-            </Route>
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </TooltipProvider>
-      </PlatformProvider>
-    </StudioProvider>
+    <SupabaseProvider>
+      <StudioProvider>
+        <PlatformProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner position="bottom-right" theme="dark" richColors />
+            <Routes>
+              <Route element={<Layout />}>
+                <Route path="/" element={<Index />} />
+                <Route path="/projetos" element={<Projetos />} />
+                <Route path="/gravadora" element={<Gravadora />} />
+                <Route path="/editor/:id" element={<EditorVideo />} />
+                <Route path="/carrossel" element={<Carrossel />} />
+                <Route path="/post" element={<PostEstatico />} />
+                <Route path="/teleprompter" element={<Teleprompter />} />
+                <Route path="/agendamento" element={<Agendamento />} />
+                {/* Plataforma de Marketing e Vendas com IA */}
+                <Route path="/modulo-1" element={<Posicionamento />} />
+                <Route path="/posicionamento" element={<Posicionamento />} />
+                <Route path="/modulo-2" element={<Conteudo />} />
+                <Route path="/modulo-3" element={<Navigate to="/funis" replace />} />
+                <Route path="/funis" element={<Funis />} />
+                <Route path="/modulo-4" element={<Ativos />} />
+                <Route path="/modulo-5" element={<Escala />} />
+                <Route path="/modulo-6" element={<Vendas />} />
+                <Route path="/biblioteca" element={<Biblioteca />} />
+                <Route path="/metricas" element={<Metricas />} />
+                <Route path="/configuracoes" element={<Configuracoes />} />
+                <Route path="/assessoria" element={<Assessoria />} />
+                <Route path="/versao-mobile" element={<VersaoMobile />} />
+                <Route path="/academy" element={<Academy />} />
+              </Route>
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </TooltipProvider>
+        </PlatformProvider>
+      </StudioProvider>
+    </SupabaseProvider>
   </BrowserRouter>
 )
 
