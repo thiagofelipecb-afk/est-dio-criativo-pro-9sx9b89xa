@@ -1,6 +1,18 @@
 import React, { useRef, useState } from 'react'
-import { Video, Headphones, Play, Pause, Volume2, VolumeX, Upload, Trash2 } from 'lucide-react'
+import {
+  Video,
+  Headphones,
+  Play,
+  Pause,
+  Volume2,
+  VolumeX,
+  Upload,
+  Trash2,
+  Music,
+} from 'lucide-react'
 import { useReactionVideo, fileToDataUrl } from '@/hooks/use-block-media'
+import { Switch } from '@/components/ui/switch'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
 import type { OverlayCorner, ReactionVideo as ReactionVideoType } from '@/types/studio'
 
@@ -23,7 +35,16 @@ const CORNERS: { id: OverlayCorner; label: string }[] = [
   { id: 'bottom-right', label: '↘' },
 ]
 
-export function ReactionVideoPanel() {
+export interface ReactionVideoPanelProps {
+  /** GAP 5 — Toggle "Incluir áudio da reação na gravação" (estado externo). */
+  includeReactionAudio: boolean
+  setIncludeReactionAudio: (v: boolean) => void
+}
+
+export function ReactionVideoPanel({
+  includeReactionAudio,
+  setIncludeReactionAudio,
+}: ReactionVideoPanelProps) {
   const { reaction, setReaction } = useReactionVideo()
   const fileRef = useRef<HTMLInputElement | null>(null)
   const previewRef = useRef<HTMLVideoElement | null>(null)
@@ -45,6 +66,24 @@ export function ReactionVideoPanel() {
         ...DEFAULT_REACTION,
       })
       toast.success('Vídeo de reação carregado.')
+
+      // GAP 4 — Validação de duração do vídeo de reação (apenas aviso,
+      // não bloqueia o upload). Carrega os metadados num elemento temporário.
+      try {
+        const probe = document.createElement('video')
+        probe.preload = 'metadata'
+        probe.src = dataUrl
+        const duration = await new Promise<number>((resolve) => {
+          probe.onloadedmetadata = () => resolve(isFinite(probe.duration) ? probe.duration : 0)
+          probe.onerror = () => resolve(0)
+        })
+        if (duration > 300) {
+          const minutes = Math.round(duration / 60)
+          toast.warning(`O vídeo tem ${minutes}min. Vídeos muito longos podem pesar na gravação.`)
+        }
+      } catch {
+        /* leitura de duração falhou — não bloqueia o upload */
+      }
     } catch {
       toast.error('Falha ao ler o vídeo.')
     }
@@ -159,6 +198,26 @@ export function ReactionVideoPanel() {
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
+              </div>
+
+              {/* GAP 5 — Toggle "Incluir áudio da reação na gravação" */}
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-[#1C1C27] px-2.5 py-1.5">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="text-[10px] text-[#9494A8] flex items-center gap-1 cursor-help">
+                      <Music className="w-3 h-3 text-[#7C5CFC]" /> Incluir áudio da reação
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-[220px]">
+                    Quando ligado, o áudio do vídeo de reação será incluído na gravação final junto
+                    com sua voz.
+                  </TooltipContent>
+                </Tooltip>
+                <Switch
+                  checked={includeReactionAudio}
+                  onCheckedChange={setIncludeReactionAudio}
+                  aria-label="Incluir áudio da reação na gravação"
+                />
               </div>
 
               {/* Tamanho */}

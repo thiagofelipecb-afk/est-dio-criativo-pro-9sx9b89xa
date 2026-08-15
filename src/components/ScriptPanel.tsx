@@ -39,7 +39,7 @@ import { ReactionVideoPanel } from '@/components/studio/ReactionVideoPanel'
 import { Whiteboard } from '@/components/studio/Whiteboard'
 import { BackgroundPanel } from '@/components/studio/BackgroundPanel'
 import { TitlePanel } from '@/components/studio/TitlePanel'
-import { ImagePlus, Type as TypeIcon } from 'lucide-react'
+import { ImagePlus, Type as TypeIcon, ImageOff } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -89,6 +89,9 @@ export interface ScriptPanelProps {
   onStartRecording?: () => void
   /** GAP 1 — Indica se o botão "Iniciar" pode ser usado (estado da máquina de estados). */
   canStartRecording?: boolean
+  /** GAP 5 — Toggle "Incluir áudio da reação na gravação" (estado externo). */
+  includeReactionAudio: boolean
+  setIncludeReactionAudio: (v: boolean) => void
 }
 
 export default function ScriptPanel({
@@ -101,6 +104,8 @@ export default function ScriptPanel({
   setAutoStartOnRecord,
   onStartRecording,
   canStartRecording = true,
+  includeReactionAudio,
+  setIncludeReactionAudio,
 }: ScriptPanelProps) {
   const { gravadoraScript, setGravadoraScript, scriptBlocks, setScriptBlocks } = useStudio()
   const [tab, setTab] = useState<
@@ -768,7 +773,10 @@ export default function ScriptPanel({
               onJoinPrevCheck={handleJoinWithPreviousCheck}
             />
           ) : tab === 'reaction' ? (
-            <ReactionVideoPanel />
+            <ReactionVideoPanel
+              includeReactionAudio={includeReactionAudio}
+              setIncludeReactionAudio={setIncludeReactionAudio}
+            />
           ) : tab === 'board' ? (
             <Whiteboard />
           ) : tab === 'background' ? (
@@ -1158,6 +1166,26 @@ function BlockCard({
   onCancelSplitMode,
 }: BlockCardProps) {
   const summary = block.text.length > 80 ? block.text.slice(0, 80) + '…' : block.text
+
+  /* GAP 2 — Indicador pendente/pronto por bloco (arte associada).
+     Lê a contagem de artes do bloco de forma reativa: inicial do localStorage
+     e atualizada quando BlockArts notifica (onArtsChange) ou quando o evento
+     global de redistribuição de mídia dispara (split/join). */
+  const [artsCount, setArtsCount] = useState(() => readBlockArts(block.id).length)
+  const refreshArtsCount = useCallback(() => {
+    setArtsCount(readBlockArts(block.id).length)
+  }, [block.id])
+  useEffect(() => {
+    refreshArtsCount()
+    const handler = () => refreshArtsCount()
+    window.addEventListener('lumen-block-media-changed', handler)
+    window.addEventListener('storage', handler)
+    return () => {
+      window.removeEventListener('lumen-block-media-changed', handler)
+      window.removeEventListener('storage', handler)
+    }
+  }, [refreshArtsCount])
+  const firstArt = artsCount > 0 ? readBlockArts(block.id)[0] : null
   return (
     <div
       onClick={onSelect}
@@ -1197,6 +1225,31 @@ function BlockCard({
         </div>
 
         <div className="flex-1 min-w-0">
+          {/* GAP 2 — Indicador visual de arte pendente/pronto no header do bloco.
+              Discreto, alinhado à direita, não compete com o texto. */}
+          <div className="flex items-center justify-end gap-1 mb-0.5">
+            {firstArt ? (
+              <span
+                className="flex items-center gap-1 text-[8px] font-semibold text-emerald-400/90 bg-emerald-500/10 border border-emerald-500/20 rounded px-1 py-0.5"
+                title="Arte associada a este bloco"
+              >
+                <img
+                  src={firstArt.dataUrl}
+                  alt=""
+                  className="w-5 h-5 object-cover rounded-sm border border-emerald-400/30"
+                />
+                pronto
+              </span>
+            ) : (
+              <span
+                className="flex items-center gap-0.5 text-[8px] font-medium text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded px-1 py-0.5"
+                title="Nenhuma arte associada a este bloco"
+              >
+                <ImageOff className="w-2.5 h-2.5" />
+                pendente
+              </span>
+            )}
+          </div>
           {block.title && (
             <p className="text-[10px] font-bold text-[#22D3EE] mb-0.5 truncate">{block.title}</p>
           )}
@@ -1347,7 +1400,7 @@ function BlockCard({
       {/* FASE 3 — Artes e B-roll por bloco (apenas quando expandido) */}
       {expanded && expandedExtras && (
         <>
-          <BlockArts blockId={block.id} />
+          <BlockArts blockId={block.id} onArtsChange={refreshArtsCount} />
           <BlockBRoll blockId={block.id} blockText={block.text} />
         </>
       )}

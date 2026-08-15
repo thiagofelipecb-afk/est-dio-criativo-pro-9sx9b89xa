@@ -401,6 +401,10 @@ export default function Gravadora() {
   const gainNodeRef = useRef<GainNode | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null)
+  /* GAP 5 — Source node do áudio do vídeo de reação (conectado ao destination
+     apenas quando includeReactionAudio está ligado). */
+  const reactionAudioSourceRef = useRef<MediaElementAudioSourceNode | null>(null)
+  const reactionAudioDestRef = useRef<MediaStreamAudioDestinationNode | null>(null)
   const [audioLevel, setAudioLevel] = useState(0) // 0..1 para o medidor
   const rafLevelRef = useRef<number | null>(null)
   /* useRef para mostrar o aviso de suporte UMA vez por campo divergente. */
@@ -453,6 +457,17 @@ export default function Gravadora() {
   const [activeBlockIndex, setActiveBlockIndex] = useState(0)
   const [scriptBlockIds, setScriptBlockIds] = useState<string[]>([])
   const { reaction } = useReactionVideo()
+
+  /* GAP 5 — Toggle "Incluir áudio da reação na gravação" (desligado por padrão).
+     Estado local da Gravadora, passado ao ReactionVideoPanel via ScriptPanel. */
+  const [includeReactionAudio, setIncludeReactionAudio] = useState(false)
+
+  /* GAP 3 — Navegação independente de artes (syncArts desligado).
+     currentArtIndex percorre as artes do bloco atual sem avançar o bloco.
+     dismissedArtTip esconde a mensagem "Nenhuma arte carregada" (local, não
+     persistido). */
+  const [currentArtIndex, setCurrentArtIndex] = useState(0)
+  const [dismissedArtTip, setDismissedArtTip] = useState(false)
   // Força re-render periódico para refletir mudanças de localStorage nos overlays
   // quando o usuário edita artes/broll no painel inferior.
   const [, setOverlayTick] = useState(0)
@@ -766,6 +781,56 @@ export default function Gravadora() {
     }
   }, [audioConfig.manualGain])
 
+  /* GAP 5 — Mixagem do áudio do vídeo de reação na gravação.
+     Quando includeReactionAudio está ligado, captura o áudio do <video> de
+     reação via AudioContext e o encaminha para um MediaStreamDestinationNode,
+     cujo track é adicionado ao MediaStream gravado pelo MediaRecorder.
+     Quando desligado, desconecta (o <video> permanece muted durante a
+     gravação, evitando eco). O MediaElementAudioSourceNode é criado uma
+     única vez por elemento (reaproveitado do ref). */
+  useEffect(() => {
+    const videoEl = reactionVideoRef.current
+    if (!videoEl || !currentReaction?.dataUrl) {
+      // Sem vídeo de reação: garante desconexão.
+      if (reactionAudioSourceRef.current && reactionAudioDestRef.current) {
+        try {
+          reactionAudioSourceRef.current.disconnect(reactionAudioDestRef.current)
+        } catch {
+          /* noop */
+        }
+      }
+      return
+    }
+    if (!audioCtxRef.current) return
+    const ctx = audioCtxRef.current
+
+    try {
+      // Cria o source node uma única vez (não pode recriar para o mesmo elemento).
+      if (!reactionAudioSourceRef.current) {
+        reactionAudioSourceRef.current = ctx.createMediaElementSource(videoEl)
+      }
+      if (!reactionAudioDestRef.current) {
+        reactionAudioDestRef.current = ctx.createMediaStreamDestination()
+      }
+      const source = reactionAudioSourceRef.current
+      const dest = reactionAudioDestRef.current
+
+      // Reconecta conforme o toggle (desconecta tudo antes para evitar duplicação).
+      try {
+        source.disconnect()
+      } catch {
+        /* noop */
+      }
+      if (includeReactionAudio) {
+        source.connect(dest)
+      }
+      // Garante que o elemento não está muted quando capturamos o áudio.
+      videoEl.muted = !includeReactionAudio
+    } catch (err) {
+      console.warn('[Gravadora] Falha ao configurar áudio da reação:', err)
+    }
+  }, [includeReactionAudio, currentReaction?.dataUrl])
+
   /* Loop de leitura do AnalyserNode → atualiza o medidor de nível. */
   useEffect(() => {
     const analyser = analyserRef.current
@@ -1036,6 +1101,14 @@ export default function Gravadora() {
           /* noop */
         }
       }
+      /* GAP 5 — desconecta o source do áudio da reação. */
+      if (reactionAudioSourceRef.current) {
+        try {
+          reactionAudioSourceRef.current.disconnect()
+        } catch {
+          /* noop */
+        }
+      }
       if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
         audioCtxRef.current.close().catch(() => {})
       }
@@ -1113,11 +1186,27 @@ export default function Gravadora() {
         e.preventDefault()
         setShowLowerPanel(false)
       }
+
+      /* GAP 3 — Navegação independente de artes (syncArts === false).
+         Quando a sincronização está desligada, as setas esquerda/direita
+         navegam entre as artes do bloco atual (sem avançar o bloco).
+         Quando a sincronização está ligada, mantém o comportamento padrão
+         (as setas avançam/voltam o bloco). */
+      if (!syncArts && currentArts.length > 0 && (key === 'arrowleft' || key === 'arrowright')) {
+        e.preventDefault()
+        setCurrentArtIndex((prev) => {
+          if (key === 'arrowleft') {
+            return prev <= 0 ? currentArts.length - 1 : prev - 1
+          }
+          return prev >= currentArts.length - 1 ? 0 : prev + 1
+        })
+        return
+      }
     }
 
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [showLowerPanel])
+  }, [showLowerPanel, syncArts, currentArts])
 
   /* ═══════════════════════════════════════════════════════════════════════
      FASE 5.5 — Aviso antes de sair: se está gravando ou processando,
@@ -1306,6 +1395,14 @@ export default function Gravadora() {
           const canvasVideoTrack = canvas.captureStream(30).getVideoTracks()[0]
           const tracks: MediaStreamTrack[] = [canvasVideoTrack]
           if (audioTrack) tracks.push(audioTrack)
+          // GAP 5 — Quando "Incluir áudio da reação" está ligado, mistura o
+          // áudio do <video> de reação (via AudioContext) no stream gravado.
+          if (includeReactionAudio && reactionAudioDestRef.current) {
+            const rTracks = reactionAudioDestRef.current.stream.getAudioTracks()
+            for (const t of rTracks) {
+              if (!tracks.includes(t)) tracks.push(t)
+            }
+          }
           recordStream = new MediaStream(tracks)
         } else if (audioTrack) {
           // Sem canvas compositor disponível: fallback ao stream de áudio/câmera.
@@ -1889,7 +1986,7 @@ export default function Gravadora() {
             />
           )}
 
-          {/* FASE 3 — Artes do bloco (sincronizadas, crossfade) */}
+          {/* FASE 3 — Artes do bloco (sincronizadas, crossfade). */}
           {!previewHidden && syncArts && currentArts.length > 0 && (
             <div
               key={currentBlockId + '-' + activeBlockIndex}
@@ -1906,12 +2003,48 @@ export default function Gravadora() {
             </div>
           )}
 
+          {/* GAP 3 — Navegação independente de artes (syncArts === false).
+              Mostra a arte selecionada por currentArtIndex e um indicador
+              "Arte X/N". Permite dispensar a dica com o botão "×". */}
+          {!previewHidden && !syncArts && currentArts.length > 0 && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[5] animate-fade-in">
+              <img
+                key={currentArts[currentArtIndex]?.id}
+                src={currentArts[currentArtIndex]?.dataUrl}
+                alt={currentArts[currentArtIndex]?.name ?? 'arte'}
+                className="max-w-[80%] max-h-[80%] object-contain rounded-xl shadow-2xl"
+              />
+              {currentArts.length > 1 && (
+                <span className="absolute bottom-3 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-black/60 border border-white/10 text-[10px] font-mono text-[#9494A8]">
+                  Arte {currentArtIndex + 1}/{currentArts.length}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* GAP 3 — Dica dispensável quando não há artes e a sincronização
+              está desligada. O "×" apenas esconde a mensagem (não apaga
+              ativos nem altera estado persistido). */}
+          {!previewHidden && !syncArts && currentArts.length === 0 && !dismissedArtTip && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[6] flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/70 border border-white/10 backdrop-blur-md">
+              <span className="text-[10px] text-[#9494A8]">Nenhuma arte carregada</span>
+              <button
+                onClick={() => setDismissedArtTip(true)}
+                aria-label="Dispensar dica"
+                className="w-4 h-4 flex items-center justify-center rounded-full text-[#9494A8] hover:text-white hover:bg-white/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC]"
+              >
+                ×
+              </button>
+            </div>
+          )}
+
           {/* FASE 3 — Vídeo de reação (overlay em canto configurável) */}
           {!previewHidden && currentReaction && currentReaction.dataUrl && (
             <ReactionOverlay
               ref={reactionVideoRef}
               reaction={currentReaction}
               isRecording={isRecording}
+              includeReactionAudio={includeReactionAudio}
             />
           )}
 
@@ -1951,15 +2084,24 @@ export default function Gravadora() {
                 </p>
               </div>
             ) : lowerPanelMode === 'arts' ? (
-              /* Artes do bloco atual (sincronizadas quando syncArts ligado). */
-              syncArts && currentArts.length > 0 ? (
+              /* Artes do bloco atual (sincronizadas quando syncArts ligado).
+                 GAP 3 — com syncArts desligado, navega por currentArtIndex. */
+              currentArts.length > 0 ? (
                 <div className="absolute inset-0 flex items-center justify-center p-2">
                   <img
-                    key={currentArts[0].id}
-                    src={currentArts[0].dataUrl}
-                    alt={currentArts[0].name ?? 'arte do bloco'}
+                    key={syncArts ? currentArts[0].id : currentArts[currentArtIndex]?.id}
+                    src={syncArts ? currentArts[0].dataUrl : currentArts[currentArtIndex]?.dataUrl}
+                    alt={
+                      (syncArts ? currentArts[0].name : currentArts[currentArtIndex]?.name) ??
+                      'arte do bloco'
+                    }
                     className="max-w-full max-h-full object-contain rounded-lg shadow-xl"
                   />
+                  {!syncArts && currentArts.length > 1 && (
+                    <span className="absolute bottom-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-black/60 border border-white/10 text-[10px] font-mono text-[#9494A8]">
+                      Arte {currentArtIndex + 1}/{currentArts.length}
+                    </span>
+                  )}
                 </div>
               ) : (
                 <div className="text-center px-4">
@@ -2948,6 +3090,9 @@ export default function Gravadora() {
                    (só habilitado em modo 'prompter'). */
                 onStartRecording={handleToggleRecord}
                 canStartRecording={mode === 'prompter'}
+                /* GAP 5 — Toggle "Incluir áudio da reação na gravação". */
+                includeReactionAudio={includeReactionAudio}
+                setIncludeReactionAudio={setIncludeReactionAudio}
               />
             </div>
           </div>
@@ -3144,8 +3289,13 @@ function AudioToggle({
 /* ── FASE 3 — Overlay do vídeo de reação sobre o canvas ───────────────────── */
 const ReactionOverlay = React.forwardRef<
   HTMLVideoElement,
-  { reaction: import('@/types/studio').ReactionVideo; isRecording: boolean }
->(function ReactionOverlay({ reaction, isRecording }, ref) {
+  {
+    reaction: import('@/types/studio').ReactionVideo
+    isRecording: boolean
+    /** GAP 5 — quando true, o áudio da reação entra na gravação (não muta). */
+    includeReactionAudio: boolean
+  }
+>(function ReactionOverlay({ reaction, isRecording, includeReactionAudio }, ref) {
   const sizePct = Math.round(reaction.size * 100)
   const cornerClasses: Record<typeof reaction.corner, string> = {
     'top-left': 'top-2 left-2',
@@ -3163,8 +3313,10 @@ const ReactionOverlay = React.forwardRef<
         src={reaction.dataUrl}
         autoPlay
         loop
-        // Durante a gravação o áudio é silenciado internamente (evita eco).
-        muted={isRecording ? true : false}
+        // Durante a gravação o áudio é silenciado internamente (evita eco),
+        // exceto quando o usuário liga "Incluir áudio da reação" (GAP 5) —
+        // nesse caso o áudio é capturado pelo AudioContext para a gravação.
+        muted={isRecording ? !includeReactionAudio : false}
         playsInline
         className="w-full rounded-xl border-2 border-white/20 shadow-2xl object-cover"
         style={{ aspectRatio: '9 / 16' }}

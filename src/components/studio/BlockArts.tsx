@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { ImagePlus, Trash2, X } from 'lucide-react'
 import { useBlockArts, fileToDataUrl } from '@/hooks/use-block-media'
 import { toast } from 'sonner'
@@ -15,31 +15,56 @@ export interface BlockArtsProps {
   blockId: string
   /** Quando true, eventos de clique não propagam para o card pai. */
   stopPropagation?: boolean
+  /** GAP 2 — Notifica o componente pai quando a lista de artes muda, para que
+   * o badge "pendente/pronto" do BlockCard seja reativo. */
+  onArtsChange?: () => void
 }
 
-export function BlockArts({ blockId, stopPropagation = true }: BlockArtsProps) {
+export function BlockArts({ blockId, stopPropagation = true, onArtsChange }: BlockArtsProps) {
   const { arts, addArt, removeArt } = useBlockArts(blockId)
   const fileRef = useRef<HTMLInputElement | null>(null)
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null)
+
+  // GAP 2 — Notifica o pai (BlockCard) sempre que a lista de artes mudar.
+  useEffect(() => {
+    onArtsChange?.()
+  }, [arts, onArtsChange])
 
   const stop = (e: React.MouseEvent) => {
     if (stopPropagation) e.stopPropagation()
   }
 
-  const handlePick = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
     const valid = files.filter((f) => /image\/(jpeg|png)/.test(f.type))
     if (valid.length !== files.length) {
       toast.warning('Apenas JPEG e PNG são suportados.')
     }
-    valid.forEach(async (f) => {
+    const MAX_SIZE = 10 * 1024 * 1024 // 10 MB
+    // Acumula dataUrls aceitos neste lote para detectar duplicatas mesmo
+    // antes do estado reativo do hook refletir a adição anterior.
+    const acceptedInBatch = new Set<string>()
+    for (const f of valid) {
+      // GAP 1 — Validação de tamanho: rejeita arquivos > 10MB.
+      if (f.size > MAX_SIZE) {
+        toast.warning(
+          `Arquivo muito grande: ${f.name} (${(f.size / 1024 / 1024).toFixed(1)} MB). Máximo: 10 MB.`,
+        )
+        continue
+      }
       try {
         const dataUrl = await fileToDataUrl(f)
+        // GAP 1 — Detecção de duplicatas por dataUrl (base64 idêntico).
+        if (arts.some((a) => a.dataUrl === dataUrl) || acceptedInBatch.has(dataUrl)) {
+          toast.info('Esta imagem já foi carregada.')
+          continue
+        }
+        acceptedInBatch.add(dataUrl)
         addArt(dataUrl, f.name)
       } catch {
         toast.error('Falha ao ler imagem.')
       }
-    })
+    }
     if (fileRef.current) fileRef.current.value = ''
   }
 
