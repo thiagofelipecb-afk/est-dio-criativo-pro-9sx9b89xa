@@ -483,6 +483,8 @@ export interface BlockBRoll {
   duration: number
   /** Resolução (ex.: "1920×1080"). */
   resolution?: string
+  /** PROMPT 58 — URL da página do vídeo no Pexels (para atribuição/licença). */
+  licenseUrl?: string
 }
 
 /* ===========================================================================

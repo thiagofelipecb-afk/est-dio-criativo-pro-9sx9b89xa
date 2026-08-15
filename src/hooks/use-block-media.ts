@@ -1,6 +1,40 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { BlockArt, BlockBRoll, ReactionVideo, WhiteboardState } from '@/types/studio'
 
+/* ── PROMPT 53/56 (GAP 1) — Contagem reativa de blocos com B-roll ──────────
+   Hook que recebe a lista de blockIds dos blocos do roteiro e retorna, de
+   forma reativa, quantos possuem B-roll vinculado. Reage à seleção/remoção
+   de B-roll em qualquer bloco (via evento `lumen-block-media-changed` e
+   `storage`) além de reavaliar quando a lista de blockIds muda. */
+export function useBlockBRollCount(blockIds: string[]): { count: number; total: number } {
+  const [count, setCount] = useState(0)
+  const total = blockIds.length
+
+  const refresh = useCallback(() => {
+    let n = 0
+    for (const id of blockIds) {
+      if (readBlockBRoll(id)) n++
+    }
+    setCount(n)
+  }, [blockIds])
+
+  useEffect(() => {
+    refresh()
+  }, [refresh])
+
+  useEffect(() => {
+    const handler = () => refresh()
+    window.addEventListener('lumen-block-media-changed', handler)
+    window.addEventListener('storage', handler)
+    return () => {
+      window.removeEventListener('lumen-block-media-changed', handler)
+      window.removeEventListener('storage', handler)
+    }
+  }, [refresh])
+
+  return { count, total }
+}
+
 /* ───────────────────────────────────────────────────────────────────────────
    use-block-media — FASE 3
    Hooks de persistência em localStorage para artes por bloco, B-roll por bloco,

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useBlockBRollCount } from '@/hooks/use-block-media'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
@@ -27,6 +28,7 @@ import {
   Clapperboard,
   PenLine,
   Circle,
+  AlertCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useStudio } from '@/context/StudioContext'
@@ -92,6 +94,9 @@ export interface ScriptPanelProps {
   /** GAP 5 — Toggle "Incluir áudio da reação na gravação" (estado externo). */
   includeReactionAudio: boolean
   setIncludeReactionAudio: (v: boolean) => void
+  /** PROMPT 58 (GAP 6) — Modo do painel inferior do palco; quando 'broll',
+   *  exibe banner com a lista de blocos sem B-roll. Opcional (default 'none'). */
+  lowerPanelMode?: import('@/types/studio').LowerPanelMode
 }
 
 export default function ScriptPanel({
@@ -106,6 +111,7 @@ export default function ScriptPanel({
   canStartRecording = true,
   includeReactionAudio,
   setIncludeReactionAudio,
+  lowerPanelMode = 'none',
 }: ScriptPanelProps) {
   const { gravadoraScript, setGravadoraScript, scriptBlocks, setScriptBlocks } = useStudio()
   const [tab, setTab] = useState<
@@ -435,6 +441,21 @@ export default function ScriptPanel({
     if (!canStartRecording) return
     onStartRecording?.()
   }, [blocks.length, canStartRecording, onStartRecording])
+
+  /* PROMPT 53/56 (GAP 1) — Contador reativo "X/N blocos com B-roll".
+     Reage à seleção/remoção de B-roll em qualquer bloco via evento global. */
+  const blockIds = useMemo(() => blocks.map((b) => b.id), [blocks])
+  const { count: blocksWithBRoll, total: totalBlocks } = useBlockBRollCount(blockIds)
+
+  /* PROMPT 58 (GAP 6) — Lista reativa de blocos sem B-roll, para o banner
+     exibido quando lowerPanelMode === 'broll'. `blocksWithBRoll` entra nas
+     deps para que a lista se atualize quando B-roll é adicionado/removido. */
+  const blocksWithoutBRoll = useMemo(() => {
+    return blocks
+      .map((b, i) => ({ index: i, label: `Bloco ${i + 1}`, hasBRoll: !!readBlockBRoll(b.id) }))
+      .filter((x) => !x.hasBRoll)
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [blocks, blocksWithBRoll])
 
   const handleSuggestAI = useCallback(async () => {
     if (!gravadoraScript.trim()) {
@@ -771,6 +792,11 @@ export default function ScriptPanel({
               onCancelSplitMode={handleCancelSplitMode}
               onPickSplitPoint={handlePickSplitPoint}
               onJoinPrevCheck={handleJoinWithPreviousCheck}
+              /* PROMPT 53/56 (GAP 1) — Progresso global de B-roll. */
+              blocksWithBRoll={blocksWithBRoll}
+              totalBlocks={totalBlocks}
+              /* PROMPT 58 (GAP 6) — Lista de blocos sem B-roll para o banner. */
+              blocksWithoutBRollList={lowerPanelMode === 'broll' ? blocksWithoutBRoll : []}
             />
           ) : tab === 'reaction' ? (
             <ReactionVideoPanel
@@ -858,6 +884,12 @@ interface ScriptTabProps {
   onPickSplitPoint: (index: number, offset: number) => void
   /* GAP 3 — Resolução de conflito de mídia ao juntar */
   onJoinPrevCheck: (index: number) => void
+  /* PROMPT 53/56 (GAP 1) — Progresso global de B-roll no header da seção. */
+  blocksWithBRoll: number
+  totalBlocks: number
+  /* PROMPT 58 (GAP 6) — Blocos sem B-roll (índice+1) para o banner; array
+     vazio oculta o banner. */
+  blocksWithoutBRollList: { index: number; label: string }[]
 }
 
 function ScriptTab(props: ScriptTabProps) {
@@ -897,6 +929,9 @@ function ScriptTab(props: ScriptTabProps) {
     onCancelSplitMode,
     onPickSplitPoint,
     onJoinPrevCheck,
+    blocksWithBRoll,
+    totalBlocks,
+    blocksWithoutBRollList,
   } = props
 
   return (
@@ -1032,6 +1067,20 @@ function ScriptTab(props: ScriptTabProps) {
           <span className="text-[10px] font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-[#7C5CFC]" />
             Blocos
+            {/* PROMPT 53/56 (GAP 1) — Contador global de B-roll no header. */}
+            {totalBlocks > 0 && (
+              <span
+                className={`ml-1 inline-flex items-center gap-0.5 text-[9px] font-semibold rounded px-1.5 py-0.5 border ${
+                  blocksWithBRoll === totalBlocks
+                    ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30'
+                    : 'text-[#22D3EE] bg-[#22D3EE]/10 border-[#22D3EE]/30'
+                }`}
+                title={`${blocksWithBRoll} de ${totalBlocks} bloco(s) com B-roll selecionado`}
+              >
+                <Clapperboard className="w-3 h-3" />
+                {blocksWithBRoll}/{totalBlocks} com B-roll
+              </span>
+            )}
           </span>
           <div className="flex items-center gap-1">
             {blocks.length > 0 && (
@@ -1062,6 +1111,23 @@ function ScriptTab(props: ScriptTabProps) {
             </button>
           </div>
         </div>
+
+        {/* PROMPT 58 (GAP 6) — Banner com a lista de blocos sem B-roll. */}
+        {blocksWithoutBRollList.length > 0 && blocks.length > 0 && (
+          <div className="mx-2 mt-2 mb-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5">
+            <div className="flex items-start gap-1.5">
+              <AlertCircle className="w-3 h-3 text-amber-400 shrink-0 mt-px" />
+              <div className="min-w-0">
+                <p className="text-[9px] font-bold text-amber-300 leading-tight">
+                  {blocksWithoutBRollList.length} bloco(s) sem B-roll
+                </p>
+                <p className="text-[9px] text-amber-200/70 leading-tight mt-0.5 truncate">
+                  {blocksWithoutBRollList.map((b) => b.label).join(', ')}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto p-2 space-y-1.5 scrollbar-thin">
           {blocks.length === 0 ? (

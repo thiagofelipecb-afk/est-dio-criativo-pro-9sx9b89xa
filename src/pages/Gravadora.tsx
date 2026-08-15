@@ -3122,6 +3122,9 @@ export default function Gravadora() {
                 /* GAP 5 — Toggle "Incluir áudio da reação na gravação". */
                 includeReactionAudio={includeReactionAudio}
                 setIncludeReactionAudio={setIncludeReactionAudio}
+                /* PROMPT 58 (GAP 6) — repassa lowerPanelMode para o banner de
+                   blocos sem B-roll dentro do ScriptPanel. */
+                lowerPanelMode={lowerPanelMode}
               />
             </div>
           </div>

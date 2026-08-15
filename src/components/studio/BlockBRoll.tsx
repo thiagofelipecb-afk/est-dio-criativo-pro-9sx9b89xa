@@ -1,5 +1,15 @@
-import React, { useState } from 'react'
-import { Search, Loader2, Wand2, Check, X, RefreshCw, Film, AlertCircle } from 'lucide-react'
+import React, { useState, useMemo, useCallback } from 'react'
+import {
+  Search,
+  Loader2,
+  Wand2,
+  Check,
+  X,
+  RefreshCw,
+  Film,
+  AlertCircle,
+  ExternalLink,
+} from 'lucide-react'
 import { useBlockBRoll } from '@/hooks/use-block-media'
 import {
   searchPexelsVideos,
@@ -29,44 +39,112 @@ function formatDuration(secs: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
+/**
+ * PROMPT 55 — calcula o aspect ratio (largura/altura) do melhor arquivo de
+ * um resultado. Retorna 0 quando não há arquivos. Valores ≤0.75 são verticais.
+ */
+function resultAspectRatio(r: PexelsVideoResult): number {
+  const best = [...(r.video_files ?? [])].sort((a, b) => b.width * b.height - a.width * a.height)[0]
+  if (!best || !best.height) return 0
+  return best.width / best.height
+}
+
+/**
+ * PROMPT 55 — ordena resultados priorizando vídeos verticais (aspect ≤0.75)
+ * primeiro, mantendo a ordem original dentro de cada grupo (estável).
+ */
+function sortVerticalFirst(items: PexelsVideoResult[]): PexelsVideoResult[] {
+  const vertical: PexelsVideoResult[] = []
+  const other: PexelsVideoResult[] = []
+  for (const r of items) {
+    if (resultAspectRatio(r) > 0 && resultAspectRatio(r) <= 0.75) vertical.push(r)
+    else other.push(r)
+  }
+  return [...vertical, ...other]
+}
+
 export function BlockBRoll({ blockId, blockText, stopPropagation = true }: BlockBRollProps) {
   const { broll, setBRoll } = useBlockBRoll(blockId)
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [results, setResults] = useState<PexelsVideoResult[]>([])
   const [suggestions, setSuggestions] = useState<{ term: string; label: string }[]>([])
+  // PROMPT 55 — paginação: página atual e total de resultados.
+  const [page, setPage] = useState(1)
+  const [totalResults, setTotalResults] = useState(0)
+  // Termo da última busca realizada (para "Carregar mais").
+  const [lastQuery, setLastQuery] = useState('')
 
   const stop = (e: React.MouseEvent) => {
     if (stopPropagation) e.stopPropagation()
   }
 
-  const doSearch = async (term: string) => {
+  const doSearch = useCallback(async (term: string, opts?: { append?: boolean; page?: number }) => {
     if (!term.trim()) {
       toast.warning('Digite um termo para buscar.')
       return
     }
-    setLoading(true)
+    const append = opts?.append ?? false
+    const nextPage = opts?.page ?? 1
+    if (append) {
+      setLoadingMore(true)
+    } else {
+      setLoading(true)
+    }
     setError(null)
     try {
-      const { results: rs, error: err } = await searchPexelsVideos(term, 12)
+      const {
+        results: rs,
+        error: err,
+        totalResults: tr,
+      } = await searchPexelsVideos(term, 12, nextPage)
       if (err) {
         setError(err)
-        setResults([])
-      } else if (rs.length === 0) {
+        if (!append) setResults([])
+      } else if (rs.length === 0 && !append) {
         setError('Nenhum vídeo encontrado para este termo.')
         setResults([])
       } else {
-        setResults(rs)
+        // PROMPT 55 — prioriza vídeos verticais na ordenação.
+        const sorted = sortVerticalFirst(rs)
+        if (append) {
+          setResults((prev) => [...prev, ...sorted])
+        } else {
+          setResults(sorted)
+        }
+        if (typeof tr === 'number') setTotalResults(tr)
+        setLastQuery(term)
+        setPage(nextPage)
       }
     } catch {
-      setError('Falha inesperada ao buscar vídeos.')
-      setResults([])
+      if (!append) {
+        setError('Falha inesperada ao buscar vídeos.')
+        setResults([])
+      } else {
+        toast.error('Falha ao carregar mais vídeos.')
+      }
     } finally {
       setLoading(false)
+      setLoadingMore(false)
     }
-  }
+  }, [])
+
+  const handleLoadMore = useCallback(() => {
+    if (!lastQuery.trim() || loadingMore || loading) return
+    void doSearch(lastQuery, { append: true, page: page + 1 })
+  }, [lastQuery, loadingMore, loading, page, doSearch])
+
+  // PROMPT 55 — há mais páginas para carregar?
+  const hasMore = useMemo(() => {
+    if (results.length === 0) return false
+    if (totalResults > 0) return results.length < totalResults
+    // Sem total_results conhecido: permite carregar enquanto a última página
+    // retornou resultados cheios (12 por página).
+    return true
+  }, [results.length, totalResults])
 
   const handleSuggestAI = async () => {
     if (!blockText.trim()) {
@@ -95,8 +173,23 @@ export function BlockBRoll({ blockId, blockText, stopPropagation = true }: Block
 
   const selectResult = (r: PexelsVideoResult) => {
     setBRoll(pexelsResultToBRoll(r))
+    // Notifica listeners (contador global de B-roll no ScriptPanel).
+    window.dispatchEvent(new CustomEvent('lumen-block-media-changed'))
     toast.success('B-roll selecionado para este bloco.')
   }
+
+  // PROMPT 53 (GAP 2) — botão "Sugerir com IA" desabilitado visualmente quando
+  // não há texto no bloco. Sem blocos no roteiro (blockText vazio), exibe label
+  // "Crie um roteiro primeiro"; com bloco mas sem texto, exibe "Sugerir com IA"
+  // desabilitado com tooltip explicativo.
+  const hasBlockText = blockText.trim().length > 0
+  const aiDisabled = !hasBlockText || aiLoading
+  const aiLabel = hasBlockText ? 'Sugerir com IA' : 'Crie um roteiro primeiro'
+  const aiTooltip = hasBlockText
+    ? aiLoading
+      ? 'Analisando texto do bloco…'
+      : 'Sugerir termos de B-roll a partir do texto do bloco'
+    : 'Adicione texto ao bloco para usar IA'
 
   return (
     <div onClick={stop} className="mt-2 rounded-lg border border-white/10 bg-black/30 p-2">
@@ -107,13 +200,19 @@ export function BlockBRoll({ blockId, blockText, stopPropagation = true }: Block
         <button
           onClick={(e) => {
             stop(e)
-            handleSuggestAI()
+            if (!aiDisabled) handleSuggestAI()
           }}
-          disabled={aiLoading}
-          className="flex items-center gap-1 text-[9px] text-[#7C5CFC] hover:bg-[#7C5CFC]/10 px-1.5 py-0.5 rounded font-semibold disabled:opacity-50"
+          disabled={aiDisabled}
+          aria-disabled={aiDisabled}
+          title={aiTooltip}
+          className={`flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded font-semibold transition-colors ${
+            aiDisabled
+              ? 'text-[#9494A8]/50 bg-white/5 cursor-not-allowed'
+              : 'text-[#7C5CFC] hover:bg-[#7C5CFC]/10'
+          }`}
         >
           {aiLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
-          Sugerir com IA
+          {aiLabel}
         </button>
       </div>
 
@@ -195,6 +294,19 @@ export function BlockBRoll({ blockId, blockText, stopPropagation = true }: Block
               <span className="text-[8px] text-[#9494A8]/80 block italic">
                 Vídeo por {broll.author} no Pexels
               </span>
+              {/* PROMPT 58 — link "Ver no Pexels" para a página do vídeo. */}
+              {broll.licenseUrl && (
+                <a
+                  href={broll.licenseUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-0.5 text-[8px] text-[#22D3EE] hover:text-[#22D3EE]/80 hover:underline mt-0.5"
+                  title="Abrir página do vídeo no Pexels"
+                >
+                  Ver no Pexels <ExternalLink className="w-2.5 h-2.5" />→
+                </a>
+              )}
             </div>
             <div className="flex flex-col gap-0.5">
               <button
@@ -211,6 +323,7 @@ export function BlockBRoll({ blockId, blockText, stopPropagation = true }: Block
                 onClick={(e) => {
                   stop(e)
                   setBRoll(null)
+                  window.dispatchEvent(new CustomEvent('lumen-block-media-changed'))
                   toast.info('B-roll removido do bloco.')
                 }}
                 className="text-[8px] text-red-400 hover:bg-red-500/10 px-1 py-0.5 rounded flex items-center gap-0.5"
@@ -247,53 +360,86 @@ export function BlockBRoll({ blockId, blockText, stopPropagation = true }: Block
 
       {/* Grade de resultados */}
       {results.length > 0 && (
-        <div className="grid grid-cols-3 gap-1 max-h-40 overflow-y-auto scrollbar-thin">
-          {results.map((r) => {
-            const best = [...(r.video_files ?? [])].sort(
-              (a, b) => b.width * b.height - a.width * a.height,
-            )[0]
-            const isSelected = broll?.pexelsId === r.id
-            return (
-              <button
-                key={r.id}
-                onClick={(e) => {
-                  stop(e)
-                  selectResult(r)
-                }}
-                className={`relative rounded-lg overflow-hidden border text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
-                  isSelected
-                    ? 'border-emerald-400 ring-1 ring-emerald-400'
-                    : 'border-[#1E1E2A] hover:border-[#22D3EE]/40'
-                }`}
-                title={`Selecionar vídeo de ${r.user?.name ?? 'Pexels'}`}
-              >
-                <img
-                  src={r.image}
-                  alt={r.user?.name ?? 'vídeo'}
-                  className="w-full h-12 object-cover"
-                />
-                <div className="absolute top-0.5 left-0.5 px-1 py-0 rounded bg-black/80 text-[7px] font-mono text-white">
-                  {formatDuration(r.duration)}
-                </div>
-                {best && (
-                  <div className="absolute bottom-4 right-0.5 px-1 py-0 rounded bg-black/80 text-[7px] font-mono text-[#22D3EE]">
-                    {best.width}×{best.height}
+        <>
+          <div className="grid grid-cols-3 gap-1 max-h-40 overflow-y-auto scrollbar-thin">
+            {results.map((r) => {
+              const best = [...(r.video_files ?? [])].sort(
+                (a, b) => b.width * b.height - a.width * a.height,
+              )[0]
+              const isSelected = broll?.pexelsId === r.id
+              // PROMPT 55 — flag vertical para badge.
+              const isVertical = best ? best.width / best.height <= 0.75 : false
+              return (
+                <button
+                  key={r.id}
+                  onClick={(e) => {
+                    stop(e)
+                    selectResult(r)
+                  }}
+                  className={`relative rounded-lg overflow-hidden border text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
+                    isSelected
+                      ? 'border-emerald-400 ring-1 ring-emerald-400'
+                      : 'border-[#1E1E2A] hover:border-[#22D3EE]/40'
+                  }`}
+                  title={`Selecionar vídeo de ${r.user?.name ?? 'Pexels'}`}
+                >
+                  <img
+                    src={r.image}
+                    alt={r.user?.name ?? 'vídeo'}
+                    className="w-full h-12 object-cover"
+                  />
+                  <div className="absolute top-0.5 left-0.5 px-1 py-0 rounded bg-black/80 text-[7px] font-mono text-white">
+                    {formatDuration(r.duration)}
                   </div>
-                )}
-                <div className="px-1 py-0.5 bg-[#1C1C27]">
-                  <span className="text-[10px] text-[#A78BFA]/50 truncate block">
-                    {r.user?.name ?? 'Pexels'}
-                  </span>
-                </div>
-                {isSelected && (
-                  <div className="absolute inset-0 bg-emerald-500/20 flex items-center justify-center">
-                    <Check className="w-5 h-5 text-emerald-300 drop-shadow" />
+                  {/* PROMPT 55 — badge "Vertical" para vídeos com aspect ≤0.75 */}
+                  {isVertical && (
+                    <div className="absolute top-0.5 right-0.5 px-1 py-0 rounded bg-[#22D3EE]/90 text-[7px] font-bold text-black">
+                      9:16
+                    </div>
+                  )}
+                  {best && (
+                    <div className="absolute bottom-4 right-0.5 px-1 py-0 rounded bg-black/80 text-[7px] font-mono text-[#22D3EE]">
+                      {best.width}×{best.height}
+                    </div>
+                  )}
+                  <div className="px-1 py-0.5 bg-[#1C1C27]">
+                    <span className="text-[10px] text-[#A78BFA]/50 truncate block">
+                      {r.user?.name ?? 'Pexels'}
+                    </span>
                   </div>
-                )}
-              </button>
-            )
-          })}
-        </div>
+                  {isSelected && (
+                    <div className="absolute inset-0 bg-emerald-500/20 flex items-center justify-center">
+                      <Check className="w-5 h-5 text-emerald-300 drop-shadow" />
+                    </div>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* PROMPT 55 — botão "Carregar mais" (próxima página em append) */}
+          {hasMore && (
+            <button
+              onClick={(e) => {
+                stop(e)
+                handleLoadMore()
+              }}
+              disabled={loadingMore}
+              className="mt-1.5 w-full flex items-center justify-center gap-1 text-[9px] text-[#22D3EE] hover:bg-[#22D3EE]/10 border border-[#22D3EE]/30 rounded-md py-1 font-semibold disabled:opacity-50"
+              title="Carregar mais resultados da próxima página"
+            >
+              {loadingMore ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin" /> Carregando…
+                </>
+              ) : (
+                <>
+                  <Search className="w-3 h-3" /> Carregar mais
+                </>
+              )}
+            </button>
+          )}
+        </>
       )}
     </div>
   )

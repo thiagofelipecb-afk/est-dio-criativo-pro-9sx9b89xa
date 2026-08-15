@@ -1,4 +1,5 @@
 import type { BlockBRoll } from '@/types/studio'
+import { supabase } from '@/lib/supabase/client'
 
 /* ───────────────────────────────────────────────────────────────────────────
    broll — FASE 3
@@ -36,30 +37,39 @@ export interface PexelsResponse {
 }
 
 /**
- * Busca vídeos no Pexels. Tenta o endpoint público sem autenticação; se falhar
- * (CORS, rate limit, rede), retorna { error } para o chamador exibir fallback.
+ * Busca vídeos no Pexels via edge function `pexels-proxy` (Supabase).
+ * A chave da API fica no secret PEXELS_API_KEY do backend — nunca no cliente.
+ * Se o secret não existir, a edge function retorna { error }.
  */
 export async function searchPexelsVideos(
   query: string,
   perPage = 12,
-): Promise<{ results: PexelsVideoResult[]; error?: string }> {
+  page = 1,
+): Promise<{
+  results: PexelsVideoResult[]
+  totalResults?: number
+  error?: string
+}> {
   if (!query.trim()) return { results: [] }
-  const url = `https://img.usecurling.com/p/800/600?q=abstract)}&per_page=${perPage}`
   try {
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: {
-        // Endpoint público oficialmente requer chave; enviamos um header
-        // genérico. Se o servidor recusar, o catch abaixo retorna fallback.
-        Accept: 'application/json',
-      },
+    const { data, error } = await supabase.functions.invoke('pexels-proxy', {
+      body: { query, perPage, page },
     })
-    if (!res.ok) {
-      return { results: [], error: `Pexels respondeu ${res.status}. Tente novamente.` }
+    if (error) {
+      return {
+        results: [],
+        error: 'Não foi possível buscar no Pexels agora. Tente novamente.',
+      }
     }
-    const data = (await res.json()) as PexelsResponse
-    return { results: data.videos ?? [] }
-  } catch (err: any) {
+    const payload = data as Partial<PexelsResponse & { error?: string }>
+    if (payload?.error) {
+      return { results: [], error: payload.error }
+    }
+    return {
+      results: payload?.videos ?? [],
+      totalResults: payload?.total_results,
+    }
+  } catch {
     return {
       results: [],
       error:
@@ -74,6 +84,8 @@ export function pexelsResultToBRoll(v: PexelsVideoResult): BlockBRoll {
   const best =
     [...(v.video_files ?? [])].sort((a, b) => b.width * b.height - a.width * a.height)[0] ?? null
   const resolution = best ? `${best.width}×${best.height}` : undefined
+  // PROMPT 58 — URL da página do vídeo no Pexels (atribuição/licença).
+  const licenseUrl = `https://img.usecurling.com/p/800/600?q=abstract`
   return {
     pexelsId: v.id,
     url: best?.link ?? '',
@@ -81,6 +93,7 @@ export function pexelsResultToBRoll(v: PexelsVideoResult): BlockBRoll {
     author: v.user?.name ?? 'Pexels',
     duration: v.duration,
     resolution,
+    licenseUrl,
   }
 }
 
