@@ -160,6 +160,14 @@ export function readReactionVideo(): ReactionVideo | null {
 
 const WHITEBOARD_KEY = 'lumen_gravadora_whiteboard'
 
+/**
+ * PROMPT 52 — Chaves separadas para a cena editável que o Estúdio lê e para
+ * o preview PNG gerado pelo botão "Usar este quadro". A chave legada
+ * `lumen_gravadora_whiteboard` permanece como backup/rascunho automático.
+ */
+export const WHITEBOARD_SCENE_KEY = 'lumen_gravadora_whiteboard_scene'
+export const WHITEBOARD_PREVIEW_KEY = 'lumen_gravadora_whiteboard_preview'
+
 export function useWhiteboard() {
   const [state, setState] = useState<WhiteboardState>(() =>
     readJSON<WhiteboardState>(WHITEBOARD_KEY, { elements: [], groups: [], zoom: 1 }),
@@ -172,6 +180,37 @@ export function useWhiteboard() {
   const setStateSafe = useCallback((s: WhiteboardState) => setState(s), [])
 
   return { whiteboard: state, setWhiteboard: setStateSafe }
+}
+
+/**
+ * PROMPT 52 — Cena editável dedicada lida/escrita pela rota /estudio/quadro.
+ * Independente do `useWhiteboard` (rascunho automático), para que "Usar este
+ * quadro" produza um snapshot estável que o Estúdio consome.
+ */
+export function readWhiteboardScene(): WhiteboardState | null {
+  return readJSON<WhiteboardState | null>(WHITEBOARD_SCENE_KEY, null)
+}
+
+export function writeWhiteboardScene(state: WhiteboardState): void {
+  writeJSON(WHITEBOARD_SCENE_KEY, state)
+}
+
+/** Lê o preview PNG (dataUrl) gerado por "Usar este quadro". */
+export function readWhiteboardPreview(): string | null {
+  try {
+    return localStorage.getItem(WHITEBOARD_PREVIEW_KEY)
+  } catch {
+    return null
+  }
+}
+
+/** Grava o preview PNG (dataUrl) gerado por "Usar este quadro". */
+export function writeWhiteboardPreview(dataUrl: string): void {
+  try {
+    localStorage.setItem(WHITEBOARD_PREVIEW_KEY, dataUrl)
+  } catch {
+    /* quota — ignora */
+  }
 }
 
 /* ── Util: converte File em data URL base64 ──────────────────────────────── */

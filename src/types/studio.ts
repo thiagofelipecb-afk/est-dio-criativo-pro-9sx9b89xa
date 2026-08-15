@@ -321,6 +321,14 @@ export type WhiteboardTool =
   | 'text'
   | 'image'
   | 'eraser'
+  /* PROMPT 46/47 — Ferramentas adicionais (aditivas). */
+  | 'diamond'
+  | 'pan'
+  | 'frame'
+  | 'embed'
+  | 'shape'
+  | 'laser'
+  | 'eyedropper'
 
 /** Elemento serializável do quadro. */
 export interface WhiteboardElement {
@@ -345,6 +353,25 @@ export interface WhiteboardElement {
   locked: boolean
   /** Data URL de imagem (apenas type='image'). */
   dataUrl?: string
+  /* PROMPT 47/50/51 — Propriedades opcionais adicionais (aditivas). */
+  /** Cor de preenchimento (fill) — aplicado antes do contorno. */
+  fillColor?: string
+  /** Família tipográfica para texto (Inter, serif, mono). */
+  fontFamily?: string
+  /** Tamanho da fonte para texto (px lógicos). */
+  fontSize?: number
+  /** Link/URL associado ao elemento (renderiza ícone de corrente). */
+  link?: string
+  /** Linha/seta curva (quadrática) — Prompt 51. */
+  curved?: boolean
+  /** Recorte de imagem {x,y,w,h} no espaço da imagem original — Prompt 51. */
+  crop?: { x: number; y: number; w: number; h: number }
+  /** URL de embed (type='embed') — Prompt 47. */
+  embedUrl?: string
+  /** Subtipo de forma pré-definida (type='shape') — Prompt 47. */
+  shapeType?: 'star' | 'triangle' | 'cloud' | 'heart' | 'checkmark' | 'x'
+  /** Rótulo exibido em elementos tipo frame. */
+  label?: string
 }
 
 /** Grupo de elementos do quadro (para agrupar/desagrupar). */
@@ -359,6 +386,13 @@ export interface WhiteboardState {
   elements: WhiteboardElement[]
   groups: WhiteboardGroup[]
   zoom: number
+  /* PROMPT 48 — Estado de visualização do canvas (aditivo). */
+  showGrid?: boolean
+  snapToGrid?: boolean
+  /** Tema do canvas: 'dark' (#0F0F15) ou 'light' (#F5F5F5). */
+  theme?: 'dark' | 'light'
+  /** Modo de visualização: 'editor' (com ferramentas) ou 'preview'. */
+  viewMode?: 'editor' | 'preview'
 }
 
 /* ===========================================================================

@@ -33,6 +33,7 @@ import Configuracoes from './pages/Configuracoes'
 import Assessoria from './pages/Assessoria'
 import VersaoMobile from './pages/VersaoMobile'
 import Academy from './pages/Academy'
+import { Whiteboard as WhiteboardPage } from '@/components/studio/Whiteboard'
 
 const App = () => (
   <BrowserRouter>
@@ -43,6 +44,8 @@ const App = () => (
             <Toaster />
             <Sonner position="bottom-right" theme="dark" richColors />
             <Routes>
+              {/* PROMPT 45 — Rota dedicada do quadro (página independente, sem Layout) */}
+              <Route path="/estudio/quadro" element={<WhiteboardPage standalone />} />
               <Route element={<Layout />}>
                 <Route path="/" element={<Index />} />
                 <Route path="/projetos" element={<Projetos />} />

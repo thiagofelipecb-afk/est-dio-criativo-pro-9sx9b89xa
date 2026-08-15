@@ -67,7 +67,9 @@ import {
   readBlockArts,
   readBlockBRoll,
   readReactionVideo,
+  readWhiteboardPreview,
 } from '@/hooks/use-block-media'
+import { ExternalLink } from 'lucide-react'
 import { BackgroundRenderer } from '@/components/studio/BackgroundRenderer'
 import { TitleOverlay } from '@/components/studio/TitleOverlay'
 import { useStudioMode, blockedMessage, type StudioAction } from '@/hooks/use-studio-mode'
@@ -705,6 +707,16 @@ export default function Gravadora() {
      Lido do mesmo localStorage que o WhiteboardPanel edita, para que o
      conteúdo inferior reflita exatamente o que o usuário desenhou. */
   const { whiteboard } = useWhiteboard()
+  /* PROMPT 52 — Preview PNG do quadro gerado por "Usar este quadro"
+     (rota /estudio/quadro). Exibido no painel inferior quando disponível,
+     substituindo o placeholder "Quadro vazio". */
+  const [boardPreview, setBoardPreview] = useState<string | null>(() => readWhiteboardPreview())
+  // Rele o preview quando o painel inferior muda para o modo Quadro.
+  useEffect(() => {
+    if (lowerPanelMode === 'board') {
+      setBoardPreview(readWhiteboardPreview())
+    }
+  }, [lowerPanelMode])
 
   /* ═══════════════════════════════════════════════════════════════════════
      Web Audio: configura o AudioContext, GainNode e AnalyserNode sobre o
@@ -2156,8 +2168,19 @@ export default function Gravadora() {
                 )}
               </>
             ) : lowerPanelMode === 'board' ? (
-              /* Quadro (whiteboard): reflete o conteúdo desenhado no painel. */
-              whiteboard.elements.length > 0 ? (
+              /* Quadro (whiteboard): PROMPT 52 — exibe o preview PNG gerado por
+                 "Usar este quadro" (rota /estudio/quadro) quando disponível;
+                 caso contrário, mantém o preview SVG ao vivo do rascunho atual
+                 e, se vazio, mostra o estado vazio com botão para abrir o quadro. */
+              boardPreview ? (
+                <div className="absolute inset-0 flex items-center justify-center p-2">
+                  <img
+                    src={boardPreview}
+                    alt="Quadro aplicado"
+                    className="max-w-full max-h-full object-contain rounded-lg shadow-xl"
+                  />
+                </div>
+              ) : whiteboard.elements.length > 0 ? (
                 <div className="absolute inset-0 flex items-center justify-center p-2">
                   <WhiteboardPreview elements={whiteboard.elements} />
                 </div>
@@ -2168,6 +2191,12 @@ export default function Gravadora() {
                   <p className="text-[9px] text-[#9494A8]/50 mt-0.5">
                     Desenhe no quadro na aba Quadro
                   </p>
+                  <button
+                    onClick={() => navigate('/estudio/quadro')}
+                    className="mt-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold text-white bg-[#7C5CFC] hover:bg-[#6A48E0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
+                  >
+                    <ExternalLink className="w-3 h-3" /> Abrir Quadro
+                  </button>
                 </div>
               )
             ) : lowerPanelMode === 'broll' ? (
