@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import {
   Project,
   MediaItem,
@@ -13,6 +14,7 @@ import {
   TimelineState,
   RawVideoRecord,
 } from '@/types/studio'
+import { PARSER_VERSION, parseScript } from '@/hooks/use-script-blocks'
 
 /** Defaults FASE 4 — Fundo. */
 const DEFAULT_BACKGROUND_CONFIG: BackgroundConfig = {

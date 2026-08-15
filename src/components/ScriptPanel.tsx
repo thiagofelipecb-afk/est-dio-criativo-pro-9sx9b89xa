@@ -13,6 +13,8 @@ import {
   Combine,
   ChevronUp,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Trash2,
   Undo2,
   Redo2,
@@ -1023,11 +1025,34 @@ function ScriptTab(props: ScriptTabProps) {
             <Layers className="w-3.5 h-3.5 text-[#7C5CFC]" />
             Blocos
           </span>
-          {blocks.length > 0 && (
-            <span className="text-[10px] text-[#9494A8]">
-              Bloco {activeBlockIndex + 1} de {blocks.length}
-            </span>
-          )}
+          <div className="flex items-center gap-1">
+            {blocks.length > 0 && (
+              <span className="text-[10px] text-[#9494A8] mr-0.5">
+                Bloco {activeBlockIndex + 1} de {blocks.length}
+              </span>
+            )}
+            {/* GAP PROMPT 4 — Botões Voltar/Avançar entre blocos */}
+            <button
+              type="button"
+              onClick={() => onSelectBlock(activeBlockIndex - 1)}
+              disabled={blocks.length === 0 || activeBlockIndex === 0}
+              aria-label="Voltar bloco"
+              title="Voltar (↑)"
+              className="p-1 rounded text-[#9494A8] hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onSelectBlock(activeBlockIndex + 1)}
+              disabled={blocks.length === 0 || activeBlockIndex === blocks.length - 1}
+              aria-label="Avançar bloco"
+              title="Avançar (↓)"
+              className="p-1 rounded text-[#9494A8] hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-2 space-y-1.5 scrollbar-thin">

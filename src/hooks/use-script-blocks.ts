@@ -9,6 +9,14 @@ import type { ScriptBlock, ScriptBlockStatus } from '@/types/studio'
 
 const WORDS_PER_MINUTE = 150
 
+/* ───────────────────────────────────────────────────────────────────────────
+   GAP PROMPT 8 — Versionamento do parser de roteiro.
+   Incrementada quando o formato persistido em localStorage muda de forma
+   incompatível. O StudioContext lê esta constante para detectar roteiros
+   antigos e migrá-los sem apagar o rawText original.
+   ─────────────────────────────────────────────────────────────────────────── */
+export const PARSER_VERSION = 1
+
 const TRANSITION_WORDS = [
   'primeiro',
   'primeiramente',

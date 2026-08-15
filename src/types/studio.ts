@@ -256,6 +256,8 @@ export interface ScriptState {
   blocks: ScriptBlock[]
   /** Índice do bloco ativo/selecionado no teleprompter. */
   activeBlockIndex: number
+  /** GAP PROMPT 8 — Versão do parser que salvou este roteiro. */
+  parserVersion?: number
 }
 
 /* ===========================================================================
