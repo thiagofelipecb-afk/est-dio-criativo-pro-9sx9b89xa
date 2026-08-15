@@ -1,10 +1,25 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useStudio } from '@/context/StudioContext'
-import { Project, TimelineClip, SubtitleBlock, AISuggestion } from '@/types/studio'
+import {
+  Project,
+  TimelineClip,
+  SubtitleBlock,
+  AISuggestion,
+  ProjectSnapshot,
+  TimelineState,
+  ExportProgress,
+  ExportResult,
+  ScriptBlock,
+  BackgroundConfig,
+  TitleConfig,
+  AudioConfig,
+  StageLayout,
+} from '@/types/studio'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
+import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   Dialog,
@@ -50,8 +65,20 @@ import {
   Flame,
   Clock,
   Settings2,
+  AlertCircle,
+  History,
+  X,
+  Loader2,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import EditTimeline from '@/components/studio/EditTimeline'
+import {
+  exportVideo,
+  computeResultDuration,
+  computeEffectiveSegments,
+  pickSupportedMimeType,
+} from '@/lib/exporter'
+import { readBlockArts, readBlockBRoll, readReactionVideo } from '@/hooks/use-block-media'
 
 export default function EditorVideo() {
   const { id } = useParams<{ id: string }>()
@@ -65,21 +92,86 @@ export default function EditorVideo() {
     appliedAiSuggestions,
     revertAiSuggestion,
     schedulePost,
+    loadProjectSnapshot,
+    saveProjectSnapshot,
+    getTimelineState,
+    setTimelineState,
+    loadRawVideo,
   } = useStudio()
 
+  /* ═══════════════════════════════════════════════════════════════════════
+     FASE 5.2 — Recuperação de projeto: verifica se existe snapshot salvo
+     e restaura roteiro, artes, B-roll, fundo, título, takes e timeline.
+     ═══════════════════════════════════════════════════════════════════════ */
+  const [snapshot] = useState<ProjectSnapshot | null>(() => (id ? loadProjectSnapshot(id) : null))
+  const [restoredAt, setRestoredAt] = useState<string | null>(snapshot ? snapshot.savedAt : null)
+
+  // Snapshot restaurado sobrepõe metadados do projeto quando disponível.
   const project = getProjectById(id || '')
+  const restoredBlocks: ScriptBlock[] = snapshot?.blocks || []
+  const restoredBackground: BackgroundConfig | null = snapshot?.background || null
+  const restoredTitle: TitleConfig | null = snapshot?.titleConfig || null
+  const restoredArts = snapshot?.artsByBlock || {}
+  const restoredBRoll = snapshot?.brollByBlock || {}
+  void restoredBlocks
+  void restoredBackground
+  void restoredTitle
+  void restoredArts
+  void restoredBRoll
+
+  // Vídeo bruto recuperado do snapshot/blobs.
+  const rawVideoUrl =
+    snapshot?.rawVideoUrl || project?.clips.find((c) => c.track === 'video')?.sourceUrl || ''
+  const rawVideoDuration = snapshot?.rawVideoDuration || project?.duration || 30
+  const [rawBlob, setRawBlob] = useState<Blob | null>(null)
+
+  // Carrega o blob do vídeo bruto (para waveform) quando disponível.
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      if (!id) return
+      const blob = await loadRawVideo(id)
+      if (!cancelled) setRawBlob(blob)
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [id, loadRawVideo])
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     FASE 5.3 — Timeline não destrutiva integrada.
+     ═══════════════════════════════════════════════════════════════════════ */
+  const [timelineState, setTimelineStateLocal] = useState<TimelineState>(() =>
+    id ? getTimelineState(id, rawVideoDuration) : getTimelineState('temp', rawVideoDuration),
+  )
+
+  const handleTimelineChange = useCallback(
+    (next: TimelineState) => {
+      setTimelineStateLocal(next)
+      if (id) {
+        setTimelineState(id, next)
+        setHasUnsavedChanges(true)
+      }
+    },
+    [id, setTimelineState],
+  )
+
+  // Resultado derivado (soma dos segmentos não excluídos).
+  const resultDuration = computeResultDuration(timelineState, rawVideoDuration)
 
   // Fallback project if not found or created on the fly
   const [currentProject, setCurrentProject] = useState<Project | null>(() => {
     return (
       project || {
         id: id || 'proj-temp',
-        title: 'Edição de Vídeo com IA',
+        title: snapshot?.title || 'Edição de Vídeo com IA',
         type: 'reel',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        duration: 30,
-        thumbnail: 'https://img.usecurling.com/p/600/1066?q=video+editor+neon&color=purple',
+        duration: rawVideoDuration,
+        thumbnail:
+          rawVideoUrl || 'https://img.usecurling.com/p/600/1066?q=video+editor+neon&color=purple',
         aspectRatio: '9:16',
         resolution: '1080p',
         status: 'draft',
@@ -89,8 +181,9 @@ export default function EditorVideo() {
             track: 'video',
             name: 'Clipe Principal',
             startTime: 0,
-            duration: 20,
+            duration: rawVideoDuration,
             sourceUrl:
+              rawVideoUrl ||
               'https://img.usecurling.com/p/1080/1920?q=podcaster+studio+talking&color=purple',
             mediaType: 'video',
             volume: 100,
@@ -100,6 +193,274 @@ export default function EditorVideo() {
       }
     )
   })
+
+  /* FASE 5.5 — Aviso antes de sair: se houver alterações não salvas. */
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const markDirty = useCallback(() => setHasUnsavedChanges(true), [])
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault()
+        e.returnValue = 'Você tem alterações não salvas. Sair agora irá perdê-las.'
+        return e.returnValue
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [hasUnsavedChanges])
+
+  /* FASE 5.4 — Player integrado: <video> que toca APENAS os segmentos não
+     excluídos, respeitando marcadores in/out. */
+  const playerVideoRef = useRef<HTMLVideoElement | null>(null)
+
+  const effectiveSegments = computeEffectiveSegments(timelineState, rawVideoDuration)
+
+  // Mapeia tempo "resultante" (do vídeo editado) → tempo bruto.
+  const resultToRaw = useCallback(
+    (resultTime: number): { rawTime: number; segIndex: number } => {
+      let acc = 0
+      for (let i = 0; i < effectiveSegments.length; i++) {
+        const seg = effectiveSegments[i]
+        const len = seg.end - seg.start
+        if (resultTime <= acc + len) {
+          const rawTime = seg.start + (resultTime - acc)
+          return { rawTime, segIndex: i }
+        }
+        acc += len
+      }
+      const last = effectiveSegments[effectiveSegments.length - 1]
+      return { rawTime: last ? last.end : 0, segIndex: effectiveSegments.length - 1 }
+    },
+    [effectiveSegments],
+  )
+
+  // Tempo "resultante" atual (sincronizado com o player).
+  const rawToResult = useCallback(
+    (rawTime: number): number => {
+      let acc = 0
+      for (const seg of effectiveSegments) {
+        if (rawTime >= seg.start && rawTime <= seg.end) {
+          return acc + (rawTime - seg.start)
+        }
+        acc += seg.end - seg.start
+      }
+      return acc
+    },
+    [effectiveSegments],
+  )
+
+  // Sobrescreve o currentTime para usar tempo resultante.
+  const [playerResultTime, setPlayerResultTime] = useState(0)
+
+  // Quando o player avança, atualiza tempo resultante e cursor da timeline.
+  const handleTimeUpdate = useCallback(() => {
+    const v = playerVideoRef.current
+    if (!v) return
+    const raw = v.currentTime
+    const res = rawToResult(raw)
+    setPlayerResultTime(res)
+    setTimelineStateLocal((prev) => ({ ...prev, cursor: raw }))
+  }, [rawToResult])
+
+  // Verifica se o player atingiu o fim de um segmento e salta para o próximo.
+  const handleSeekedNextSegment = useCallback(() => {
+    const v = playerVideoRef.current
+    if (!v) return
+    const raw = v.currentTime
+    const seg = effectiveSegments.find((s) => raw >= s.start - 0.05 && raw <= s.end + 0.05)
+    if (!seg) return
+    if (raw >= seg.end - 0.05) {
+      const idx = effectiveSegments.indexOf(seg)
+      const next = effectiveSegments[idx + 1]
+      if (next) {
+        v.currentTime = next.start
+      } else {
+        // Fim do vídeo editado.
+        v.pause()
+        setIsPlaying(false)
+      }
+    }
+  }, [effectiveSegments])
+
+  // Toggle play/pause do player real.
+  const handleTogglePlay = useCallback(() => {
+    const v = playerVideoRef.current
+    if (!v) return
+    if (v.paused) {
+      // Posiciona no início do segmento atual se o cursor estiver fora.
+      const { rawTime } = resultToRaw(playerResultTime)
+      v.currentTime = rawTime
+      v.play().catch(() => {})
+      setIsPlaying(true)
+    } else {
+      v.pause()
+      setIsPlaying(false)
+    }
+  }, [playerResultTime, resultToRaw])
+
+  const handleSeek = useCallback(
+    (rawTime: number) => {
+      const v = playerVideoRef.current
+      if (!v) return
+      v.currentTime = rawTime
+      setPlayerResultTime(rawToResult(rawTime))
+    },
+    [rawToResult],
+  )
+
+  const handleSkipBack = useCallback(() => {
+    const v = playerVideoRef.current
+    if (!v) return
+    const newTime = Math.max(0, v.currentTime - 5)
+    v.currentTime = newTime
+  }, [])
+
+  const handleSkipForward = useCallback(() => {
+    const v = playerVideoRef.current
+    if (!v) return
+    const newTime = Math.min(rawVideoDuration, v.currentTime + 5)
+    v.currentTime = newTime
+  }, [rawVideoDuration])
+
+  const fmtTime = (s: number) => {
+    const m = Math.floor(s / 60)
+    const sec = Math.floor(s % 60)
+    return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`
+  }
+
+  /* FASE 5.7 — Exportação MP4 real. */
+  const [exportProgress, setExportProgress] = useState<ExportProgress>({
+    phase: 'idle',
+    percent: 0,
+    message: '',
+  })
+  const [exportResult, setExportResult] = useState<ExportResult | null>(null)
+  const [exportUrlCopiable, setExportUrlCopiable] = useState<string>('')
+  const cancelExportRef = useRef(false)
+
+  const handleStartRealExport = useCallback(async () => {
+    if (!rawVideoUrl) {
+      toast.error('Nenhum vídeo bruto disponível para exportar.')
+      return
+    }
+    cancelExportRef.current = false
+    setExportResult(null)
+    setExportProgress({ phase: 'preparing', percent: 0, message: 'Preparando...' })
+
+    // Pré-carrega artes/B-roll do snapshot ou do localStorage (por blockId).
+    const blocks = restoredBlocks.length > 0 ? restoredBlocks : []
+    const artsByBlock: Record<string, import('@/types/studio').BlockArt[]> = {}
+    const brollByBlock: Record<string, import('@/types/studio').BlockBRoll | null> = {}
+    if (Object.keys(restoredArts).length > 0) {
+      Object.assign(artsByBlock, restoredArts)
+      Object.assign(brollByBlock, restoredBRoll)
+    } else {
+      for (const b of blocks) {
+        artsByBlock[b.id] = readBlockArts(b.id)
+        brollByBlock[b.id] = readBlockBRoll(b.id)
+      }
+    }
+    const reaction = readReactionVideo()
+
+    try {
+      const result = await exportVideo({
+        rawVideoUrl,
+        rawVideoDuration,
+        timeline: timelineState,
+        background:
+          restoredBackground ||
+          ({
+            type: 'none',
+            segmentationEnabled: false,
+          } as BackgroundConfig),
+        title:
+          restoredTitle ||
+          ({
+            enabled: false,
+            text: '',
+            font: 'Anton',
+            fontSize: 64,
+            width: 80,
+            color: '#FFFFFF',
+            bgEnabled: false,
+            bgColor: 'transparent',
+            alignment: 'center',
+            position: 'middle',
+            normalizedX: 0.5,
+            normalizedY: 0.5,
+            duration: 'full',
+            durationSeconds: 5,
+          } as TitleConfig),
+        blocks,
+        artsByBlock,
+        brollByBlock,
+        reaction,
+        projectName: currentProject?.title || 'projeto',
+        onProgress: (p) => setExportProgress(p),
+        shouldCancel: () => cancelExportRef.current,
+      })
+      setExportResult(result)
+      setExportUrlCopiable(result.url)
+      setExportProgress({
+        phase: 'done',
+        percent: 100,
+        message: 'Exportação concluída!',
+      })
+      // Dispara o download automaticamente.
+      const a = document.createElement('a')
+      a.href = result.url
+      a.download = result.filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      // Atualiza o projeto com a thumbnail e marca como exportado.
+      if (id) {
+        updateProject(id, {
+          thumbnail: result.thumbnail || result.url,
+          status: 'ready',
+          duration: Math.round(result.duration),
+        })
+      }
+      toast.success('Vídeo exportado com sucesso! Download iniciado.')
+    } catch (err: any) {
+      const msg = err?.message || 'Erro desconhecido.'
+      if (msg.includes('cancelada')) {
+        setExportProgress({
+          phase: 'cancelled',
+          percent: 0,
+          message: 'Exportação cancelada.',
+        })
+        toast.info('Exportação cancelada. Nenhum arquivo foi gerado.')
+      } else {
+        setExportProgress({
+          phase: 'error',
+          percent: 0,
+          message: 'A exportação falhou. Tente usar o Chrome ou Edge.',
+          error: msg,
+        })
+        toast.error(`A exportação falhou: ${msg}`)
+      }
+    }
+  }, [
+    rawVideoUrl,
+    rawVideoDuration,
+    timelineState,
+    restoredBackground,
+    restoredTitle,
+    restoredBlocks,
+    restoredArts,
+    restoredBRoll,
+    currentProject,
+    id,
+    updateProject,
+  ])
+
+  const handleCancelExport = useCallback(() => {
+    cancelExportRef.current = true
+  }, [])
+
+  // Verifica suporte a MediaRecorder para habilitar exportação real.
+  const supportsExport = typeof MediaRecorder !== 'undefined' && !!pickSupportedMimeType()
 
   // History stack for undo/redo
   const [history, setHistory] = useState<Project[]>([])
@@ -155,10 +516,8 @@ export default function EditorVideo() {
 
   // Export Modal state
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)
-  const [exportResolution, setExportResolution] = useState<'1080p' | '4K' | '720p'>('1080p')
-  const [exportFormat, setExportFormat] = useState<'mp4' | 'mov' | 'webm'>('mp4')
-  const [isExporting, setIsExporting] = useState(false)
-  const [exportProgress, setExportProgress] = useState(0)
+  // exportProgress é um objeto ExportProgress declarado acima (FASE 5.7).
+  // Estados legados (exportResolution/exportFormat/isExporting) foram removidos.
 
   // Subtitle editor state
   const [newSubText, setNewSubText] = useState('')
@@ -413,24 +772,9 @@ export default function EditorVideo() {
     toast.success('Legenda adicionada!')
   }
 
-  // 3. Export Simulation
+  // 3. Export — delega para o exportador real (FASE 5.7).
   const handleStartExport = () => {
-    setIsExporting(true)
-    setExportProgress(10)
-    const interval = setInterval(() => {
-      setExportProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval)
-          setIsExporting(false)
-          setIsExportModalOpen(false)
-          toast.success(`Vídeo renderizado com sucesso em ${exportResolution}!`, {
-            description: 'Download do arquivo iniciado.',
-          })
-          return 100
-        }
-        return prev + 20
-      })
-    }, 400)
+    handleStartRealExport()
   }
 
   const handleQuickSchedule = () => {
@@ -560,11 +904,20 @@ export default function EditorVideo() {
                   : 'h-[85%] aspect-square'
             }`}
           >
-            {/* Base Video Thumbnail / Playback Display */}
-            <img
-              src={currentProject.clips[0]?.sourceUrl || currentProject.thumbnail}
-              alt="Preview"
-              className="w-full h-full object-cover select-none pointer-events-none"
+            {/* FASE 5.4 — Player integrado real: <video> que toca apenas os
+                segmentos não excluídos, respeitando marcadores in/out. */}
+            <video
+              ref={playerVideoRef}
+              src={rawVideoUrl || currentProject.clips[0]?.sourceUrl}
+              className="w-full h-full object-cover select-none"
+              muted={isMuted}
+              playsInline
+              onTimeUpdate={handleTimeUpdate}
+              onSeeked={handleSeekedNextSegment}
+              onEnded={() => {
+                setIsPlaying(false)
+                setPlayerResultTime(resultDuration)
+              }}
               style={{
                 filter:
                   selectedClip?.filter === 'cinematic'
@@ -576,6 +929,15 @@ export default function EditorVideo() {
                         : 'none',
               }}
             />
+            {/* Snapshot restaurado indicator */}
+            {restoredAt && (
+              <div className="absolute top-2 left-2 z-30 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 backdrop-blur-sm">
+                <History className="w-3 h-3 text-emerald-400" />
+                <span className="text-[10px] font-semibold text-emerald-300">
+                  Projeto restaurado · {new Date(restoredAt).toLocaleString('pt-BR')}
+                </span>
+              </div>
+            )}
 
             {/* Dynamic Active Subtitle on Player */}
             {activeSubtitle && (
@@ -627,10 +989,10 @@ export default function EditorVideo() {
               </div>
             ))}
 
-            {/* Center Play Button Overlay on Pause */}
+            {/* Center Play Button Overlay on Pause (FASE 5.4 — sincronizado) */}
             {!isPlaying && (
               <button
-                onClick={() => setIsPlaying(true)}
+                onClick={handleTogglePlay}
                 className="absolute inset-0 m-auto w-14 h-14 rounded-full bg-[#7C5CFC]/90 hover:bg-[#7C5CFC] text-white flex items-center justify-center shadow-2xl backdrop-blur-sm transition-transform hover:scale-110 z-30"
               >
                 <Play className="w-6 h-6 fill-current ml-1" />
@@ -638,18 +1000,22 @@ export default function EditorVideo() {
             )}
           </div>
 
-          {/* Scrubber Player Controls Bar */}
+          {/* Scrubber Player Controls Bar (FASE 5.4 — sincronizado com a timeline) */}
           <div className="w-full max-w-xl mt-2 px-4 py-2 rounded-xl bg-[#14141C]/80 backdrop-blur-md border border-white/5 flex items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setCurrentTime(0)}
+                onClick={() => {
+                  if (playerVideoRef.current) {
+                    playerVideoRef.current.currentTime = timelineState.inPoint
+                  }
+                }}
                 className="p-1.5 rounded-lg text-[#9494A8] hover:text-white"
                 title="Voltar ao Início"
               >
                 <SkipBack className="w-4 h-4" />
               </button>
               <button
-                onClick={() => setIsPlaying(!isPlaying)}
+                onClick={handleTogglePlay}
                 className="p-1.5 rounded-lg text-white bg-[#7C5CFC] hover:bg-[#6A48E0]"
               >
                 {isPlaying ? (
@@ -659,17 +1025,24 @@ export default function EditorVideo() {
                 )}
               </button>
               <button
-                onClick={() => setCurrentTime(currentProject.duration)}
+                onClick={handleSkipBack}
                 className="p-1.5 rounded-lg text-[#9494A8] hover:text-white"
-                title="Avançar ao Fim"
+                title="Retroceder 5s"
               >
-                <SkipForward className="w-4 h-4" />
+                <SkipBack className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={handleSkipForward}
+                className="p-1.5 rounded-lg text-[#9494A8] hover:text-white"
+                title="Avançar 5s"
+              >
+                <SkipForward className="w-3.5 h-3.5" />
               </button>
             </div>
 
-            {/* Time Indicator */}
+            {/* Time Indicator (MM:SS atual / total resultante) */}
             <div className="font-mono text-xs text-white">
-              {currentTime.toFixed(1)}s / {currentProject.duration.toFixed(1)}s
+              {fmtTime(playerResultTime)} / {fmtTime(resultDuration)}
             </div>
 
             {/* Volume */}
@@ -1101,6 +1474,21 @@ export default function EditorVideo() {
         </div>
       </div>
 
+      {/* FASE 5.3 — Timeline não destrutiva do Modo Estúdio (acima da multi-track) */}
+      {rawVideoUrl && (
+        <EditTimeline
+          state={timelineState}
+          onChange={handleTimelineChange}
+          rawBlob={rawBlob}
+          rawVideoUrl={rawVideoUrl}
+          rawDuration={rawVideoDuration}
+          isPlaying={isPlaying}
+          onTogglePlay={handleTogglePlay}
+          onSeek={handleSeek}
+          markDirty={markDirty}
+        />
+      )}
+
       {/* 3. MULTI-TRACK TIMELINE (Bottom Zone) */}
       <div className="h-48 border-t border-white/10 bg-[#14141C] flex flex-col shrink-0">
         {/* Timeline Toolbar */}
@@ -1280,7 +1668,7 @@ export default function EditorVideo() {
         </div>
       </div>
 
-      {/* 4. EXPORT MODAL */}
+      {/* 4. EXPORT MODAL — FASE 5.7 (exportação MP4 real) */}
       <Dialog open={isExportModalOpen} onOpenChange={setIsExportModalOpen}>
         <DialogContent className="max-w-md bg-[#14141C] border-white/10 text-white rounded-2xl p-6 space-y-4 shadow-2xl">
           <DialogHeader>
@@ -1291,63 +1679,152 @@ export default function EditorVideo() {
               <div>
                 <DialogTitle className="text-lg font-bold">Exportar Vídeo Pro</DialogTitle>
                 <DialogDescription className="text-xs text-[#9494A8]">
-                  Renderize com aceleração por GPU e taxa de bits otimizada para algoritmos.
+                  Renderização real em 1080×1920 (Canvas + MediaRecorder). Duração resultante:{' '}
+                  {fmtTime(resultDuration)}.
                 </DialogDescription>
               </div>
             </div>
           </DialogHeader>
 
-          {isExporting ? (
+          {!supportsExport && (
+            <div className="rounded-xl bg-red-500/10 border border-red-500/40 p-3 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+              <p className="text-xs text-red-200">
+                Seu navegador não suporta MediaRecorder. Use Chrome ou Edge para exportar vídeos.
+              </p>
+            </div>
+          )}
+
+          {/* Estado: exportação em andamento */}
+          {(exportProgress.phase === 'rendering' ||
+            exportProgress.phase === 'preparing' ||
+            exportProgress.phase === 'loading-video' ||
+            exportProgress.phase === 'finalizing') && (
             <div className="py-6 space-y-3 text-center">
               <div className="w-full bg-[#1C1C27] h-3 rounded-full overflow-hidden border border-white/10">
                 <div
-                  className="bg-gradient-to-r from-[#7C5CFC] to-[#22D3EE] h-full transition-all duration-300"
-                  style={{ width: `${exportProgress}%` }}
+                  className="bg-gradient-to-r from-[#7C5CFC] to-[#22D3EE] h-full transition-all duration-200"
+                  style={{ width: `${exportProgress.percent}%` }}
                 />
               </div>
-              <p className="text-xs text-white font-medium">
-                Renderizando em {exportResolution}... {exportProgress}%
+              <p className="text-xs text-white font-medium flex items-center justify-center gap-1.5">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                {exportProgress.message}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCancelExport}
+                className="text-xs border-red-500/40 text-red-400 hover:bg-red-500/10 gap-1.5"
+              >
+                <X className="w-3.5 h-3.5" /> Cancelar
+              </Button>
+            </div>
+          )}
+
+          {/* Estado: erro */}
+          {exportProgress.phase === 'error' && (
+            <div className="py-4 space-y-3">
+              <div className="rounded-xl bg-red-500/10 border border-red-500/40 p-3 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs font-bold text-red-200">
+                    A exportação falhou. Tente usar o Chrome ou Edge.
+                  </p>
+                  <p className="text-[10px] text-red-300/70 mt-1">
+                    Detalhes: {exportProgress.error}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Estado: cancelado */}
+          {exportProgress.phase === 'cancelled' && (
+            <div className="py-4 text-center space-y-2">
+              <p className="text-xs text-[#9494A8]">
+                Exportação cancelada. Nenhum arquivo foi gerado. Você voltou ao editor sem danos.
               </p>
             </div>
-          ) : (
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs text-[#9494A8] block mb-1">Resolução</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['1080p', '4K', '720p'] as const).map((res) => (
-                    <button
-                      key={res}
-                      onClick={() => setExportResolution(res)}
-                      className={`py-2 rounded-xl text-xs font-bold transition-colors ${
-                        exportResolution === res
-                          ? 'bg-[#7C5CFC] text-white'
-                          : 'bg-[#1C1C27] text-[#9494A8] hover:text-white'
-                      }`}
-                    >
-                      {res}
-                    </button>
-                  ))}
-                </div>
-              </div>
+          )}
 
-              <div>
-                <label className="text-xs text-[#9494A8] block mb-1">Formato</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['mp4', 'mov', 'webm'] as const).map((fmt) => (
-                    <button
-                      key={fmt}
-                      onClick={() => setExportFormat(fmt)}
-                      className={`py-2 rounded-xl text-xs font-bold uppercase transition-colors ${
-                        exportFormat === fmt
-                          ? 'bg-[#22D3EE] text-black'
-                          : 'bg-[#1C1C27] text-[#9494A8] hover:text-white'
-                      }`}
-                    >
-                      {fmt}
-                    </button>
-                  ))}
+          {/* Estado: concluído — download novamente + link copiável */}
+          {exportProgress.phase === 'done' && exportResult && (
+            <div className="py-4 space-y-3">
+              <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/40 p-3 flex items-start gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-emerald-200">
+                    Exportação concluída! Download iniciado.
+                  </p>
+                  <p className="text-[10px] text-emerald-300/70 mt-0.5 truncate">
+                    {exportResult.filename}
+                  </p>
                 </div>
               </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    const a = document.createElement('a')
+                    a.href = exportResult.url
+                    a.download = exportResult.filename
+                    document.body.appendChild(a)
+                    a.click()
+                    document.body.removeChild(a)
+                  }}
+                  className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-white text-xs gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" /> Baixar novamente
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    navigator.clipboard
+                      .writeText(exportUrlCopiable)
+                      .then(() => toast.success('Link copiado!'))
+                      .catch(() => toast.error('Não foi possível copiar o link.'))
+                  }}
+                  className="text-xs border-white/10 text-[#9494A8] hover:text-white gap-1.5"
+                >
+                  <Copy className="w-3.5 h-3.5" /> Copiar link
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Estado: ocioso — opções iniciais */}
+          {exportProgress.phase === 'idle' && (
+            <div className="space-y-3">
+              <div className="rounded-xl bg-[#1C1C27] border border-white/5 p-3 text-xs text-[#9494A8] space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span>Resolução</span>
+                  <Badge className="bg-[#7C5CFC]/20 text-[#7C5CFC]">1080×1920</Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Formato</span>
+                  <Badge className="bg-[#22D3EE]/20 text-[#22D3EE]">
+                    {pickSupportedMimeType()?.includes('mp4') ? 'MP4 (H.264)' : 'WebM'}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Duração resultante</span>
+                  <span className="text-white font-mono">{fmtTime(resultDuration)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Segmentos ativos</span>
+                  <span className="text-white font-mono">
+                    {computeEffectiveSegments(timelineState, rawVideoDuration).length}
+                  </span>
+                </div>
+              </div>
+              {!rawVideoUrl && (
+                <p className="text-[10px] text-amber-400">
+                  Nenhum vídeo bruto detectado. Grave um take na Gravadora para habilitar a
+                  exportação real.
+                </p>
+              )}
             </div>
           )}
 
@@ -1358,16 +1835,18 @@ export default function EditorVideo() {
               onClick={() => setIsExportModalOpen(false)}
               className="text-xs text-[#9494A8]"
             >
-              Cancelar
+              Fechar
             </Button>
-            <Button
-              size="sm"
-              onClick={handleStartExport}
-              disabled={isExporting}
-              className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-white text-xs font-semibold"
-            >
-              Iniciar Renderização
-            </Button>
+            {exportProgress.phase === 'idle' && (
+              <Button
+                size="sm"
+                onClick={handleStartExport}
+                disabled={!supportsExport || !rawVideoUrl}
+                className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-white text-xs font-semibold gap-1.5"
+              >
+                <Download className="w-3.5 h-3.5" /> Iniciar Renderização
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

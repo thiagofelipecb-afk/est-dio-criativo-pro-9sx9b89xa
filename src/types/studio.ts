@@ -428,3 +428,133 @@ export interface BlockBRoll {
   /** Resolução (ex.: "1920×1080"). */
   resolution?: string
 }
+
+/* ===========================================================================
+   LUMEN Studio — Edição, Recuperação e Exportação (FASE 5)
+   Tipos aditivos. Nenhum tipo existente foi removido ou alterado.
+   =========================================================================== */
+
+/**
+ * Segmento de timeline não destrutiva.
+ * Representa um pedaço contíguo do vídeo bruto entre dois pontos de corte.
+ * O vídeo bruto NUNCA é alterado — apenas metadados aqui.
+ */
+export interface TimelineSegment {
+  /** Identificador único do segmento (UUID). */
+  id: string
+  /** Início (segundos) no vídeo bruto. */
+  start: number
+  /** Fim (segundos) no vídeo bruto. */
+  end: number
+  /** Segmento marcado como excluído (não entra na reprodução/exportação). */
+  excluded: boolean
+  /** Rótulo opcional do segmento. */
+  label?: string
+}
+
+/**
+ * Estado completo da timeline não destrutiva de um projeto.
+ * Persistido dentro do ProjectSnapshot.
+ */
+export interface TimelineState {
+  /** Pontos de corte ordenados (segundos no vídeo bruto). */
+  segments: TimelineSegment[]
+  /** Marcador de entrada (in) em segundos no vídeo bruto. */
+  inPoint: number
+  /** Marcador de saída (out) em segundos no vídeo bruto. */
+  outPoint: number
+  /** Posição do cursor de reprodução (segundos no vídeo bruto). */
+  cursor: number
+}
+
+/**
+ * Snapshot versionado de todo o projeto do Estúdio.
+ * Inclui roteiro (blocos com IDs estáveis), artes/B-roll por blockId,
+ * configurações de fundo/título, takes gravados e estado da timeline.
+ */
+export interface ProjectSnapshot {
+  /** Versão do schema do snapshot. */
+  version: number
+  /** ISO string do último salvamento. */
+  savedAt: string
+  /** ID do projeto ao qual o snapshot pertence. */
+  projectId: string
+  /** Título do projeto no momento do snapshot. */
+  title: string
+  /** Roteiro: blocos com IDs estáveis (UUID por bloco, nunca por índice). */
+  blocks: ScriptBlock[]
+  /** Texto bruto do roteiro. */
+  scriptText: string
+  /** Artes por blockId (chave = blockId, valor = lista de artes). */
+  artsByBlock: Record<string, BlockArt[]>
+  /** B-roll por blockId (chave = blockId, valor = B-roll ou null). */
+  brollByBlock: Record<string, BlockBRoll | null>
+  /** Configuração de fundo. */
+  background: BackgroundConfig
+  /** Configuração de título (overlay). */
+  titleConfig: TitleConfig
+  /** Configuração de áudio da Gravadora. */
+  audio: AudioConfig
+  /** Layout do palco da Gravadora. */
+  stageLayout: StageLayout
+  /** Enquadramento cover. */
+  cameraCover: number
+  /** Takes gravados nesta sessão. */
+  takes: RecordingTake[]
+  /** Estado da timeline não destrutiva. */
+  timeline: TimelineState
+  /** URL do vídeo bruto (blob URL em memória — não persiste entre sessões). */
+  rawVideoUrl?: string
+  /** Duração do vídeo bruto em segundos. */
+  rawVideoDuration?: number
+}
+
+/** Progresso da exportação MP4 (renderização Canvas + MediaRecorder). */
+export interface ExportProgress {
+  /** Fase atual do pipeline. */
+  phase:
+    | 'idle'
+    | 'preparing'
+    | 'loading-video'
+    | 'rendering'
+    | 'finalizing'
+    | 'done'
+    | 'cancelled'
+    | 'error'
+  /** Percentual 0–100. */
+  percent: number
+  /** Mensagem amigável (pt-BR). */
+  message: string
+  /** Erro técnico (quando phase='error'). */
+  error?: string
+}
+
+/** Resultado de uma exportação concluída com sucesso. */
+export interface ExportResult {
+  /** Blob URL do vídeo final gerado. */
+  url: string
+  /** Blob gerado (para download). */
+  blob: Blob
+  /** Duração total do vídeo exportado em segundos. */
+  duration: number
+  /** MIME type escolhido. */
+  mimeType: string
+  /** Nome do arquivo gerado. */
+  filename: string
+  /** Thumbnail data URL do primeiro frame. */
+  thumbnail?: string
+}
+
+/** Registro de blob de vídeo bruto salvo para recuperação de falha. */
+export interface RawVideoRecord {
+  /** ISO string de quando foi salvo. */
+  savedAt: string
+  /** Duração estimada em segundos. */
+  duration: number
+  /** MIME type do blob. */
+  mimeType: string
+  /** ID do projeto associado. */
+  projectId: string
+  /** Flag: snapshot correspondente já foi salvo (take finalizado com sucesso). */
+  hasSnapshot: boolean
+}

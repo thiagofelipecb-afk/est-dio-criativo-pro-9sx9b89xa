@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import {
   Project,
   MediaItem,
@@ -9,6 +9,9 @@ import {
   ScriptBlock,
   BackgroundConfig,
   TitleConfig,
+  ProjectSnapshot,
+  TimelineState,
+  RawVideoRecord,
 } from '@/types/studio'
 
 /** Defaults FASE 4 — Fundo. */
@@ -104,6 +107,25 @@ interface StudioContextType {
   /** Configuração de título da Gravadora (persistida em lumen_gravadora_titulo). */
   titleConfig: TitleConfig
   setTitleConfig: (cfg: TitleConfig) => void
+
+  // FASE 5 — Preservação, recuperação e snapshot do projeto
+  /** Salva o blob do vídeo bruto em localStorage/IndexedDB por projectId. */
+  saveRawVideo: (projectId: string, blob: Blob, duration: number, mimeType: string) => Promise<void>
+  /** Carrega o blob do vídeo bruto salvo (recuperação de falha). */
+  loadRawVideo: (projectId: string) => Promise<Blob | null>
+  /** Remove o blob do vídeo bruto salvo. */
+  clearRawVideo: (projectId: string) => Promise<void>
+  /** Salva um snapshot versionado do projeto (JSON completo). */
+  saveProjectSnapshot: (snapshot: ProjectSnapshot) => void
+  /** Carrega o snapshot salvo de um projeto (ou null). */
+  loadProjectSnapshot: (projectId: string) => ProjectSnapshot | null
+  /** Remove o snapshot de um projeto. */
+  clearProjectSnapshot: (projectId: string) => void
+  /** Detecta gravação interrompida: blob bruto sem snapshot correspondente. */
+  recoverInterruptedRecording: (projectId: string) => Promise<RawVideoRecord | null>
+  /** Estado da timeline não destrutiva por projeto (persistido no snapshot). */
+  getTimelineState: (projectId: string, rawDuration: number) => TimelineState
+  setTimelineState: (projectId: string, state: TimelineState) => void
 }
 
 // Versão resumida do Brand OS consumida pelos geradores do estúdio
@@ -620,6 +642,228 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const setBackgroundConfig = (cfg: BackgroundConfig) => setBackgroundConfigState(cfg)
   const setTitleConfig = (cfg: TitleConfig) => setTitleConfigState(cfg)
 
+  /* ═══════════════════════════════════════════════════════════════════════
+     FASE 5 — Preservação do vídeo bruto + snapshot JSON do projeto.
+     Usa localStorage para blobs pequenos e IndexedDB para blobs > 5MB.
+     ═══════════════════════════════════════════════════════════════════════ */
+  const rawVideoDbRef = useRef<IDBDatabase | null>(null)
+
+  /** Abre (lazy) o IndexedDB para blobs de vídeo bruto grandes. */
+  const openRawVideoDb = useCallback((): Promise<IDBDatabase | null> => {
+    return new Promise((resolve) => {
+      if (rawVideoDbRef.current) {
+        resolve(rawVideoDbRef.current)
+        return
+      }
+      try {
+        const req = indexedDB.open('lumen_studio_raw_video', 1)
+        req.onupgradeneeded = () => {
+          const db = req.result
+          if (!db.objectStoreNames.contains('blobs')) {
+            db.createObjectStore('blobs')
+          }
+        }
+        req.onsuccess = () => {
+          rawVideoDbRef.current = req.result
+          resolve(req.result)
+        }
+        req.onerror = () => resolve(null)
+      } catch {
+        resolve(null)
+      }
+    })
+  }, [])
+
+  const rawVideoKey = (projectId: string) => `lumen_raw_video_${projectId}`
+  const rawVideoMetaKey = (projectId: string) => `lumen_raw_video_meta_${projectId}`
+  const snapshotKey = (projectId: string) => `lumen_project_snapshot_${projectId}`
+  const timelineKey = (projectId: string) => `lumen_timeline_${projectId}`
+
+  const saveRawVideo = useCallback(
+    async (projectId: string, blob: Blob, duration: number, mimeType: string): Promise<void> => {
+      const record: RawVideoRecord = {
+        savedAt: new Date().toISOString(),
+        duration,
+        mimeType,
+        projectId,
+        hasSnapshot: false,
+      }
+      // Meta sempre em localStorage.
+      try {
+        localStorage.setItem(rawVideoMetaKey(projectId), JSON.stringify(record))
+      } catch {
+        /* noop */
+      }
+      // Blob: localStorage se pequeno, IndexedDB se grande.
+      if (blob.size <= 5 * 1024 * 1024) {
+        // Tenta como data URL base64.
+        try {
+          const reader = new FileReader()
+          await new Promise<void>((resolve, reject) => {
+            reader.onload = () => {
+              try {
+                localStorage.setItem(rawVideoKey(projectId), reader.result as string)
+                resolve()
+              } catch (e) {
+                reject(e)
+              }
+            }
+            reader.onerror = () => reject(reader.error)
+            reader.readAsDataURL(blob)
+          })
+          return
+        } catch {
+          // cai para IndexedDB
+        }
+      }
+      // IndexedDB fallback para blobs grandes.
+      const db = await openRawVideoDb()
+      if (db) {
+        await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction('blobs', 'readwrite')
+          tx.objectStore('blobs').put(blob, projectId)
+          tx.oncomplete = () => resolve()
+          tx.onerror = () => reject(tx.error)
+        })
+      }
+    },
+    [openRawVideoDb],
+  )
+
+  const loadRawVideo = useCallback(
+    async (projectId: string): Promise<Blob | null> => {
+      // Tenta localStorage primeiro (data URL).
+      try {
+        const dataUrl = localStorage.getItem(rawVideoKey(projectId))
+        if (dataUrl) {
+          const res = await fetch(dataUrl)
+          const blob = await res.blob()
+          return blob
+        }
+      } catch {
+        /* noop */
+      }
+      // IndexedDB.
+      const db = await openRawVideoDb()
+      if (db) {
+        return new Promise((resolve) => {
+          const tx = db.transaction('blobs', 'readonly')
+          const req = tx.objectStore('blobs').get(projectId)
+          req.onsuccess = () => resolve((req.result as Blob | undefined) ?? null)
+          req.onerror = () => resolve(null)
+        })
+      }
+      return null
+    },
+    [openRawVideoDb],
+  )
+
+  const clearRawVideo = useCallback(
+    async (projectId: string): Promise<void> => {
+      try {
+        localStorage.removeItem(rawVideoKey(projectId))
+        localStorage.removeItem(rawVideoMetaKey(projectId))
+      } catch {
+        /* noop */
+      }
+      const db = await openRawVideoDb()
+      if (db) {
+        await new Promise<void>((resolve) => {
+          const tx = db.transaction('blobs', 'readwrite')
+          tx.objectStore('blobs').delete(projectId)
+          tx.oncomplete = () => resolve()
+          tx.onerror = () => resolve()
+        })
+      }
+    },
+    [openRawVideoDb],
+  )
+
+  const saveProjectSnapshot = useCallback((snapshot: ProjectSnapshot) => {
+    try {
+      localStorage.setItem(snapshotKey(snapshot.projectId), JSON.stringify(snapshot))
+      // Marca o meta do raw video como tendo snapshot.
+      const metaRaw = localStorage.getItem(rawVideoMetaKey(snapshot.projectId))
+      if (metaRaw) {
+        const meta = JSON.parse(metaRaw) as RawVideoRecord
+        meta.hasSnapshot = true
+        localStorage.setItem(rawVideoMetaKey(snapshot.projectId), JSON.stringify(meta))
+      }
+    } catch {
+      /* quota — ignora */
+    }
+  }, [])
+
+  const loadProjectSnapshot = useCallback((projectId: string): ProjectSnapshot | null => {
+    try {
+      const raw = localStorage.getItem(snapshotKey(projectId))
+      if (!raw) return null
+      return JSON.parse(raw) as ProjectSnapshot
+    } catch {
+      return null
+    }
+  }, [])
+
+  const clearProjectSnapshot = useCallback((projectId: string) => {
+    try {
+      localStorage.removeItem(snapshotKey(projectId))
+      localStorage.removeItem(timelineKey(projectId))
+    } catch {
+      /* noop */
+    }
+  }, [])
+
+  const recoverInterruptedRecording = useCallback(
+    async (projectId: string): Promise<RawVideoRecord | null> => {
+      try {
+        const metaRaw = localStorage.getItem(rawVideoMetaKey(projectId))
+        if (!metaRaw) return null
+        const meta = JSON.parse(metaRaw) as RawVideoRecord
+        // Há blob mas não há snapshot → gravação interrompida.
+        const blob = await loadRawVideo(projectId)
+        if (!blob) return null
+        if (meta.hasSnapshot) {
+          // Já tem snapshot — não é interrompida, mas pode ser reaberta.
+          return null
+        }
+        return meta
+      } catch {
+        return null
+      }
+    },
+    [loadRawVideo],
+  )
+
+  const getTimelineState = useCallback((projectId: string, rawDuration: number): TimelineState => {
+    try {
+      const raw = localStorage.getItem(timelineKey(projectId))
+      if (raw) {
+        const parsed = JSON.parse(raw) as TimelineState
+        // Garante consistência com a duração atual.
+        if (parsed.outPoint > rawDuration) parsed.outPoint = rawDuration
+        if (parsed.cursor > rawDuration) parsed.cursor = 0
+        return parsed
+      }
+    } catch {
+      /* noop */
+    }
+    const dur = Math.max(0.1, rawDuration || 1)
+    return {
+      segments: [{ id: 'seg-' + Date.now(), start: 0, end: dur, excluded: false }],
+      inPoint: 0,
+      outPoint: dur,
+      cursor: 0,
+    }
+  }, [])
+
+  const setTimelineState = useCallback((projectId: string, state: TimelineState) => {
+    try {
+      localStorage.setItem(timelineKey(projectId), JSON.stringify(state))
+    } catch {
+      /* noop */
+    }
+  }, [])
+
   const [appliedAiSuggestions, setAppliedAiSuggestions] = useState<AISuggestion[]>([])
 
   // Brand OS — versão resumida persistida em localStorage (lumen_brand_os)
@@ -860,6 +1104,15 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setBackgroundConfig,
         titleConfig,
         setTitleConfig,
+        saveRawVideo,
+        loadRawVideo,
+        clearRawVideo,
+        saveProjectSnapshot,
+        loadProjectSnapshot,
+        clearProjectSnapshot,
+        recoverInterruptedRecording,
+        getTimelineState,
+        setTimelineState,
       }}
     >
       {children}

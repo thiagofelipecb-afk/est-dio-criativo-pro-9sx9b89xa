@@ -43,9 +43,15 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { StageLayout, LowerPanelMode, AudioConfig, RecordingTake } from '@/types/studio'
+import type {
+  StageLayout,
+  LowerPanelMode,
+  AudioConfig,
+  RecordingTake,
+  ProjectSnapshot,
+} from '@/types/studio'
 import ScriptPanel from '@/components/ScriptPanel'
-import { PanelBottom, GripHorizontal } from 'lucide-react'
+import { PanelBottom, GripHorizontal, AlertTriangle, RotateCcw } from 'lucide-react'
 import {
   useReactionVideo,
   readBlockArts,
@@ -85,6 +91,11 @@ export default function Gravadora() {
     setBackgroundConfig,
     titleConfig,
     setTitleConfig,
+    saveRawVideo,
+    loadRawVideo,
+    clearRawVideo,
+    saveProjectSnapshot,
+    recoverInterruptedRecording,
   } = useStudio()
 
   // FASE 3 — mantém lista de IDs dos blocos sincronizada para overlays.
@@ -513,6 +524,110 @@ export default function Gravadora() {
   }, [])
 
   /* ═══════════════════════════════════════════════════════════════════════
+     FASE 5.5 — Aviso antes de sair: se está gravando ou processando,
+     intercepta beforeunload para alertar o usuário.
+     ═══════════════════════════════════════════════════════════════════════ */
+  const isProcessingRef = useRef(false)
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isRecording || isProcessingRef.current) {
+        e.preventDefault()
+        e.returnValue = 'Você tem uma gravação em andamento. Sair agora irá interrompê-la.'
+        return e.returnValue
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [isRecording])
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     FASE 5.6 — Recuperação após falha: detecta blob bruto sem snapshot
+     ao reabrir a Gravadora. Oferece Recuperar / Descartar.
+     ═══════════════════════════════════════════════════════════════════════ */
+  const [interruptedProjectId, setInterruptedProjectId] = useState<string | null>(null)
+  const [interruptedMeta, setInterruptedMeta] = useState<
+    import('@/types/studio').RawVideoRecord | null
+  >(null)
+  const [recoveredBlobUrl, setRecoveredBlobUrl] = useState<string | null>(null)
+  const [recoveredDuration, setRecoveredDuration] = useState<number>(0)
+
+  useEffect(() => {
+    // Procura todas as chaves de raw video meta no localStorage.
+    let found: { projectId: string; meta: import('@/types/studio').RawVideoRecord } | null = null
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key && key.startsWith('lumen_raw_video_meta_')) {
+        const projectId = key.replace('lumen_raw_video_meta_', '')
+        try {
+          const meta = JSON.parse(
+            localStorage.getItem(key) || '',
+          ) as import('@/types/studio').RawVideoRecord
+          if (!meta.hasSnapshot) {
+            found = { projectId, meta }
+            break
+          }
+        } catch {
+          /* noop */
+        }
+      }
+    }
+    if (found) {
+      setInterruptedProjectId(found.projectId)
+      setInterruptedMeta(found.meta)
+    }
+  }, [])
+
+  const handleRecoverRecording = async () => {
+    if (!interruptedProjectId) return
+    const blob = await loadRawVideo(interruptedProjectId)
+    if (!blob) {
+      toast.error('Não foi possível recuperar o vídeo bruto.')
+      setInterruptedProjectId(null)
+      return
+    }
+    const url = URL.createObjectURL(blob)
+    setRecoveredBlobUrl(url)
+    setRecoveredDuration(interruptedMeta?.duration || 0)
+    toast.success('Gravação recuperada! Você pode editá-la no editor.')
+    setInterruptedProjectId(null)
+  }
+
+  const handleDiscardInterrupted = async () => {
+    if (interruptedProjectId) {
+      await clearRawVideo(interruptedProjectId)
+      toast.info('Gravação interrompida descartada.')
+    }
+    setInterruptedProjectId(null)
+    setInterruptedMeta(null)
+  }
+
+  const handleSendRecoveredToEditor = () => {
+    if (!recoveredBlobUrl) return
+    const newProj = createProject({
+      title: `Recuperação Estúdio (${formatTimer(recoveredDuration)})`,
+      type: 'reel',
+      aspectRatio: '9:16',
+      resolution: '1080p',
+      duration: recoveredDuration,
+      thumbnail: recoveredBlobUrl,
+      scriptText: teleprompterScript,
+      clips: [
+        {
+          id: 'clip-rec-main',
+          track: 'video',
+          name: 'Take Recuperado',
+          startTime: 0,
+          duration: recoveredDuration,
+          sourceUrl: recoveredBlobUrl,
+          mediaType: 'video',
+          volume: 100,
+        },
+      ],
+    })
+    navigate(`/editor/${newProj.id}`)
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════
      FASE 2 — Redimensionamento do painel inferior (arrastar borda superior).
      ═══════════════════════════════════════════════════════════════════════ */
   const onPanelDragStart = useCallback(
@@ -619,8 +734,9 @@ export default function Gravadora() {
 
     let url = 'https://img.usecurling.com/p/1080/1920?q=podcaster+talking+studio+light&color=purple'
     let blob: Blob | undefined
+    let mimeType = 'video/webm'
     if (chunksRef.current.length > 0) {
-      const mimeType = mediaRecorderRef.current?.mimeType || 'video/webm'
+      mimeType = mediaRecorderRef.current?.mimeType || 'video/webm'
       blob = new Blob(chunksRef.current, { type: mimeType })
       url = URL.createObjectURL(blob)
       chunksRef.current = []
@@ -649,7 +765,7 @@ export default function Gravadora() {
     setRecordedClips((prev) => [newClip, ...prev])
 
     // Salva no StudioContext como projeto tipo 'reel' / aspectRatio '9:16'
-    createProject({
+    const newProj = createProject({
       title: `Take Estúdio (${timeString})`,
       type: 'reel',
       aspectRatio: '9:16',
@@ -673,6 +789,64 @@ export default function Gravadora() {
         },
       ],
     })
+
+    // FASE 5.1 — Preservação do vídeo bruto + snapshot JSON do projeto.
+    // IDs de blocos já são UUIDs estáveis vindos do use-script-blocks.
+    if (blob) {
+      isProcessingRef.current = true
+      saveRawVideo(newProj.id, blob, duration, mimeType)
+        .then(() => {
+          // Monta o snapshot completo (versionado) com todos os metadados.
+          const artsByBlock: Record<string, import('@/types/studio').BlockArt[]> = {}
+          const brollByBlock: Record<string, import('@/types/studio').BlockBRoll | null> = {}
+          for (const b of scriptBlocks) {
+            artsByBlock[b.id] = readBlockArts(b.id)
+            brollByBlock[b.id] = readBlockBRoll(b.id)
+          }
+          const reaction = readReactionVideo()
+          const snapshot: ProjectSnapshot = {
+            version: 1,
+            savedAt: new Date().toISOString(),
+            projectId: newProj.id,
+            title: newProj.title,
+            blocks: scriptBlocks,
+            scriptText: teleprompterScript,
+            artsByBlock,
+            brollByBlock,
+            background: backgroundConfig,
+            titleConfig: titleConfig,
+            audio: audioConfig,
+            stageLayout,
+            cameraCover,
+            takes: [newClip],
+            timeline: {
+              segments: [
+                {
+                  id: 'seg-' + Date.now(),
+                  start: 0,
+                  end: duration,
+                  excluded: false,
+                },
+              ],
+              inPoint: 0,
+              outPoint: duration,
+              cursor: 0,
+            },
+            rawVideoUrl: url,
+            rawVideoDuration: duration,
+          }
+          // reaction não faz parte do snapshot tipado, mas guardamos no
+          // brollByBlock apenas para reabertura. (Omitimos para manter tipos.)
+          void reaction
+          saveProjectSnapshot(snapshot)
+        })
+        .catch((err) => {
+          console.warn('[Gravadora] Falha ao salvar vídeo bruto/snapshot:', err)
+        })
+        .finally(() => {
+          isProcessingRef.current = false
+        })
+    }
 
     toast.success(`Take gravado com sucesso (${timeString})! Salvo em Meus Projetos.`)
     setRecordedSeconds(0)
@@ -1186,6 +1360,80 @@ export default function Gravadora() {
           </Button>
         </div>
       </div>
+
+      {/* FASE 5.6 — Banner de recuperação de gravação interrompida */}
+      {interruptedProjectId && interruptedMeta && (
+        <div className="rounded-2xl bg-amber-500/10 border border-amber-500/40 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
+            <div>
+              <p className="text-sm font-bold text-white">Detectamos uma gravação interrompida.</p>
+              <p className="text-xs text-[#9494A8]">
+                Duração estimada: {formatTimer(interruptedMeta.duration)} · Salva em{' '}
+                {new Date(interruptedMeta.savedAt).toLocaleString('pt-BR')}. Recuperar agora?
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleDiscardInterrupted}
+              className="text-xs text-[#9494A8] hover:text-white"
+            >
+              Descartar
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleRecoverRecording}
+              className="bg-amber-500 hover:bg-amber-600 text-black text-xs font-bold gap-1.5"
+            >
+              <RotateCcw className="w-3.5 h-3.5" /> Recuperar
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* FASE 5.6 — Player de gravação recuperada */}
+      {recoveredBlobUrl && (
+        <div className="rounded-2xl bg-[#14141C] border border-[#7C5CFC]/40 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in">
+          <div className="flex items-center gap-3">
+            <video
+              src={recoveredBlobUrl}
+              className="w-16 h-28 object-cover rounded-lg border border-white/10"
+              muted
+              playsInline
+            />
+            <div>
+              <p className="text-sm font-bold text-white">Gravação recuperada</p>
+              <p className="text-xs text-[#9494A8]">
+                Duração: {formatTimer(recoveredDuration)}. Envie para o editor para continuar
+                trabalhando.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                if (recoveredBlobUrl) URL.revokeObjectURL(recoveredBlobUrl)
+                setRecoveredBlobUrl(null)
+              }}
+              className="text-xs text-[#9494A8] hover:text-white"
+            >
+              Descartar
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSendRecoveredToEditor}
+              className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-white text-xs font-bold gap-1.5"
+            >
+              Editar no Editor
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Main Grid + Lower Panel wrapper */}
       <div className="flex-1 min-h-0 flex flex-col gap-4">
