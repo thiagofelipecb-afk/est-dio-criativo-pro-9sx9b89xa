@@ -17,6 +17,9 @@ import {
   ScrollText,
   Calendar,
   Library,
+  Music,
+  FolderOpen,
+  Shapes,
   BarChart3,
   Settings,
   Smartphone,
@@ -87,7 +90,7 @@ export default function Layout() {
   const studioItems: NavItem[] = [
     { label: 'Gravadora', path: '/gravadora', icon: Camera, badge: 'REC' },
     { label: 'Criar Carrossel', path: '/carrossel', icon: Layers },
-    { label: 'Criar Post', path: '/post', icon: FileImage },
+    { label: 'Criar Post', path: '/criar-post', icon: FileImage },
     { label: 'Teleprompter', path: '/teleprompter', icon: ScrollText },
     { label: 'Agendamento', path: '/agendamento', icon: Calendar, badge: 'Auto' },
   ]
@@ -110,17 +113,21 @@ export default function Layout() {
     ...transversalItems,
   ]
 
-  const libraryItems = [
-    { label: 'Modelos', category: 'all' as const, icon: Layers },
-    { label: 'Músicas', category: 'audio' as const, icon: ScrollText },
-    { label: 'Mídias', category: 'video' as const, icon: Film },
-    { label: 'Elementos', category: 'image' as const, icon: FileImage },
+  const libraryItems: NavItem[] = [
+    { label: 'Modelos', path: '/modelos', icon: Layers },
+    { label: 'Músicas', path: '/musicas', icon: Music },
+    { label: 'Mídias', path: '/midias', icon: FolderOpen },
+    { label: 'Elementos', path: '/elementos', icon: Shapes },
   ]
 
+  // Mantém compatibilidade com o modal legado de biblioteca de arquivos
+  // aberto pelo menu de perfil; os itens da seção "Bibliotecas" agora
+  // navegam para rotas próprias (/modelos, /musicas, /midias, /elementos).
   const openLibrary = (cat: 'all' | 'video' | 'image' | 'audio') => {
     setMediaModalCategory(cat)
     setIsMediaLibraryOpen(true)
   }
+  void openLibrary
 
   const handleShowHelp = () => {
     toast.info('Central de Ajuda LUMEN Studio', {
@@ -265,25 +272,35 @@ export default function Layout() {
               </div>
             )}
             <div className="space-y-0.5">
-              {libraryItems.map((lib) => {
-                const Icon = lib.icon
+              {libraryItems.map((item) => {
+                const isActive = location.pathname === item.path
+                const Icon = item.icon
                 return (
-                  <Tooltip key={lib.label} delayDuration={isSidebarCollapsed ? 100 : 1000}>
+                  <Tooltip key={item.path} delayDuration={isSidebarCollapsed ? 100 : 1000}>
                     <TooltipTrigger asChild>
-                      <button
-                        onClick={() => openLibrary(lib.category)}
-                        className="w-full flex items-center gap-3 px-3 py-1.5 rounded-lg text-xs text-[#9494A8] hover:bg-white/5 hover:text-white transition-colors text-left"
+                      <Link
+                        to={item.path}
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className={`w-full flex items-center gap-3 px-3 py-1.5 rounded-lg text-xs transition-colors text-left ${
+                          isActive
+                            ? 'bg-[#1C1C27] text-white font-semibold'
+                            : 'text-[#9494A8] hover:bg-white/5 hover:text-white'
+                        }`}
                       >
-                        <Icon className="h-3.5 w-3.5 shrink-0 text-[#9494A8]" />
-                        {(!isSidebarCollapsed || isMobileMenuOpen) && <span>{lib.label}</span>}
-                      </button>
+                        <Icon
+                          className={`h-3.5 w-3.5 shrink-0 ${
+                            isActive ? 'text-[#7C5CFC]' : 'text-[#9494A8]'
+                          }`}
+                        />
+                        {(!isSidebarCollapsed || isMobileMenuOpen) && <span>{item.label}</span>}
+                      </Link>
                     </TooltipTrigger>
                     {isSidebarCollapsed && !isMobileMenuOpen && (
                       <TooltipContent
                         side="right"
                         className="bg-[#1C1C27] text-white border-white/10 text-xs"
                       >
-                        Biblioteca: {lib.label}
+                        Biblioteca: {item.label}
                       </TooltipContent>
                     )}
                   </Tooltip>

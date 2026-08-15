@@ -1,280 +1,184 @@
-import React, { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useStudio } from '@/context/StudioContext'
-import { usePlatform } from '@/context/PlatformContext'
-import { CarouselProject, CarouselSlide } from '@/types/studio'
+import React, { useState, useRef, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Input } from '@/components/ui/input'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import {
   Layers,
   Plus,
   Trash2,
   Copy,
   Download,
-  Calendar,
-  Sparkles,
+  Eye,
   ChevronLeft,
   ChevronRight,
   Type,
-  Palette,
   Image as ImageIcon,
+  Shapes,
+  Smile,
+  Square,
+  Circle,
+  Minus,
   Save,
-  Wand2,
-  MoveRight,
-  ChevronUp,
-  ChevronDown,
-  FileText,
+  X,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import type {
+  CarouselV2,
+  CarouselSlideV2,
+  CarouselText,
+  CarouselElement,
+  CarouselSticker,
+} from '@/types/library'
+import { CAROUSEL_EMOJIS, CAROUSEL_FONTS } from '@/lib/libraryData'
 
-type CarrosselStatus = 'rascunho' | 'pronto' | 'agendado'
+const STORAGE_KEY = 'lumen_carousels_v2'
 
-const HOOK_CATEGORIES = [
-  { id: 'problema', label: 'Problema', template: 'Cansado de {TEMA} sem resultado?' },
-  { id: 'curiosidade', label: 'Curiosidade', template: 'O que ninguém te conta sobre {TEMA}:' },
-  { id: 'passo_passo', label: 'Passo a passo', template: 'Passo a passo para dominar {TEMA}:' },
-  { id: 'lista', label: 'Lista', template: '5 coisas sobre {TEMA} que você precisa saber:' },
-  { id: 'comparacao', label: 'Comparação', template: 'Erro comum vs. jeito certo de {TEMA}:' },
-] as const
+const uid = (p: string) => `${p}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 
-export default function EditorCarrossel() {
-  const navigate = useNavigate()
-  const { carousels, saveCarousel, schedulePost } = useStudio()
-  const { hasBrandOS, brandProfile, saveContentItem } = usePlatform()
-
-  const [activeCarousel, setActiveCarousel] = useState<CarouselProject>(() => {
-    return (
-      carousels[0] || {
-        id: 'car-new-' + Date.now(),
-        title: 'Carrossel Viral: Estratégias de Retenção',
-        aspectRatio: '4:5',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        thumbnail: 'https://img.usecurling.com/p/1080/1350?q=slide+presentation+dark&color=purple',
-        slides: [
-          {
-            id: 's1',
-            title: 'Como Prender a Atenção nos Primeiros 3 Segundos',
-            subtitle: 'O Segredo dos Maiores Criadores',
-            bodyText:
-              'Descubra a fórmula que gera mais de 80% de retenção e faz o algoritmo entregar seu vídeo.',
-            bgType: 'gradient',
-            bgColor: '#14141C',
-            bgGradient: 'from-violet-950 via-slate-900 to-black',
-            elements: [
-              {
-                id: 'el-1',
-                type: 'badge',
-                content: 'ESTRATÉGIA COMPLETA',
-                x: 50,
-                y: 15,
-                color: '#7C5CFC',
-              },
-              {
-                id: 'el-2',
-                type: 'arrow',
-                content: 'Arrasta para ver 👉',
-                x: 50,
-                y: 88,
-                color: '#22D3EE',
-              },
-            ],
-          },
-          {
-            id: 's2',
-            title: '1. Gancho Visual de Quebra de Padrão',
-            subtitle: 'Evite começos previsíveis',
-            bodyText:
-              'Use movimento brusco, troca de ângulo ou um elemento visual inesperado no primeiro frame.',
-            bgType: 'color',
-            bgColor: '#14141C',
-            bgGradient: '',
-            elements: [
-              { id: 'el-3', type: 'step', content: 'PASSO 01', x: 20, y: 20, color: '#22D3EE' },
-            ],
-          },
-        ],
-      }
-    )
+const fileToDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
   })
 
+function newSlide(order: number): CarouselSlideV2 {
+  return {
+    id: uid('slide'),
+    background: '#14141C',
+    backgroundType: 'color',
+    backgroundFit: 'cover',
+    texts: [],
+    elements: [],
+    stickers: [],
+    order,
+  }
+}
+
+function newCarousel(): CarouselV2 {
+  const now = new Date().toISOString()
+  return {
+    id: uid('car'),
+    name: 'Novo Carrossel',
+    aspectRatio: '1:1',
+    slides: [newSlide(0)],
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+function loadCarousels(): CarouselV2[] {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    return saved ? (JSON.parse(saved) as CarouselV2[]) : []
+  } catch {
+    return []
+  }
+}
+
+function saveCarousels(list: CarouselV2[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list))
+  } catch {
+    /* quota */
+  }
+}
+
+export default function Carrossel() {
+  const [carousels, setCarousels] = useState<CarouselV2[]>(() => loadCarousels())
+  const [activeId, setActiveId] = useState<string | null>(() => null)
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0)
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+  const [dragging, setDragging] = useState<
+    | { type: 'text'; id: string }
+    | { type: 'element'; id: string }
+    | { type: 'sticker'; id: string }
+    | null
+  >(null)
+  const canvasRef = useRef<HTMLDivElement>(null)
+
+  // Inicia um carrossel ativo (novo ou primeiro existente)
+  const activeCarousel: CarouselV2 = React.useMemo(() => {
+    if (activeId) {
+      const found = carousels.find((c) => c.id === activeId)
+      if (found) return found
+    }
+    if (carousels.length > 0) return carousels[0]
+    const created = newCarousel()
+    return created
+  }, [activeId, carousels])
+
+  const persist = useCallback(
+    (updated: CarouselV2) => {
+      setCarousels((prev) => {
+        const exists = prev.some((c) => c.id === updated.id)
+        if (exists) return prev.map((c) => (c.id === updated.id ? updated : c))
+        return [updated, ...prev]
+      })
+      saveCarousels(
+        carousels.some((c) => c.id === updated.id)
+          ? carousels.map((c) => (c.id === updated.id ? updated : c))
+          : [updated, ...carousels],
+      )
+    },
+    [carousels],
+  )
+
+  const updateCarousel = (updater: (c: CarouselV2) => CarouselV2) => {
+    const updated = {
+      ...updater(activeCarousel),
+      updatedAt: new Date().toISOString(),
+    }
+    persist(updated)
+  }
+
   const currentSlide = activeCarousel.slides[currentSlideIndex] || activeCarousel.slides[0]
 
-  // === Briefing (objetivo, público, mensagem principal) com autosave 2s ===
-  const [briefing, setBriefing] = useState<{ objetivo: string; publico: string; mensagem: string }>(
-    () => {
-      const saved = localStorage.getItem('lumen_carrossel_briefing_v2')
-      if (saved) {
-        try {
-          return JSON.parse(saved)
-        } catch {
-          /* intentionally ignored */
-        }
-      }
-      return { objetivo: '', publico: '', mensagem: '' }
-    },
-  )
-  useEffect(() => {
-    const t = setTimeout(() => {
-      localStorage.setItem('lumen_carrossel_briefing_v2', JSON.stringify(briefing))
-    }, 2000)
-    return () => clearTimeout(t)
-  }, [briefing])
-
-  // === Copy card a card (textarea + preview) por slide ===
-  const [slideCopy, setSlideCopy] = useState<Record<string, string>>(() => {
-    const saved = localStorage.getItem('lumen_carrossel_copy')
-    if (saved) {
-      try {
-        return JSON.parse(saved)
-      } catch {
-        /* intentionally ignored */
-      }
-    }
-    return {}
-  })
-  useEffect(() => {
-    const t = setTimeout(() => {
-      localStorage.setItem('lumen_carrossel_copy', JSON.stringify(slideCopy))
-    }, 2000)
-    return () => clearTimeout(t)
-  }, [slideCopy])
-
-  // === Status do carrossel (draft → pronto → agendado) ===
-  const [carrosselStatus, setCarrosselStatus] = useState<CarrosselStatus>(() => {
-    const saved = localStorage.getItem('lumen_carrossel_status')
-    return (saved as CarrosselStatus) || 'rascunho'
-  })
-  useEffect(() => {
-    localStorage.setItem('lumen_carrossel_status', carrosselStatus)
-  }, [carrosselStatus])
-
-  const suggestHook = (categoryId: (typeof HOOK_CATEGORIES)[number]['id']) => {
-    const cat = HOOK_CATEGORIES.find((c) => c.id === categoryId) || HOOK_CATEGORIES[0]
-    const tema = briefing.mensagem || activeCarousel.title
-    const hookText = cat.template.replace('{TEMA}', tema.toLowerCase())
-    updateCurrentSlide({ title: hookText })
-    toast.success(`Hook sugerido (${cat.label}) aplicado ao slide!`)
+  const updateSlide = (
+    updates: Partial<CarouselSlideV2> | ((s: CarouselSlideV2) => Partial<CarouselSlideV2>),
+  ) => {
+    updateCarousel((c) => ({
+      ...c,
+      slides: c.slides.map((s, i) => {
+        if (i !== currentSlideIndex) return s
+        const patch = typeof updates === 'function' ? updates(s) : updates
+        return { ...s, ...patch }
+      }),
+    }))
   }
 
-  const rewriteCard = () => {
-    if (!hasBrandOS) {
-      toast.error('Configure seu Brand OS primeiro em Posicionamento.', {
-        action: { label: 'Tentar novamente', onClick: rewriteCard },
-      })
-      return
-    }
-    const diff = brandProfile.base.differential || 'entrega de valor'
-    updateCurrentSlide({
-      bodyText: `[Reescrito] ${currentSlide.bodyText}\n\n→ ${diff}.`,
-    })
-    toast.success('Card reescrito com Brand OS!')
-  }
-
-  const condenseCard = () => {
-    updateCurrentSlide({
-      bodyText: currentSlide.bodyText.split('.')[0] + '.',
-    })
-    toast.success('Card condensado (essência mantida)!')
-  }
-
-  const moveSlide = (dir: -1 | 1) => {
-    const target = currentSlideIndex + dir
-    if (target < 0 || target >= activeCarousel.slides.length) return
-    const slides = [...activeCarousel.slides]
-    ;[slides[currentSlideIndex], slides[target]] = [slides[target], slides[currentSlideIndex]]
-    const updated = { ...activeCarousel, slides }
-    setActiveCarousel(updated)
-    setCurrentSlideIndex(target)
-    saveCarousel(updated)
-    toast.success('Slide reordenado!')
-  }
-
-  const exportTxt = () => {
-    const txt = activeCarousel.slides
-      .map(
-        (s, i) =>
-          `# Card ${i + 1}\nTítulo: ${s.title}\nSubtítulo: ${s.subtitle || ''}\nBody: ${s.bodyText}\nCopy: ${slideCopy[s.id] || ''}`,
-      )
-      .join('\n\n---\n\n')
-    const blob = new Blob([txt], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${activeCarousel.title || 'carrossel'}-copy.txt`
-    a.click()
-    URL.revokeObjectURL(url)
-    toast.success('TXT com todos os cards baixado!')
-  }
-
-  const exportPng = () => {
-    toast.info('Exportação PNG/ZIP', {
-      description:
-        'A renderização real depende de integração com motor de imagem. O conteúdo está pronto.',
-    })
-  }
-
-  const generateCaption = () => {
-    if (!hasBrandOS) {
-      toast.error('Configure seu Brand OS primeiro em Posicionamento.')
-      return
-    }
-    const caption = `${activeCarousel.title} — ${brandProfile.base.differential || 'entrega de valor'}. Salve este post! #carrossel #conteudo`
-    setSlideCopy((c) => ({ ...c, _caption: caption }))
-    toast.success('Legenda gerada com IA!')
-  }
-
-  const updateCurrentSlide = (updates: Partial<CarouselSlide>) => {
-    const newSlides = activeCarousel.slides.map((s, idx) =>
-      idx === currentSlideIndex ? { ...s, ...updates } : s,
-    )
-    const updated = { ...activeCarousel, slides: newSlides }
-    setActiveCarousel(updated)
-    saveCarousel(updated)
-  }
-
+  // --- Ações globais ---
   const handleAddSlide = () => {
-    const newSlide: CarouselSlide = {
-      id: 'slide-' + Date.now(),
-      title: `Novo Slide #${activeCarousel.slides.length + 1}`,
-      subtitle: 'Subtítulo complementar',
-      bodyText: 'Insira aqui a explicação chave ou os pontos da lista...',
-      bgType: 'gradient',
-      bgColor: '#14141C',
-      bgGradient: 'from-slate-950 via-violet-950 to-black',
-      elements: [
-        {
-          id: 'step-' + Date.now(),
-          type: 'step',
-          content: `PASSO 0${activeCarousel.slides.length + 1}`,
-          x: 20,
-          y: 20,
-          color: '#7C5CFC',
-        },
-      ],
-    }
-    const updated = { ...activeCarousel, slides: [...activeCarousel.slides, newSlide] }
-    setActiveCarousel(updated)
-    setCurrentSlideIndex(updated.slides.length - 1)
-    saveCarousel(updated)
-    toast.success('Slide adicionado ao carrossel!')
+    updateCarousel((c) => ({
+      ...c,
+      slides: [...c.slides, newSlide(c.slides.length)],
+    }))
+    setCurrentSlideIndex(activeCarousel.slides.length)
+    toast.success('Slide adicionado')
   }
 
   const handleDuplicateSlide = () => {
-    const dup: CarouselSlide = {
+    const dup: CarouselSlideV2 = {
       ...currentSlide,
-      id: 'slide-dup-' + Date.now(),
-      title: `${currentSlide.title} (Cópia)`,
+      id: uid('slide'),
+      texts: currentSlide.texts.map((t) => ({ ...t, id: uid('text') })),
+      elements: currentSlide.elements.map((e) => ({ ...e, id: uid('el') })),
+      stickers: currentSlide.stickers.map((s) => ({ ...s, id: uid('stk') })),
     }
-    const updatedSlides = [...activeCarousel.slides]
-    updatedSlides.splice(currentSlideIndex + 1, 0, dup)
-    const updated = { ...activeCarousel, slides: updatedSlides }
-    setActiveCarousel(updated)
+    updateCarousel((c) => {
+      const slides = [...c.slides]
+      slides.splice(currentSlideIndex + 1, 0, dup)
+      return { ...c, slides }
+    })
     setCurrentSlideIndex(currentSlideIndex + 1)
-    saveCarousel(updated)
-    toast.success('Slide duplicado com sucesso!')
+    toast.success('Slide duplicado')
   }
 
   const handleDeleteSlide = () => {
@@ -282,243 +186,270 @@ export default function EditorCarrossel() {
       toast.warning('O carrossel precisa ter pelo menos 1 slide.')
       return
     }
-    const updatedSlides = activeCarousel.slides.filter((_, idx) => idx !== currentSlideIndex)
-    const updated = { ...activeCarousel, slides: updatedSlides }
-    setActiveCarousel(updated)
+    updateCarousel((c) => ({
+      ...c,
+      slides: c.slides.filter((_, i) => i !== currentSlideIndex),
+    }))
     setCurrentSlideIndex(Math.max(0, currentSlideIndex - 1))
-    saveCarousel(updated)
-    toast.success('Slide removido.')
+    toast.success('Slide removido')
   }
 
-  const handleApplyTemplate = (type: 'storytelling' | 'list' | 'before-after') => {
-    if (type === 'storytelling') {
-      const slides: CarouselSlide[] = [
-        {
-          id: 'st-1',
-          title: 'O Maior Erro que Cometi Criando Vídeos',
-          subtitle: 'E como reverti para 100k views',
-          bodyText:
-            'Em 2023 eu passava 6 horas editando um único vídeo e o alcance era zero. Até entender isso...',
-          bgType: 'gradient',
-          bgColor: '#14141C',
-          bgGradient: 'from-red-950 via-slate-900 to-black',
-          elements: [
-            { id: 'b1', type: 'badge', content: 'HISTÓRIA REAL', x: 50, y: 15, color: '#F87171' },
-          ],
-        },
-        {
-          id: 'st-2',
-          title: 'A Virada de Chave: Menos Efeitos, Mais Ritmo',
-          subtitle: 'A regra dos 3 segundos',
-          bodyText:
-            'O algoritmo não quer efeitos 3D complexos, ele quer dinamismo na fala e clareza visual.',
-          bgType: 'gradient',
-          bgColor: '#14141C',
-          bgGradient: 'from-violet-950 via-slate-900 to-black',
-          elements: [
-            { id: 'b2', type: 'step', content: 'INSIGHT 01', x: 20, y: 20, color: '#7C5CFC' },
-          ],
-        },
-        {
-          id: 'st-3',
-          title: 'Salve este Carrossel para Consultar Depois',
-          subtitle: 'Comente "AULA" para o guia em PDF',
-          bodyText: 'Compartilhe com um amigo criador que precisa destravar o engajamento.',
-          bgType: 'gradient',
-          bgColor: '#14141C',
-          bgGradient: 'from-cyan-950 via-slate-900 to-black',
-          elements: [
-            { id: 'b3', type: 'badge', content: 'CHAMADA FINAL', x: 50, y: 85, color: '#22D3EE' },
-          ],
-        },
-      ]
-      const updated = { ...activeCarousel, slides }
-      setActiveCarousel(updated)
-      setCurrentSlideIndex(0)
-      saveCarousel(updated)
-      toast.success('Template Storytelling aplicado!')
-    }
-  }
-
-  const handleScheduleCarousel = () => {
-    schedulePost({
-      title: activeCarousel.title,
-      mediaUrl: activeCarousel.thumbnail,
-      mediaType: 'carousel',
-      platforms: ['instagram'],
-      scheduledDate: new Date(Date.now() + 3600000 * 24).toISOString(),
-      caption: `Arrasta para o lado 👉 ${activeCarousel.title}. Conteúdo completo com ${activeCarousel.slides.length} slides! #carrossel #conteudo #lumen`,
-      hashtags: ['#carrossel', '#marketing', '#lumenstudio', '#dicas'],
-      status: 'scheduled',
+  const moveSlide = (dir: -1 | 1) => {
+    const target = currentSlideIndex + dir
+    if (target < 0 || target >= activeCarousel.slides.length) return
+    updateCarousel((c) => {
+      const slides = [...c.slides]
+      ;[slides[currentSlideIndex], slides[target]] = [slides[target], slides[currentSlideIndex]]
+      return { ...c, slides }
     })
-    navigate('/agendamento')
-    toast.success('Carrossel agendado com sucesso!')
+    setCurrentSlideIndex(target)
+  }
+
+  // --- Upload de fundo ---
+  const handleBgUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      toast.error('Envie uma imagem')
+      return
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Imagem acima de 10MB')
+      return
+    }
+    const url = await fileToDataUrl(file)
+    updateSlide({ background: url, backgroundType: 'image' })
+    toast.success('Imagem de fundo adicionada')
+    e.target.value = ''
+  }
+
+  // --- Adicionar texto ---
+  const addText = () => {
+    const newText: CarouselText = {
+      id: uid('text'),
+      content: 'Novo texto',
+      fontFamily: 'Inter',
+      fontSize: 28,
+      color: '#FFFFFF',
+      x: 50,
+      y: 50,
+    }
+    updateSlide((s) => ({ ...s, texts: [...s.texts, newText] }))
+  }
+
+  // --- Adicionar forma ---
+  const addShape = (type: 'rectangle' | 'circle' | 'line') => {
+    const newEl: CarouselElement = {
+      id: uid('el'),
+      type,
+      color: '#7C5CFC',
+      opacity: 1,
+      x: 30,
+      y: 30,
+      width: 120,
+      height: type === 'line' ? 6 : 120,
+    }
+    updateSlide((s) => ({ ...s, elements: [...s.elements, newEl] }))
+  }
+
+  // --- Adicionar sticker ---
+  const addSticker = (emoji: string) => {
+    const newStk: CarouselSticker = {
+      id: uid('stk'),
+      emoji,
+      size: 48,
+      x: 50,
+      y: 50,
+    }
+    updateSlide((s) => ({ ...s, stickers: [...s.stickers, newStk] }))
+  }
+
+  // --- Atualizar item ---
+  const updateText = (id: string, updates: Partial<CarouselText>) =>
+    updateSlide((s) => ({
+      ...s,
+      texts: s.texts.map((t) => (t.id === id ? { ...t, ...updates } : t)),
+    }))
+
+  const updateElement = (id: string, updates: Partial<CarouselElement>) =>
+    updateSlide((s) => ({
+      ...s,
+      elements: s.elements.map((e) => (e.id === id ? { ...e, ...updates } : e)),
+    }))
+
+  const updateSticker = (id: string, updates: Partial<CarouselSticker>) =>
+    updateSlide((s) => ({
+      ...s,
+      stickers: s.stickers.map((st) => (st.id === id ? { ...st, ...updates } : st)),
+    }))
+
+  const deleteText = (id: string) =>
+    updateSlide((s) => ({ ...s, texts: s.texts.filter((t) => t.id !== id) }))
+  const deleteElement = (id: string) =>
+    updateSlide((s) => ({ ...s, elements: s.elements.filter((e) => e.id !== id) }))
+  const deleteSticker = (id: string) =>
+    updateSlide((s) => ({ ...s, stickers: s.stickers.filter((st) => st.id !== id) }))
+
+  // --- Arrastar ---
+  const handlePointerDown = (
+    e: React.PointerEvent,
+    type: 'text' | 'element' | 'sticker',
+    id: string,
+  ) => {
+    e.stopPropagation()
+    setDragging({ type, id })
+    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+  }
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!dragging || !canvasRef.current) return
+    const rect = canvasRef.current.getBoundingClientRect()
+    const x = ((e.clientX - rect.left) / rect.width) * 100
+    const y = ((e.clientY - rect.top) / rect.height) * 100
+    const cx = Math.max(0, Math.min(100, x))
+    const cy = Math.max(0, Math.min(100, y))
+    if (dragging.type === 'text') updateText(dragging.id, { x: cx, y: cy })
+    else if (dragging.type === 'element') updateElement(dragging.id, { x: cx, y: cy })
+    else updateSticker(dragging.id, { x: cx, y: cy })
+  }
+
+  const handlePointerUp = () => setDragging(null)
+
+  // --- Exportar ---
+  const handleExport = () => {
+    saveCarousels(
+      carousels.some((c) => c.id === activeCarousel.id)
+        ? carousels.map((c) => (c.id === activeCarousel.id ? activeCarousel : c))
+        : [activeCarousel, ...carousels],
+    )
+    toast.success('Carrossel salvo no localStorage (lumen_carousels_v2)!', {
+      description: `${activeCarousel.slides.length} slides exportados.`,
+    })
+  }
+
+  // --- Estilo do fundo ---
+  const bgStyle = (): React.CSSProperties => {
+    if (currentSlide.backgroundType === 'image' && currentSlide.background) {
+      return {
+        backgroundImage: `url(${currentSlide.background})`,
+        backgroundSize: currentSlide.backgroundFit,
+        backgroundPosition: 'center',
+      }
+    }
+    return { backgroundColor: currentSlide.background }
   }
 
   return (
     <div className="h-full flex flex-col p-4 sm:p-6 max-w-7xl mx-auto gap-4 overflow-y-auto animate-fade-in">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate('/projetos')}
-            className="text-xs text-[#9494A8] hover:text-white"
-          >
-            ← Voltar
-          </Button>
-          <div>
-            <h1 className="text-xl sm:text-2xl font-extrabold text-white flex items-center gap-2">
-              <Layers className="w-6 h-6 text-emerald-400" />
-              Editor de Carrossel
-            </h1>
-            <p className="text-xs text-[#9494A8]">
-              Crie carrosséis de alta retenção para Instagram com slides contínuos e navegação
-              automática.
-            </p>
-          </div>
+        <div>
+          <h1 className="text-xl sm:text-2xl font-extrabold text-white flex items-center gap-2">
+            <Layers className="w-6 h-6 text-[#7C5CFC]" />
+            Criar Carrossel
+          </h1>
+          <p className="text-xs text-[#9494A8]">
+            Monte carrosséis com slides, textos, formas e stickers. Arraste os elementos no canvas.
+          </p>
         </div>
-
         <div className="flex items-center gap-2">
           <Button
-            variant="outline"
             size="sm"
-            onClick={() => handleApplyTemplate('storytelling')}
-            className="border-white/10 text-xs text-[#22D3EE] hover:bg-[#22D3EE]/10 gap-1.5"
-          >
-            <Sparkles className="w-3.5 h-3.5" /> Template Storytelling
-          </Button>
-
-          <Button
             variant="outline"
-            size="sm"
-            onClick={exportTxt}
+            onClick={() => setIsPreviewOpen(true)}
             className="border-white/10 text-xs gap-1.5"
           >
-            <FileText className="w-3.5 h-3.5" /> TXT
+            <Eye className="w-3.5 h-3.5" /> Preview
           </Button>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex">
-                <Button
-                  size="sm"
-                  onClick={exportPng}
-                  className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs font-semibold gap-1.5"
-                >
-                  <Download className="w-3.5 h-3.5" /> Exportar Slides
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent className="bg-[#1C1C27] text-white border-white/10 text-xs">
-              A renderização PNG/ZIP real depende de integração com motor de imagem.
-            </TooltipContent>
-          </Tooltip>
-
           <Button
             size="sm"
-            onClick={handleScheduleCarousel}
-            className="bg-[#22D3EE] hover:bg-[#1CBAD1] text-black text-xs font-bold gap-1.5"
+            onClick={handleExport}
+            className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs font-semibold gap-1.5"
           >
-            <Calendar className="w-3.5 h-3.5" /> Agendar Post
+            <Download className="w-3.5 h-3.5" /> Exportar Carrossel
           </Button>
         </div>
       </div>
 
-      {/* === BRIEFING (objetivo, público, mensagem principal — autosave) === */}
-      <div className="rounded-2xl bg-[#14141C] border border-white/10 p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-            <Type className="w-3.5 h-3.5 text-[#7C5CFC]" /> Briefing do Carrossel
+      {/* Nome + proporção */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex-1 min-w-[200px]">
+          <Input
+            value={activeCarousel.name}
+            onChange={(e) => updateCarousel((c) => ({ ...c, name: e.target.value }))}
+            placeholder="Nome do carrossel"
+            className="bg-[#14141C] border-white/10 text-xs text-white"
+          />
+        </div>
+        <div className="flex items-center gap-1">
+          {(['1:1', '16:9'] as const).map((r) => (
+            <button
+              key={r}
+              onClick={() => updateCarousel((c) => ({ ...c, aspectRatio: r }))}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${
+                activeCarousel.aspectRatio === r
+                  ? 'bg-[#7C5CFC] text-white border-[#7C5CFC]'
+                  : 'bg-[#1C1C27] text-[#9494A8] border-white/10'
+              }`}
+            >
+              {r}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Workspace */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-[560px]">
+        {/* Sidebar esquerda: miniaturas */}
+        <div className="lg:col-span-3 bg-[#14141C] border border-white/10 rounded-2xl p-3 space-y-2 overflow-y-auto">
+          <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5 pb-2 border-b border-white/5">
+            <Layers className="w-3.5 h-3.5 text-[#7C5CFC]" /> Slides
           </h3>
-          {hasBrandOS ? (
-            <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[9px]">
-              Brand OS v{brandProfile.activeVersion}
-            </Badge>
-          ) : (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[9px] cursor-help">
-                  Brand OS pendente
-                </Badge>
-              </TooltipTrigger>
-              <TooltipContent className="bg-[#1C1C27] text-white border-white/10 text-xs">
-                Configure seu Brand OS primeiro em Posicionamento.
-              </TooltipContent>
-            </Tooltip>
-          )}
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div>
-            <label className="text-[11px] text-[#9494A8] block mb-1">Objetivo</label>
-            <input
-              value={briefing.objetivo}
-              onChange={(e) => setBriefing({ ...briefing, objetivo: e.target.value })}
-              placeholder="Ex: Educar sobre retenção"
-              className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
-            />
-          </div>
-          <div>
-            <label className="text-[11px] text-[#9494A8] block mb-1">Público</label>
-            <input
-              value={briefing.publico}
-              onChange={(e) => setBriefing({ ...briefing, publico: e.target.value })}
-              placeholder="Ex: Criadores iniciantes"
-              className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
-            />
-          </div>
-          <div>
-            <label className="text-[11px] text-[#9494A8] block mb-1">Mensagem principal</label>
-            <input
-              value={briefing.mensagem}
-              onChange={(e) => setBriefing({ ...briefing, mensagem: e.target.value })}
-              placeholder="Ex: Método > inspiração"
-              className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
-            />
-          </div>
-        </div>
-        <p className="text-[10px] text-[#9494A8]/70 italic">Autossalvo a cada 2s</p>
-      </div>
-
-      {/* === STATUS do carrossel === */}
-      <div className="flex items-center gap-2">
-        <span className="text-[11px] text-[#9494A8]">Status:</span>
-        {(['rascunho', 'pronto', 'agendado'] as const).map((s) => (
-          <button
-            key={s}
-            onClick={() => {
-              setCarrosselStatus(s)
-              toast.success(`Status alterado para "${s}"!`)
-            }}
-            className={`px-3 py-1 rounded-lg text-[11px] font-medium capitalize border transition-all ${
-              carrosselStatus === s
-                ? s === 'pronto'
-                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-                  : s === 'agendado'
-                    ? 'bg-[#7C5CFC]/20 text-[#7C5CFC] border-[#7C5CFC]/40'
-                    : 'bg-amber-500/20 text-amber-400 border-amber-500/40'
-                : 'bg-[#1C1C27] text-[#9494A8] border-white/10'
-            }`}
+          {activeCarousel.slides.map((slide, idx) => (
+            <button
+              key={slide.id}
+              onClick={() => setCurrentSlideIndex(idx)}
+              className={`w-full relative aspect-square rounded-lg overflow-hidden border-2 transition-all ${
+                idx === currentSlideIndex
+                  ? 'border-[#7C5CFC] shadow-lg shadow-[#7C5CFC]/30'
+                  : 'border-white/10 hover:border-white/30'
+              }`}
+              style={{
+                backgroundColor: slide.backgroundType === 'image' ? '#000' : slide.background,
+                backgroundImage:
+                  slide.backgroundType === 'image' ? `url(${slide.background})` : undefined,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+              }}
+            >
+              <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-black/70 text-[9px] text-white font-bold">
+                {idx + 1}
+              </span>
+              <span className="absolute bottom-1 right-1 flex gap-0.5">
+                {slide.texts.length > 0 && <Type className="w-2.5 h-2.5 text-white" />}
+                {slide.stickers.length > 0 && <Smile className="w-2.5 h-2.5 text-white" />}
+              </span>
+            </button>
+          ))}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleAddSlide}
+            className="w-full border-dashed border-white/20 text-xs text-white hover:bg-white/5 gap-1"
           >
-            {s}
-          </button>
-        ))}
-      </div>
+            <Plus className="w-3.5 h-3.5" /> Adicionar Slide
+          </Button>
+        </div>
 
-      {/* Main Workspace: Left Carousel Slide Thumbnails + Center Slide Canvas + Right Properties */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-[520px]">
-        {/* CENTER SLIDE PREVIEW CANVAS (7 cols) */}
-        <div className="lg:col-span-8 flex flex-col items-center justify-center bg-[#07070A] rounded-2xl border border-white/10 p-6 relative shadow-2xl">
-          {/* Navigation Arrows */}
+        {/* Canvas central */}
+        <div className="lg:col-span-6 flex flex-col items-center justify-center bg-[#07070A] rounded-2xl border border-white/10 p-6 relative">
           <button
             onClick={() => setCurrentSlideIndex(Math.max(0, currentSlideIndex - 1))}
             disabled={currentSlideIndex === 0}
-            className="absolute left-4 p-3 rounded-full bg-black/60 hover:bg-black/90 text-white disabled:opacity-20 border border-white/10 backdrop-blur-md z-20"
+            className="absolute left-4 p-3 rounded-full bg-black/60 hover:bg-black/90 text-white disabled:opacity-20 border border-white/10 z-20"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
-
           <button
             onClick={() =>
               setCurrentSlideIndex(
@@ -526,330 +457,476 @@ export default function EditorCarrossel() {
               )
             }
             disabled={currentSlideIndex === activeCarousel.slides.length - 1}
-            className="absolute right-4 p-3 rounded-full bg-black/60 hover:bg-black/90 text-white disabled:opacity-20 border border-white/10 backdrop-blur-md z-20"
+            className="absolute right-4 p-3 rounded-full bg-black/60 hover:bg-black/90 text-white disabled:opacity-20 border border-white/10 z-20"
           >
             <ChevronRight className="w-5 h-5" />
           </button>
 
-          {/* Slide Visual Box */}
-          <div
-            className={`relative rounded-2xl shadow-2xl border border-white/15 p-8 flex flex-col justify-between overflow-hidden transition-all ${
-              activeCarousel.aspectRatio === '4:5'
-                ? 'w-[360px] sm:w-[400px] aspect-[4/5]'
-                : 'w-[360px] sm:w-[400px] aspect-square'
-            } ${
-              currentSlide.bgType === 'gradient'
-                ? `bg-gradient-to-br ${currentSlide.bgGradient}`
-                : ''
-            }`}
-            style={{
-              backgroundColor: currentSlide.bgType === 'color' ? currentSlide.bgColor : undefined,
-            }}
-          >
-            {/* Top Slide Header Elements & Counter */}
-            <div className="flex items-center justify-between">
-              <span className="px-3 py-1 rounded-full bg-white/10 backdrop-blur-md text-[11px] font-bold tracking-wider uppercase text-[#22D3EE] border border-white/10">
-                {currentSlide.elements.find((e) => e.type === 'badge')?.content || 'LUMEN STUDIO'}
-              </span>
-
-              {/* Progress counter e.g. 1/5 */}
-              <span className="px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-md text-xs font-mono font-bold text-white border border-white/10">
-                {currentSlideIndex + 1}/{activeCarousel.slides.length}
-              </span>
-            </div>
-
-            {/* Middle Content */}
-            <div className="space-y-4 my-auto">
-              <h2 className="text-2xl sm:text-3xl font-extrabold text-white leading-tight">
-                {currentSlide.title}
-              </h2>
-
-              {currentSlide.subtitle && (
-                <p className="text-sm font-semibold text-[#22D3EE] uppercase tracking-wide">
-                  {currentSlide.subtitle}
-                </p>
-              )}
-
-              <p className="text-sm text-slate-300 leading-relaxed">{currentSlide.bodyText}</p>
-            </div>
-
-            {/* Bottom Footer Elements (Author / Arrow) */}
-            <div className="flex items-center justify-between pt-4 border-t border-white/10 text-xs text-[#9494A8]">
-              <span className="font-semibold text-white">@lumenstudio.ia</span>
-              <span className="text-[#22D3EE] font-bold flex items-center gap-1">
-                {currentSlideIndex === activeCarousel.slides.length - 1
-                  ? 'Salvar post 📌'
-                  : 'Arrasta 👉'}
-              </span>
-            </div>
+          <div className="absolute top-4 flex items-center gap-2 z-20">
+            <span className="px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-md text-xs font-mono font-bold text-white border border-white/10">
+              Slide {currentSlideIndex + 1} de {activeCarousel.slides.length}
+            </span>
           </div>
 
-          {/* Horizontal Slide Strip (Bottom of Preview) */}
-          <div className="w-full mt-4 flex items-center gap-2 overflow-x-auto pb-1 max-w-2xl justify-center">
+          <div className="absolute top-4 right-16 flex items-center gap-1 z-20">
+            <button
+              onClick={handleDuplicateSlide}
+              className="p-2 rounded-lg bg-black/60 hover:bg-black/90 text-white border border-white/10"
+              title="Duplicar slide"
+            >
+              <Copy className="w-4 h-4" />
+            </button>
+            <button
+              onClick={handleDeleteSlide}
+              className="p-2 rounded-lg bg-black/60 hover:bg-black/90 text-red-400 border border-white/10"
+              title="Remover slide"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Canvas */}
+          <div
+            ref={canvasRef}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerLeave={handlePointerUp}
+            className={`relative rounded-2xl shadow-2xl border border-white/15 overflow-hidden cursor-default ${
+              activeCarousel.aspectRatio === '1:1'
+                ? 'w-[380px] aspect-square'
+                : 'w-[480px] aspect-video'
+            }`}
+            style={bgStyle()}
+          >
+            {/* Elementos */}
+            {currentSlide.elements.map((el) => (
+              <div
+                key={el.id}
+                onPointerDown={(e) => handlePointerDown(e, 'element', el.id)}
+                className="absolute cursor-move"
+                style={{
+                  left: `${el.x}%`,
+                  top: `${el.y}%`,
+                  width: el.width,
+                  height: el.height,
+                  opacity: el.opacity,
+                  transform: 'translate(-50%, -50%)',
+                }}
+              >
+                {el.type === 'rectangle' && (
+                  <div className="w-full h-full rounded" style={{ backgroundColor: el.color }} />
+                )}
+                {el.type === 'circle' && (
+                  <div
+                    className="w-full h-full rounded-full"
+                    style={{ backgroundColor: el.color }}
+                  />
+                )}
+                {el.type === 'line' && (
+                  <div
+                    className="w-full h-full rounded-full"
+                    style={{ backgroundColor: el.color }}
+                  />
+                )}
+              </div>
+            ))}
+
+            {/* Textos */}
+            {currentSlide.texts.map((t) => (
+              <div
+                key={t.id}
+                onPointerDown={(e) => handlePointerDown(e, 'text', t.id)}
+                className="absolute cursor-move select-none"
+                style={{
+                  left: `${t.x}%`,
+                  top: `${t.y}%`,
+                  transform: 'translate(-50%, -50%)',
+                  fontFamily: t.fontFamily,
+                  fontSize: t.fontSize,
+                  color: t.color,
+                  fontWeight: t.bold ? 700 : 400,
+                  fontStyle: t.italic ? 'italic' : 'normal',
+                  whiteSpace: 'pre-wrap',
+                  textAlign: 'center',
+                }}
+              >
+                {t.content}
+              </div>
+            ))}
+
+            {/* Stickers */}
+            {currentSlide.stickers.map((st) => (
+              <div
+                key={st.id}
+                onPointerDown={(e) => handlePointerDown(e, 'sticker', st.id)}
+                className="absolute cursor-move select-none"
+                style={{
+                  left: `${st.x}%`,
+                  top: `${st.y}%`,
+                  fontSize: st.size,
+                  transform: 'translate(-50%, -50%)',
+                }}
+              >
+                {st.emoji}
+              </div>
+            ))}
+          </div>
+
+          {/* Faixa de slides */}
+          <div className="w-full mt-4 flex items-center gap-2 overflow-x-auto pb-1 justify-center max-w-xl">
+            <button
+              onClick={() => moveSlide(-1)}
+              disabled={currentSlideIndex === 0}
+              className="p-1.5 rounded-lg text-[#9494A8] hover:text-white hover:bg-white/5 disabled:opacity-20"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
             {activeCarousel.slides.map((s, idx) => (
               <button
                 key={s.id}
                 onClick={() => setCurrentSlideIndex(idx)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all ${
                   idx === currentSlideIndex
-                    ? 'bg-[#7C5CFC] border-white/40 text-white shadow-lg shadow-[#7C5CFC]/30'
+                    ? 'bg-[#7C5CFC] border-white/40 text-white'
                     : 'bg-[#14141C] border-white/10 text-[#9494A8] hover:text-white'
                 }`}
               >
-                Slide #{idx + 1}
+                {idx + 1}
               </button>
             ))}
-
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleAddSlide}
-              className="h-8 border-dashed border-white/20 text-xs text-white hover:bg-white/5 gap-1"
+            <button
+              onClick={() => moveSlide(1)}
+              disabled={currentSlideIndex === activeCarousel.slides.length - 1}
+              className="p-1.5 rounded-lg text-[#9494A8] hover:text-white hover:bg-white/5 disabled:opacity-20"
             >
-              <Plus className="w-3.5 h-3.5" /> Adicionar
-            </Button>
+              <ChevronRight className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
-        {/* RIGHT PANEL: Slide Editor Controls (4 cols) */}
-        <div className="lg:col-span-4 bg-[#14141C] border border-white/10 rounded-2xl p-4 space-y-4 overflow-y-auto">
-          <div className="flex items-center justify-between pb-2 border-b border-white/5">
-            <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-              <Type className="w-3.5 h-3.5 text-[#7C5CFC]" />
-              Editar Slide #{currentSlideIndex + 1}
-            </h3>
+        {/* Painel direito: ferramentas */}
+        <div className="lg:col-span-3 bg-[#14141C] border border-white/10 rounded-2xl p-4 space-y-4 overflow-y-auto">
+          <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5 pb-2 border-b border-white/5">
+            <Type className="w-3.5 h-3.5 text-[#7C5CFC]" /> Ferramentas do Slide
+          </h3>
 
-            <div className="flex items-center gap-1">
-              <button
-                onClick={handleDuplicateSlide}
-                className="p-1.5 rounded-lg text-[#9494A8] hover:text-white hover:bg-white/5"
-                title="Duplicar Slide"
-              >
-                <Copy className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={handleDeleteSlide}
-                className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10"
-                title="Excluir Slide"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <div>
-              <label className="text-[11px] text-[#9494A8] block mb-1">Título Principal</label>
+          {/* Fundo */}
+          <div className="space-y-2">
+            <span className="text-[11px] text-[#9494A8]">Fundo</span>
+            <div className="flex items-center gap-2">
               <input
-                type="text"
-                value={currentSlide.title}
-                onChange={(e) => updateCurrentSlide({ title: e.target.value })}
-                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
+                type="color"
+                value={
+                  currentSlide.backgroundType === 'color' ? currentSlide.background : '#14141C'
+                }
+                onChange={(e) =>
+                  updateSlide({ background: e.target.value, backgroundType: 'color' })
+                }
+                className="w-10 h-9 rounded-lg bg-transparent border border-white/10 cursor-pointer"
               />
-            </div>
-
-            {/* === HOOKS POR CATEGORIA === */}
-            <div className="pt-1">
-              <label className="text-[11px] text-[#9494A8] block mb-1">
-                Sugerir hook por categoria
-              </label>
-              <div className="flex flex-wrap gap-1.5">
-                {HOOK_CATEGORIES.map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={() => suggestHook(c.id)}
-                    className="px-2 py-1 rounded-lg text-[10px] bg-[#1C1C27] text-[#9494A8] hover:text-white hover:bg-white/10 border border-white/5"
-                  >
-                    {c.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[11px] text-[#9494A8] block mb-1">Subtítulo / Destaque</label>
-              <input
-                type="text"
-                value={currentSlide.subtitle || ''}
-                onChange={(e) => updateCurrentSlide({ subtitle: e.target.value })}
-                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
-              />
-            </div>
-
-            <div>
-              <label className="text-[11px] text-[#9494A8] block mb-1">Texto do Corpo</label>
-              <textarea
-                value={currentSlide.bodyText}
-                onChange={(e) => updateCurrentSlide({ bodyText: e.target.value })}
-                rows={4}
-                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
-              />
-            </div>
-
-            {/* === COPY CARD A CARD (textarea + preview) === */}
-            <div className="pt-2 border-t border-white/5">
-              <label className="text-[11px] text-[#9494A8] block mb-1">
-                Copy do card (para legenda/post)
-              </label>
-              <textarea
-                value={slideCopy[currentSlide.id] || ''}
-                onChange={(e) => setSlideCopy({ ...slideCopy, [currentSlide.id]: e.target.value })}
-                rows={3}
-                placeholder="Escreva a copy deste card…"
-                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC] resize-none"
-              />
-              {slideCopy[currentSlide.id] && (
-                <div className="mt-1.5 rounded-lg bg-[#0e0e15]/60 border border-white/5 p-2 text-[10px] text-slate-300 italic">
-                  Preview: {slideCopy[currentSlide.id]}
+              <label className="flex-1 cursor-pointer">
+                <input type="file" accept="image/*" onChange={handleBgUpload} className="hidden" />
+                <div className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#1C1C27] border border-white/10 text-xs text-white hover:border-white/20">
+                  <ImageIcon className="w-3.5 h-3.5" /> Upload imagem
                 </div>
-              )}
+              </label>
             </div>
-
-            {/* === REESCRITA + CONDENSAÇÃO === */}
-            <div className="flex gap-2 pt-2 border-t border-white/5">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={rewriteCard}
-                      disabled={!hasBrandOS}
-                      className="border-white/10 text-[11px] text-[#22D3EE] hover:bg-[#22D3EE]/10 gap-1.5 disabled:opacity-50"
-                    >
-                      <Wand2 className="w-3 h-3" /> Reescrever
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                {!hasBrandOS && (
-                  <TooltipContent className="bg-[#1C1C27] text-white border-white/10 text-xs">
-                    Configure seu Brand OS primeiro em Posicionamento.
-                  </TooltipContent>
-                )}
-              </Tooltip>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={condenseCard}
-                className="border-white/10 text-[11px] text-[#9494A8] hover:text-white gap-1.5"
-              >
-                <Sparkles className="w-3 h-3" /> Condensar
-              </Button>
-            </div>
-
-            {/* === REORDENAÇÃO (↑↓) === */}
-            <div className="flex items-center justify-between pt-2 border-t border-white/5">
-              <span className="text-[11px] text-[#9494A8]">Reordenar slide</span>
-              <div className="flex gap-1">
-                <button
-                  onClick={() => moveSlide(-1)}
-                  disabled={currentSlideIndex === 0}
-                  className="p-1.5 rounded-lg text-[#9494A8] hover:text-white hover:bg-white/5 disabled:opacity-20"
-                  title="Mover para cima"
-                >
-                  <ChevronUp className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => moveSlide(1)}
-                  disabled={currentSlideIndex === activeCarousel.slides.length - 1}
-                  className="p-1.5 rounded-lg text-[#9494A8] hover:text-white hover:bg-white/5 disabled:opacity-20"
-                  title="Mover para baixo"
-                >
-                  <ChevronDown className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Background Style Switcher */}
-            <div className="pt-2 border-t border-white/5 space-y-2">
-              <label className="text-[11px] text-[#9494A8] block">Estilo do Fundo</label>
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                {[
-                  {
-                    id: 'gradient-1',
-                    label: 'Violeta Dark',
-                    grad: 'from-violet-950 via-slate-900 to-black',
-                  },
-                  {
-                    id: 'gradient-2',
-                    label: 'Ciano Neon',
-                    grad: 'from-cyan-950 via-slate-900 to-black',
-                  },
-                  { id: 'gradient-3', label: 'Carbono', grad: 'from-slate-950 to-black' },
-                ].map((g) => (
+            {currentSlide.backgroundType === 'image' && (
+              <div className="flex items-center gap-1">
+                {(['cover', 'contain', 'fill'] as const).map((fit) => (
                   <button
-                    key={g.id}
-                    onClick={() => updateCurrentSlide({ bgType: 'gradient', bgGradient: g.grad })}
-                    className="p-2 rounded-xl bg-[#1C1C27] hover:bg-[#252535] border border-white/5 text-[11px] font-medium text-white"
-                  >
-                    {g.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Proporção 4:5 (confirmar funciona) */}
-            <div className="pt-2 border-t border-white/5 flex items-center justify-between">
-              <span className="text-[11px] text-[#9494A8]">Proporção</span>
-              <div className="flex gap-1">
-                {(['1:1', '4:5'] as const).map((r) => (
-                  <button
-                    key={r}
-                    onClick={() => {
-                      const updated = { ...activeCarousel, aspectRatio: r }
-                      setActiveCarousel(updated)
-                      saveCarousel(updated)
-                    }}
-                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border ${
-                      activeCarousel.aspectRatio === r
+                    key={fit}
+                    onClick={() => updateSlide({ backgroundFit: fit })}
+                    className={`flex-1 py-1 rounded text-[10px] font-bold border ${
+                      currentSlide.backgroundFit === fit
                         ? 'bg-[#7C5CFC] text-white border-[#7C5CFC]'
                         : 'bg-[#1C1C27] text-[#9494A8] border-white/10'
                     }`}
                   >
-                    {r}
+                    {fit}
                   </button>
                 ))}
               </div>
+            )}
+          </div>
+
+          {/* Adicionar texto */}
+          <div className="space-y-2 pt-2 border-t border-white/5">
+            <span className="text-[11px] text-[#9494A8]">Texto</span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={addText}
+              className="w-full border-white/10 text-xs gap-1.5"
+            >
+              <Type className="w-3.5 h-3.5" /> Adicionar Texto
+            </Button>
+          </div>
+
+          {/* Adicionar formas */}
+          <div className="space-y-2 pt-2 border-t border-white/5">
+            <span className="text-[11px] text-[#9494A8]">Formas</span>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                onClick={() => addShape('rectangle')}
+                className="flex flex-col items-center gap-1 py-2 rounded-lg bg-[#1C1C27] border border-white/10 hover:border-white/20"
+              >
+                <Square className="w-4 h-4 text-[#7C5CFC]" />
+                <span className="text-[9px] text-[#9494A8]">Retângulo</span>
+              </button>
+              <button
+                onClick={() => addShape('circle')}
+                className="flex flex-col items-center gap-1 py-2 rounded-lg bg-[#1C1C27] border border-white/10 hover:border-white/20"
+              >
+                <Circle className="w-4 h-4 text-[#22D3EE]" />
+                <span className="text-[9px] text-[#9494A8]">Círculo</span>
+              </button>
+              <button
+                onClick={() => addShape('line')}
+                className="flex flex-col items-center gap-1 py-2 rounded-lg bg-[#1C1C27] border border-white/10 hover:border-white/20"
+              >
+                <Minus className="w-4 h-4 text-[#F59E0B]" />
+                <span className="text-[9px] text-[#9494A8]">Linha</span>
+              </button>
             </div>
           </div>
+
+          {/* Emojis */}
+          <div className="space-y-2 pt-2 border-t border-white/5">
+            <span className="text-[11px] text-[#9494A8]">Stickers</span>
+            <div className="grid grid-cols-5 gap-1">
+              {CAROUSEL_EMOJIS.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => addSticker(emoji)}
+                  className="aspect-square rounded-lg bg-[#1C1C27] border border-white/10 hover:border-[#7C5CFC]/40 text-lg flex items-center justify-center"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Editar itens do slide atual */}
+          {(currentSlide.texts.length > 0 ||
+            currentSlide.elements.length > 0 ||
+            currentSlide.stickers.length > 0) && (
+            <div className="space-y-2 pt-2 border-t border-white/5">
+              <span className="text-[11px] text-[#9494A8]">Itens do slide</span>
+              {currentSlide.texts.map((t) => (
+                <div
+                  key={t.id}
+                  className="rounded-lg bg-[#1C1C27] border border-white/10 p-2 space-y-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-[#7C5CFC] font-bold">TEXTO</span>
+                    <button
+                      onClick={() => deleteText(t.id)}
+                      className="text-red-400 hover:bg-red-500/10 p-1 rounded"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <textarea
+                    value={t.content}
+                    onChange={(e) => updateText(t.id, { content: e.target.value })}
+                    rows={2}
+                    className="w-full bg-[#0e0e15] border border-white/5 rounded p-1.5 text-[11px] text-white resize-none"
+                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={t.color}
+                      onChange={(e) => updateText(t.id, { color: e.target.value })}
+                      className="w-7 h-6 rounded bg-transparent border border-white/10 cursor-pointer"
+                    />
+                    <select
+                      value={t.fontFamily}
+                      onChange={(e) => updateText(t.id, { fontFamily: e.target.value })}
+                      className="flex-1 bg-[#0e0e15] border border-white/5 rounded px-1 py-1 text-[10px] text-white"
+                    >
+                      {CAROUSEL_FONTS.map((f) => (
+                        <option key={f} value={f}>
+                          {f}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="range"
+                      min={12}
+                      max={96}
+                      value={t.fontSize}
+                      onChange={(e) => updateText(t.id, { fontSize: Number(e.target.value) })}
+                      className="flex-1 accent-[#7C5CFC]"
+                    />
+                    <span className="text-[10px] text-[#9494A8] w-8">{t.fontSize}px</span>
+                  </div>
+                </div>
+              ))}
+              {currentSlide.elements.map((el) => (
+                <div
+                  key={el.id}
+                  className="rounded-lg bg-[#1C1C27] border border-white/10 p-2 space-y-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-[#22D3EE] font-bold uppercase">
+                      {el.type}
+                    </span>
+                    <button
+                      onClick={() => deleteElement(el.id)}
+                      className="text-red-400 hover:bg-red-500/10 p-1 rounded"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <input
+                    type="color"
+                    value={el.color}
+                    onChange={(e) => updateElement(el.id, { color: e.target.value })}
+                    className="w-full h-7 rounded bg-transparent border border-white/10 cursor-pointer"
+                  />
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.1}
+                    value={el.opacity}
+                    onChange={(e) => updateElement(el.id, { opacity: Number(e.target.value) })}
+                    className="w-full accent-[#22D3EE]"
+                  />
+                </div>
+              ))}
+              {currentSlide.stickers.map((st) => (
+                <div
+                  key={st.id}
+                  className="rounded-lg bg-[#1C1C27] border border-white/10 p-2 space-y-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-lg">{st.emoji}</span>
+                    <button
+                      onClick={() => deleteSticker(st.id)}
+                      className="text-red-400 hover:bg-red-500/10 p-1 rounded"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <input
+                    type="range"
+                    min={24}
+                    max={120}
+                    value={st.size}
+                    onChange={(e) => updateSticker(st.id, { size: Number(e.target.value) })}
+                    className="w-full accent-[#F59E0B]"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* === LEGENDA MANUAL OU GERADA POR IA === */}
-      <div className="rounded-2xl bg-[#14141C] border border-white/10 p-4 space-y-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-            <Type className="w-3.5 h-3.5 text-[#22D3EE]" /> Legenda do carrossel
-          </h3>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={generateCaption}
-                  disabled={!hasBrandOS}
-                  className="border-white/10 text-[11px] text-[#7C5CFC] hover:bg-[#7C5CFC]/10 gap-1.5 disabled:opacity-50"
-                >
-                  <Sparkles className="w-3 h-3" /> Gerar legenda com IA
-                </Button>
-              </span>
-            </TooltipTrigger>
-            {!hasBrandOS && (
-              <TooltipContent className="bg-[#1C1C27] text-white border-white/10 text-xs">
-                Configure seu Brand OS primeiro em Posicionamento.
-              </TooltipContent>
-            )}
-          </Tooltip>
-        </div>
-        <textarea
-          value={slideCopy._caption || ''}
-          onChange={(e) => setSlideCopy({ ...slideCopy, _caption: e.target.value })}
-          rows={3}
-          placeholder="Escreva a legenda ou gere com IA…"
-          className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC] resize-none"
-        />
-      </div>
+      {/* Modal de preview */}
+      <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto bg-[#0B0B10] border-white/10 text-white rounded-2xl p-6">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-bold flex items-center gap-2">
+              <Eye className="w-4 h-4 text-[#7C5CFC]" /> Preview do Carrossel
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {activeCarousel.slides.map((slide, idx) => (
+              <div
+                key={slide.id}
+                className={`relative rounded-xl border border-white/10 overflow-hidden ${
+                  activeCarousel.aspectRatio === '1:1' ? 'aspect-square' : 'aspect-video'
+                }`}
+                style={
+                  slide.backgroundType === 'image'
+                    ? {
+                        backgroundImage: `url(${slide.background})`,
+                        backgroundSize: slide.backgroundFit,
+                        backgroundPosition: 'center',
+                      }
+                    : { backgroundColor: slide.background }
+                }
+              >
+                <span className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/70 text-[10px] text-white font-bold z-10">
+                  {idx + 1}
+                </span>
+                {slide.elements.map((el) => (
+                  <div
+                    key={el.id}
+                    className="absolute"
+                    style={{
+                      left: `${el.x}%`,
+                      top: `${el.y}%`,
+                      width: el.width,
+                      height: el.height,
+                      opacity: el.opacity,
+                      transform: 'translate(-50%, -50%)',
+                    }}
+                  >
+                    {el.type === 'rectangle' && (
+                      <div
+                        className="w-full h-full rounded"
+                        style={{ backgroundColor: el.color }}
+                      />
+                    )}
+                    {el.type === 'circle' && (
+                      <div
+                        className="w-full h-full rounded-full"
+                        style={{ backgroundColor: el.color }}
+                      />
+                    )}
+                    {el.type === 'line' && (
+                      <div
+                        className="w-full h-full rounded-full"
+                        style={{ backgroundColor: el.color }}
+                      />
+                    )}
+                  </div>
+                ))}
+                {slide.texts.map((t) => (
+                  <div
+                    key={t.id}
+                    className="absolute"
+                    style={{
+                      left: `${t.x}%`,
+                      top: `${t.y}%`,
+                      transform: 'translate(-50%, -50%)',
+                      fontFamily: t.fontFamily,
+                      fontSize: t.fontSize,
+                      color: t.color,
+                      fontWeight: t.bold ? 700 : 400,
+                      fontStyle: t.italic ? 'italic' : 'normal',
+                      whiteSpace: 'pre-wrap',
+                      textAlign: 'center',
+                    }}
+                  >
+                    {t.content}
+                  </div>
+                ))}
+                {slide.stickers.map((st) => (
+                  <div
+                    key={st.id}
+                    className="absolute"
+                    style={{
+                      left: `${st.x}%`,
+                      top: `${st.y}%`,
+                      fontSize: st.size,
+                      transform: 'translate(-50%, -50%)',
+                    }}
+                  >
+                    {st.emoji}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

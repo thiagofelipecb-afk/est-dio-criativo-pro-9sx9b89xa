@@ -33,6 +33,10 @@ import Configuracoes from './pages/Configuracoes'
 import Assessoria from './pages/Assessoria'
 import VersaoMobile from './pages/VersaoMobile'
 import Academy from './pages/Academy'
+import Modelos from './pages/Modelos'
+import Musicas from './pages/Musicas'
+import Midias from './pages/Midias'
+import Elementos from './pages/Elementos'
 import { Whiteboard as WhiteboardPage } from '@/components/studio/Whiteboard'
 
 const App = () => (
@@ -53,8 +57,13 @@ const App = () => (
                 <Route path="/editor/:id" element={<EditorVideo />} />
                 <Route path="/carrossel" element={<Carrossel />} />
                 <Route path="/post" element={<PostEstatico />} />
+                <Route path="/criar-post" element={<PostEstatico />} />
                 <Route path="/teleprompter" element={<Teleprompter />} />
                 <Route path="/agendamento" element={<Agendamento />} />
+                <Route path="/modelos" element={<Modelos />} />
+                <Route path="/musicas" element={<Musicas />} />
+                <Route path="/midias" element={<Midias />} />
+                <Route path="/elementos" element={<Elementos />} />
                 {/* Plataforma de Marketing e Vendas com IA */}
                 <Route path="/modulo-1" element={<Posicionamento />} />
                 <Route path="/posicionamento" element={<Posicionamento />} />

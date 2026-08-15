@@ -1,643 +1,867 @@
-import React, { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useStudio } from '@/context/StudioContext'
-import { usePlatform } from '@/context/PlatformContext'
-import { StaticPostProject } from '@/types/studio'
+import React, { useState, useRef, useCallback, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Slider } from '@/components/ui/slider'
-import { Switch } from '@/components/ui/switch'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Input } from '@/components/ui/input'
 import {
-  FileImage,
   Download,
-  Calendar,
-  Sparkles,
+  FileImage,
   Type,
-  Palette,
-  Eye,
-  Sliders,
-  Check,
-  ShieldCheck,
-  Smile,
-  ChevronDown,
-  ChevronUp,
-  Copy,
+  Shapes,
+  Square,
+  Circle,
+  Minus,
+  Star,
+  Triangle as TriangleIcon,
+  Image as ImageIcon,
+  ArrowUp,
+  ArrowDown,
+  Plus,
+  Trash2,
+  X,
+  LayoutTemplate,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { ContentBlock, FunnelStage, Awareness } from '@/types/platform'
+import type { StaticPostV2, StaticPostElement } from '@/types/library'
+import { STATIC_FONTS, STATIC_TEMPLATES } from '@/lib/libraryData'
 
-const uid = (p: string) => `${p}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+const STORAGE_KEY = 'lumen_static_posts_v2'
+const CANVAS_W = 1080
+const CANVAS_H = 1080
+const GRID = 20
 
-function newBlock(
-  blockType: string,
-  position: number,
-  text = '',
-  aiGenerated = false,
-): ContentBlock {
+const uid = (p: string) => `${p}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+
+const fileToDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+
+function newPost(): StaticPostV2 {
+  const now = new Date().toISOString()
   return {
-    id: uid('blk'),
-    blockType,
-    position,
-    text,
-    version: 1,
-    aiGenerated,
-    locked: false,
-    order: position,
+    id: uid('sp'),
+    name: 'Novo Post Estático',
+    canvasWidth: CANVAS_W,
+    canvasHeight: CANVAS_H,
+    backgroundColor: '#0B0B10',
+    backgroundType: 'color',
+    elements: [],
+    createdAt: now,
+    updatedAt: now,
   }
 }
 
-export default function PostEstatico() {
-  const navigate = useNavigate()
-  const { staticPosts, saveStaticPost, schedulePost } = useStudio()
-  const { hasBrandOS, brandProfile, saveContentItem } = usePlatform()
-
-  const [post, setPost] = useState<StaticPostProject>(() => {
-    return (
-      staticPosts[0] || {
-        id: 'post-new-' + Date.now(),
-        title: 'Frase Motivacional Tech',
-        aspectRatio: '1:1',
-        bgType: 'gradient',
-        bgColor: '#14141C',
-        bgGradient: 'from-violet-950 via-slate-950 to-cyan-950',
-        blurAmount: 0,
-        headline: 'A consistência vence o algoritmo todos os dias.',
-        subtitle: 'Não espere a inspiração perfeita: publique, analise e evolua.',
-        authorName: 'LUMEN Studio',
-        authorHandle: '@lumenstudio.ia',
-        authorAvatar: 'https://img.usecurling.com/ppl/medium?seed=42',
-        badgeText: 'INSIGHT DO DIA',
-        watermark: true,
-        filter: 'cinematic',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        thumbnail: 'https://img.usecurling.com/p/1080/1080?q=cyberpunk+quote+studio&color=purple',
-      }
-    )
-  })
-
-  const updatePost = (updates: Partial<StaticPostProject>) => {
-    const updated = { ...post, ...updates, updatedAt: new Date().toISOString() }
-    setPost(updated)
-    saveStaticPost(updated)
+function loadPosts(): StaticPostV2[] {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    return saved ? (JSON.parse(saved) as StaticPostV2[]) : []
+  } catch {
+    return []
   }
+}
 
-  // === Painel de configuração (Topo de funil / Consciência / CTA / Tema / Detalhes) ===
-  const [showConfig, setShowConfig] = useState(true)
-  const [objective, setObjective] = useState<FunnelStage>(
-    (post as any).funnelStage || (post as any).funnel_stage || 'topo',
+function savePosts(list: StaticPostV2[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list))
+  } catch {
+    /* quota */
+  }
+}
+
+const snapToGrid = (v: number) => Math.round(v / GRID) * GRID
+
+export default function PostEstatico() {
+  const [posts, setPosts] = useState<StaticPostV2[]>(() => loadPosts())
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const [selectedElId, setSelectedElId] = useState<string | null>(null)
+  const [dragging, setDragging] = useState<{ id: string; offsetX: number; offsetY: number } | null>(
+    null,
   )
-  const [awareness, setAwareness] = useState<Awareness>((post as any).awareness || 3)
-  const [cta, setCta] = useState((post as any).cta || 'Comentar')
-  const [theme, setTheme] = useState((post as any).theme || '')
-  const [details, setDetails] = useState((post as any).details || '')
+  const canvasRef = useRef<HTMLDivElement>(null)
 
-  // Autosave do briefing com debounce 2s
-  useEffect(() => {
-    const t = setTimeout(() => {
-      const briefing = { objective, awareness, cta, theme, details }
-      localStorage.setItem('lumen_post_briefing', JSON.stringify(briefing))
-    }, 2000)
-    return () => clearTimeout(t)
-  }, [objective, awareness, cta, theme, details])
-
-  useEffect(() => {
-    const saved = localStorage.getItem('lumen_post_briefing')
-    if (saved) {
-      try {
-        const v = JSON.parse(saved)
-        if (v.objective) setObjective(v.objective)
-        if (v.awareness) setAwareness(v.awareness)
-        if (v.cta) setCta(v.cta)
-        if (v.theme) setTheme(v.theme)
-        if (v.details) setDetails(v.details)
-      } catch {
-        /* intentionally ignored */
-      }
+  const activePost: StaticPostV2 = useMemo(() => {
+    if (activeId) {
+      const found = posts.find((p) => p.id === activeId)
+      if (found) return found
     }
+    if (posts.length > 0) return posts[0]
+    return newPost()
+  }, [activeId, posts])
+
+  const persist = useCallback((updated: StaticPostV2) => {
+    setPosts((prev) => {
+      const exists = prev.some((p) => p.id === updated.id)
+      const next = exists
+        ? prev.map((p) => (p.id === updated.id ? updated : p))
+        : [updated, ...prev]
+      savePosts(next)
+      return next
+    })
   }, [])
 
-  // === Saída editável por blocos (ContentBlock) ===
-  const [blocks, setBlocks] = useState<ContentBlock[]>(() => {
-    const saved = localStorage.getItem('lumen_post_blocks')
-    if (saved) {
-      try {
-        return JSON.parse(saved)
-      } catch {
-        /* intentionally ignored */
+  const updatePost = (updater: (p: StaticPostV2) => StaticPostV2) => {
+    persist({ ...updater(activePost), updatedAt: new Date().toISOString() })
+  }
+
+  const selectedEl = activePost.elements.find((e) => e.id === selectedElId) || null
+
+  // --- Adicionar elementos ---
+  const addText = () => {
+    const el: StaticPostElement = {
+      id: uid('el'),
+      type: 'text',
+      content: 'Novo texto',
+      x: 200,
+      y: 200,
+      width: 400,
+      height: 80,
+      color: '#FFFFFF',
+      fontFamily: 'Inter',
+      fontSize: 48,
+      align: 'center',
+      bold: false,
+      italic: false,
+    }
+    updatePost((p) => ({ ...p, elements: [...p.elements, el] }))
+    setSelectedElId(el.id)
+  }
+
+  const addShape = (shape: 'rectangle' | 'circle' | 'line' | 'star' | 'triangle') => {
+    const el: StaticPostElement = {
+      id: uid('el'),
+      type: 'shape',
+      content: '',
+      x: 300,
+      y: 300,
+      width: 200,
+      height: 200,
+      color: '#7C5CFC',
+      shape,
+      opacity: 1,
+    }
+    updatePost((p) => ({ ...p, elements: [...p.elements, el] }))
+    setSelectedElId(el.id)
+  }
+
+  const addLine = () => {
+    const el: StaticPostElement = {
+      id: uid('el'),
+      type: 'line',
+      content: '',
+      x: 200,
+      y: 400,
+      width: 600,
+      height: 6,
+      color: '#22D3EE',
+      opacity: 1,
+    }
+    updatePost((p) => ({ ...p, elements: [...p.elements, el] }))
+    setSelectedElId(el.id)
+  }
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      toast.error('Envie uma imagem')
+      return
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Imagem acima de 10MB')
+      return
+    }
+    const url = await fileToDataUrl(file)
+    const el: StaticPostElement = {
+      id: uid('el'),
+      type: 'image',
+      content: '',
+      x: 200,
+      y: 200,
+      width: 400,
+      height: 400,
+      color: '#FFFFFF',
+      imageUrl: url,
+      opacity: 1,
+    }
+    updatePost((p) => ({ ...p, elements: [...p.elements, el] }))
+    setSelectedElId(el.id)
+    toast.success('Imagem adicionada')
+    e.target.value = ''
+  }
+
+  // --- Atualizar/excluir elemento ---
+  const updateEl = (id: string, updates: Partial<StaticPostElement>) =>
+    updatePost((p) => ({
+      ...p,
+      elements: p.elements.map((e) => (e.id === id ? { ...e, ...updates } : e)),
+    }))
+
+  const deleteEl = (id: string) => {
+    updatePost((p) => ({ ...p, elements: p.elements.filter((e) => e.id !== id) }))
+    if (selectedElId === id) setSelectedElId(null)
+  }
+
+  // --- Camadas ---
+  const moveLayer = (id: string, dir: 'up' | 'down') => {
+    updatePost((p) => {
+      const els = [...p.elements]
+      const idx = els.findIndex((e) => e.id === id)
+      if (idx === -1) return p
+      if (dir === 'up' && idx < els.length - 1) {
+        ;[els[idx], els[idx + 1]] = [els[idx + 1], els[idx]]
+      } else if (dir === 'down' && idx > 0) {
+        ;[els[idx], els[idx - 1]] = [els[idx - 1], els[idx]]
+      }
+      return { ...p, elements: els }
+    })
+  }
+
+  // --- Arrastar ---
+  const handlePointerDown = (e: React.PointerEvent, el: StaticPostElement) => {
+    e.stopPropagation()
+    setSelectedElId(el.id)
+    if (!canvasRef.current) return
+    const rect = canvasRef.current.getBoundingClientRect()
+    const scale = rect.width / CANVAS_W
+    const offsetX = e.clientX - rect.left - el.x * scale
+    const offsetY = e.clientY - rect.top - el.y * scale
+    setDragging({ id: el.id, offsetX, offsetY })
+    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+  }
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!dragging || !canvasRef.current) return
+    const rect = canvasRef.current.getBoundingClientRect()
+    const scale = rect.width / CANVAS_W
+    let x = (e.clientX - rect.left - dragging.offsetX) / scale
+    let y = (e.clientY - rect.top - dragging.offsetY) / scale
+    x = snapToGrid(Math.max(0, Math.min(CANVAS_W - 10, x)))
+    y = snapToGrid(Math.max(0, Math.min(CANVAS_H - 10, y)))
+    updateEl(dragging.id, { x, y })
+  }
+
+  const handlePointerUp = () => setDragging(null)
+
+  // --- Templates ---
+  const applyTemplate = (tpl: (typeof STATIC_TEMPLATES)[number]) => {
+    updatePost((p) => ({
+      ...p,
+      backgroundColor: tpl.backgroundColor,
+      backgroundType: tpl.backgroundType,
+      backgroundGradient: tpl.backgroundGradient,
+      elements: tpl.elements.map((e) => ({ ...e, id: uid('el') })),
+      name: `${tpl.name} — ${new Date().toLocaleDateString('pt-BR')}`,
+    }))
+    setSelectedElId(null)
+    toast.success(`Template "${tpl.name}" aplicado`)
+  }
+
+  // --- Fundo ---
+  const handleBgUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      toast.error('Envie uma imagem')
+      return
+    }
+    const url = await fileToDataUrl(file)
+    updatePost((p) => ({ ...p, backgroundType: 'image', backgroundImage: url }))
+    e.target.value = ''
+  }
+
+  // --- Exportar PNG ---
+  const handleExport = () => {
+    const canvas = document.createElement('canvas')
+    canvas.width = CANVAS_W
+    canvas.height = CANVAS_H
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      toast.error('Não foi possível criar o canvas')
+      return
+    }
+    // Fundo
+    if (activePost.backgroundType === 'color') {
+      ctx.fillStyle = activePost.backgroundColor
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H)
+    } else if (activePost.backgroundType === 'image' && activePost.backgroundImage) {
+      // Async: não bloqueia, mas para simplicidade usa gradient fallback
+      ctx.fillStyle = activePost.backgroundColor
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H)
+    }
+
+    const renderElements = async () => {
+      // Imagem de fundo
+      if (activePost.backgroundType === 'image' && activePost.backgroundImage) {
+        try {
+          const img = await loadImage(activePost.backgroundImage)
+          ctx.drawImage(img, 0, 0, CANVAS_W, CANVAS_H)
+        } catch {
+          /* noop */
+        }
+      }
+      for (const el of activePost.elements) {
+        ctx.save()
+        ctx.globalAlpha = el.opacity ?? 1
+        if (el.type === 'text') {
+          ctx.fillStyle = el.color
+          ctx.font = `${el.bold ? 'bold ' : ''}${el.italic ? 'italic ' : ''}${el.fontSize}px ${el.fontFamily || 'Inter'}`
+          ctx.textAlign = el.align || 'left'
+          ctx.textBaseline = 'top'
+          const lines = el.content.split('\n')
+          lines.forEach((line, i) => {
+            ctx.fillText(line, el.x, el.y + i * (el.fontSize || 24) * 1.2)
+          })
+        } else if (el.type === 'image' && el.imageUrl) {
+          try {
+            const img = await loadImage(el.imageUrl)
+            ctx.drawImage(img, el.x, el.y, el.width, el.height)
+          } catch {
+            /* noop */
+          }
+        } else if (el.type === 'shape' && el.shape) {
+          ctx.fillStyle = el.color
+          if (el.shape === 'rectangle') {
+            ctx.fillRect(el.x, el.y, el.width, el.height)
+          } else if (el.shape === 'circle') {
+            ctx.beginPath()
+            ctx.arc(
+              el.x + el.width / 2,
+              el.y + el.height / 2,
+              Math.min(el.width, el.height) / 2,
+              0,
+              Math.PI * 2,
+            )
+            ctx.fill()
+          } else if (el.shape === 'star') {
+            drawStar(
+              ctx,
+              el.x + el.width / 2,
+              el.y + el.height / 2,
+              Math.min(el.width, el.height) / 2,
+            )
+          } else if (el.shape === 'triangle') {
+            ctx.beginPath()
+            ctx.moveTo(el.x + el.width / 2, el.y)
+            ctx.lineTo(el.x + el.width, el.y + el.height)
+            ctx.lineTo(el.x, el.y + el.height)
+            ctx.closePath()
+            ctx.fill()
+          }
+        } else if (el.type === 'line') {
+          ctx.fillStyle = el.color
+          ctx.fillRect(el.x, el.y, el.width, el.height)
+        }
+        ctx.restore()
+      }
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          toast.error('Falha ao gerar PNG')
+          return
+        }
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${activePost.name || 'post'}.png`
+        a.click()
+        URL.revokeObjectURL(url)
+        toast.success('PNG exportado com sucesso!')
+      }, 'image/png')
+    }
+    renderElements()
+  }
+
+  // Fundo CSS
+  const bgCss = (): React.CSSProperties => {
+    if (activePost.backgroundType === 'image' && activePost.backgroundImage) {
+      return {
+        backgroundImage: `url(${activePost.backgroundImage})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
       }
     }
-    return [
-      newBlock('headline', 0, post.headline, false),
-      newBlock('body', 1, post.subtitle, false),
-      newBlock('cta', 2, cta, false),
-      newBlock('hashtags', 3, '#lumenstudio #criadores #conteudo', false),
-      newBlock('caption', 4, `${post.headline} — ${post.subtitle}`, false),
-    ]
-  })
-
-  // Autosave dos blocos com debounce 2s
-  useEffect(() => {
-    const t = setTimeout(() => {
-      localStorage.setItem('lumen_post_blocks', JSON.stringify(blocks))
-    }, 2000)
-    return () => clearTimeout(t)
-  }, [blocks])
-
-  const updateBlock = (id: string, text: string) => {
-    setBlocks((bs) => bs.map((b) => (b.id === id ? { ...b, text, version: b.version + 1 } : b)))
-  }
-
-  const regenBlock = (b: ContentBlock) => {
-    if (!hasBrandOS) {
-      toast.error('Configure seu Brand OS primeiro em Posicionamento.', {
-        description: 'A regeneração usa o Brand OS ativo como contexto.',
-      })
-      return
+    if (activePost.backgroundType === 'gradient' && activePost.backgroundGradient) {
+      return { background: `linear-gradient(135deg, ${activePost.backgroundColor})` }
     }
-    const diff = brandProfile.base.differential || 'entrega de valor'
-    const variants = [
-      `${b.text.replace(/\.$/, '')} — e é por isso que ${diff.toLowerCase()}.`,
-      `Reescrito: ${b.text}`,
-      `${b.text}\n\n→ ${diff}.`,
-    ]
-    updateBlock(b.id, variants[Math.floor(Math.random() * variants.length)])
-    toast.success('Bloco regenerado com IA (simulada).')
-  }
-
-  const generateBlocks = () => {
-    if (!hasBrandOS) {
-      toast.error('Configure seu Brand OS primeiro em Posicionamento.', {
-        action: { label: 'Tentar novamente', onClick: generateBlocks },
-      })
-      return
-    }
-    if (!theme.trim()) {
-      toast.error('Informe o tema antes de gerar.')
-      return
-    }
-    const aud = brandProfile.base.audience || 'criador'
-    const diff = brandProfile.base.differential || 'foco em execução com método'
-    setBlocks([
-      newBlock(
-        'headline',
-        0,
-        `Você não precisa de mais ${theme.toLowerCase()}. Precisa de método.`,
-        true,
-      ),
-      newBlock(
-        'body',
-        1,
-        `Se você é ${aud} e ainda ${theme.toLowerCase()} sem estratégia, está perdendo tempo.\n\nAqui vai o que realmente funciona: ${diff}.${details ? `\n\n${details}` : ''}`,
-        true,
-      ),
-      newBlock(
-        'cta',
-        2,
-        `${cta}: comente "${cta.toUpperCase()}" e te envio o passo a passo.`,
-        true,
-      ),
-      newBlock(
-        'hashtags',
-        3,
-        `#${theme.split(' ')[0].toLowerCase()} #marketing #conteudo #lumen`,
-        true,
-      ),
-      newBlock('caption', 4, `${theme} — salve este post para consultar depois. ${diff}.`, true),
-    ])
-    // Salva como ContentItem no Módulo Conteúdo
-    const id = uid('post')
-    saveContentItem({
-      id,
-      type: 'post',
-      title: theme,
-      blocks,
-      funnelStage: objective,
-      funnel_stage: objective,
-      awareness,
-      cta,
-      status: 'gerado',
-      contextVersion: brandProfile.activeVersion,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      theme,
-      objective: `${objective} • consciência ${awareness}`,
-      brand_profile_version_id: `brand-os-v${brandProfile.activeVersion}`,
-      prompt_version: '1.0',
-      model: 'lumen-simulated-v1',
-      generated_at: new Date().toISOString(),
-    })
-    toast.success('Conteúdo gerado por blocos e salvo no Módulo Conteúdo!')
-  }
-
-  const handleExport = () => {
-    toast.success('Imagem exportada em ultra definição (PNG)!')
-  }
-
-  const handleSchedule = () => {
-    schedulePost({
-      title: post.title,
-      mediaUrl: post.thumbnail,
-      mediaType: 'post',
-      platforms: ['instagram'],
-      scheduledDate: new Date(Date.now() + 3600000 * 18).toISOString(),
-      caption: `"${post.headline}" ✨ ${post.subtitle} #lumenstudio #mindset #criadores`,
-      hashtags: ['#lumenstudio', '#frasedodia', '#criacaodeconteudo', '#marketing'],
-      status: 'scheduled',
-    })
-    navigate('/agendamento')
-    toast.success('Post agendado para publicação!')
+    return { backgroundColor: activePost.backgroundColor }
   }
 
   return (
     <div className="h-full flex flex-col p-4 sm:p-6 max-w-7xl mx-auto gap-4 overflow-y-auto animate-fade-in">
-      {/* Top Header */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate('/projetos')}
-            className="text-xs text-[#9494A8] hover:text-white"
-          >
-            ← Voltar
-          </Button>
-          <div>
-            <h1 className="text-xl sm:text-2xl font-extrabold text-white flex items-center gap-2">
-              <FileImage className="w-6 h-6 text-amber-400" />
-              Criador de Post Estático
-            </h1>
-            <p className="text-xs text-[#9494A8]">
-              Design de citações, anúncios e imagens de alto impacto para Feed, Stories e Quadrados.
-            </p>
-          </div>
+        <div>
+          <h1 className="text-xl sm:text-2xl font-extrabold text-white flex items-center gap-2">
+            <FileImage className="w-6 h-6 text-amber-400" />
+            Criar Post Estático
+          </h1>
+          <p className="text-xs text-[#9494A8]">
+            Canvas 1080×1080 com fundo, texto, formas e camadas. Exporte como PNG.
+          </p>
         </div>
-
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            onClick={handleExport}
-            className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs font-semibold gap-1.5"
-          >
-            <Download className="w-3.5 h-3.5" /> Baixar Imagem
-          </Button>
-
-          <Button
-            size="sm"
-            onClick={handleSchedule}
-            className="bg-[#22D3EE] hover:bg-[#1CBAD1] text-black text-xs font-bold gap-1.5"
-          >
-            <Calendar className="w-3.5 h-3.5" /> Agendar Post
-          </Button>
-        </div>
-      </div>
-
-      {/* === PAINEL DE CONFIGURAÇÃO (Objetivo / Consciência / CTA / Tema / Detalhes) === */}
-      <div className="rounded-2xl bg-[#14141C] border border-white/10 p-4 space-y-3">
-        <button
-          onClick={() => setShowConfig((s) => !s)}
-          className="w-full flex items-center justify-between"
+        <Button
+          size="sm"
+          onClick={handleExport}
+          className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs font-semibold gap-1.5"
         >
-          <div className="flex items-center gap-2">
-            <Sliders className="w-4 h-4 text-[#7C5CFC]" />
-            <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-              Configuração do conteúdo
-            </h3>
-            {hasBrandOS ? (
-              <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[9px]">
-                Brand OS v{brandProfile.activeVersion}
-              </Badge>
-            ) : (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[9px] cursor-help">
-                    Brand OS pendente
-                  </Badge>
-                </TooltipTrigger>
-                <TooltipContent className="bg-[#1C1C27] text-white border-white/10 text-xs">
-                  Configure seu Brand OS primeiro em Posicionamento para gerar conteúdo.
-                </TooltipContent>
-              </Tooltip>
-            )}
-          </div>
-          {showConfig ? (
-            <ChevronUp className="w-4 h-4 text-[#9494A8]" />
-          ) : (
-            <ChevronDown className="w-4 h-4 text-[#9494A8]" />
-          )}
-        </button>
-        {showConfig && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
-            <div>
-              <label className="text-[11px] text-[#9494A8] block mb-1">Objetivo</label>
-              <select
-                value={objective}
-                onChange={(e) => setObjective(e.target.value as FunnelStage)}
-                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
-              >
-                <option value="topo">Topo de Funil</option>
-                <option value="meio">Meio de Funil</option>
-                <option value="fundo">Fundo de Funil</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-[11px] text-[#9494A8] block mb-1">
-                Nível de Consciência: <span className="text-white font-bold">{awareness}</span>
-                <span className="text-[#9494A8]/60 ml-1">(Eugene Schwartz)</span>
-              </label>
-              <div className="flex items-center gap-2 pt-1">
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => setAwareness(n as Awareness)}
-                    className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold border transition-all ${
-                      awareness === n
-                        ? 'bg-[#7C5CFC]/20 text-[#7C5CFC] border-[#7C5CFC]/40'
-                        : 'bg-[#1C1C27] text-[#9494A8] border-white/10 hover:text-white'
-                    }`}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="text-[11px] text-[#9494A8] block mb-1">CTA</label>
-              <input
-                value={cta}
-                onChange={(e) => setCta(e.target.value)}
-                placeholder="Ex: Comentar, Salvar, Link na bio"
-                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
-              />
-            </div>
-            <div>
-              <label className="text-[11px] text-[#9494A8] block mb-1">Tema *</label>
-              <input
-                value={theme}
-                onChange={(e) => setTheme(e.target.value)}
-                placeholder="Ex: Erros ao criar conteúdo"
-                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label className="text-[11px] text-[#9494A8] block mb-1">Detalhes (opcional)</label>
-              <textarea
-                value={details}
-                onChange={(e) => setDetails(e.target.value)}
-                rows={2}
-                placeholder="Contexto adicional para a geração…"
-                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC] resize-none"
-              />
-            </div>
-            <div className="md:col-span-3 flex items-center gap-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex">
-                    <Button
-                      size="sm"
-                      onClick={generateBlocks}
-                      disabled={!hasBrandOS || !theme.trim()}
-                      className="bg-gradient-to-r from-[#7C5CFC] to-[#6A48E0] text-xs font-semibold gap-1.5 disabled:opacity-50"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" /> Gerar conteúdo por blocos
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                {!hasBrandOS && (
-                  <TooltipContent className="bg-[#1C1C27] text-white border-white/10 text-xs">
-                    Configure seu Brand OS primeiro em Posicionamento.
-                  </TooltipContent>
-                )}
-              </Tooltip>
-            </div>
-          </div>
-        )}
+          <Download className="w-3.5 h-3.5" /> Exportar como PNG
+        </Button>
       </div>
 
-      {/* === SAÍDA EDITÁVEL POR BLOCOS (ContentBlock) === */}
-      <div className="rounded-2xl bg-[#14141C] border border-white/10 p-4 space-y-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-            <Type className="w-3.5 h-3.5 text-[#22D3EE]" /> Saída por blocos (editável)
-          </h3>
-          <Button
-            size="sm"
-            variant="outline"
-            className="border-white/10 text-[11px] gap-1.5"
-            onClick={() => {
-              navigator.clipboard.writeText(blocks.map((b) => b.text).join('\n\n'))
-              toast.success('Copy completa copiada!')
-            }}
-          >
-            <Copy className="w-3 h-3" /> Copiar tudo
-          </Button>
+      {/* Templates */}
+      <div className="rounded-2xl bg-[#14141C] border border-white/10 p-3 space-y-2">
+        <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+          <LayoutTemplate className="w-3.5 h-3.5 text-[#7C5CFC]" /> Templates
+        </h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {STATIC_TEMPLATES.map((tpl) => (
+            <button
+              key={tpl.id}
+              onClick={() => applyTemplate(tpl)}
+              className="p-3 rounded-xl bg-[#1C1C27] border border-white/10 hover:border-[#7C5CFC]/40 text-left transition-all"
+            >
+              <div
+                className={`w-full aspect-square rounded-lg mb-2 bg-gradient-to-br ${tpl.backgroundGradient || 'from-slate-800 to-slate-900'}`}
+                style={
+                  tpl.backgroundType === 'color'
+                    ? { backgroundColor: tpl.backgroundColor }
+                    : undefined
+                }
+              />
+              <span className="text-xs font-semibold text-white">{tpl.name}</span>
+            </button>
+          ))}
         </div>
-        {blocks.map((b) => (
-          <div
-            key={b.id}
-            className="rounded-xl border border-white/10 bg-[#0e0e15]/60 p-3 space-y-2"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#7C5CFC]">
-                  {b.blockType}
-                </span>
-                {b.aiGenerated && (
-                  <Badge className="bg-[#22D3EE]/10 text-[#22D3EE] border-[#22D3EE]/20 text-[9px]">
-                    IA
-                  </Badge>
-                )}
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(b.text)
-                    toast.success('Bloco copiado!')
-                  }}
-                  className="p-1 rounded text-[#9494A8] hover:text-white hover:bg-white/5"
-                  title="Copiar"
-                >
-                  <Copy className="w-3 h-3" />
-                </button>
-                <button
-                  onClick={() => regenBlock(b)}
-                  className="p-1 rounded text-[#22D3EE] hover:bg-[#22D3EE]/10"
-                  title="Regenerar bloco"
-                >
-                  <Sparkles className="w-3 h-3" />
-                </button>
-              </div>
-            </div>
-            <textarea
-              value={b.text}
-              onChange={(e) => updateBlock(b.id, e.target.value)}
-              rows={Math.min(6, Math.max(2, b.text.split('\n').length))}
-              className="w-full bg-[#1C1C27] border border-white/10 rounded-lg p-2 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-[#7C5CFC] resize-none leading-relaxed"
+      </div>
+
+      {/* Workspace */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-[560px]">
+        {/* Canvas + camadas */}
+        <div className="lg:col-span-8 flex flex-col items-center gap-3 bg-[#07070A] rounded-2xl border border-white/10 p-6">
+          <div className="flex items-center gap-2 w-full">
+            <Input
+              value={activePost.name}
+              onChange={(e) => updatePost((p) => ({ ...p, name: e.target.value }))}
+              className="bg-[#14141C] border-white/10 text-xs text-white flex-1"
+              placeholder="Nome do post"
             />
           </div>
-        ))}
-      </div>
-
-      {/* Main Workspace */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-[500px]">
-        {/* CENTER POST CANVAS (8 cols) */}
-        <div className="lg:col-span-8 flex flex-col items-center justify-center bg-[#07070A] rounded-2xl border border-white/10 p-6 relative shadow-2xl">
-          {/* Ratio Switcher Bar */}
-          <div className="absolute top-4 left-4 flex items-center gap-1.5 bg-black/60 backdrop-blur-md p-1 rounded-xl border border-white/10 z-20">
-            {(['1:1', '4:5', '9:16'] as const).map((ratio) => (
-              <button
-                key={ratio}
-                onClick={() => updatePost({ aspectRatio: ratio })}
-                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
-                  post.aspectRatio === ratio
-                    ? 'bg-[#7C5CFC] text-white'
-                    : 'text-[#9494A8] hover:text-white'
-                }`}
+          <div
+            ref={canvasRef}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerLeave={handlePointerUp}
+            onClick={() => setSelectedElId(null)}
+            className="relative w-full max-w-[480px] aspect-square rounded-xl border border-white/15 overflow-hidden shadow-2xl"
+            style={bgCss()}
+          >
+            {/* Grade (snap 20px) */}
+            <div
+              className="absolute inset-0 pointer-events-none opacity-20"
+              style={{
+                backgroundImage:
+                  'linear-gradient(to right, rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.1) 1px, transparent 1px)',
+                backgroundSize: `${(GRID / CANVAS_W) * 100}% ${(GRID / CANVAS_H) * 100}%`,
+              }}
+            />
+            {activePost.elements.map((el) => (
+              <div
+                key={el.id}
+                onPointerDown={(e) => handlePointerDown(e, el)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setSelectedElId(el.id)
+                }}
+                className={`absolute cursor-move select-none ${selectedElId === el.id ? 'ring-2 ring-[#22D3EE]' : ''}`}
+                style={{
+                  left: `${(el.x / CANVAS_W) * 100}%`,
+                  top: `${(el.y / CANVAS_H) * 100}%`,
+                  width: `${(el.width / CANVAS_W) * 100}%`,
+                  height: `${(el.height / CANVAS_H) * 100}%`,
+                  opacity: el.opacity ?? 1,
+                }}
               >
-                {ratio}
-              </button>
+                {el.type === 'text' && (
+                  <div
+                    style={{
+                      fontFamily: el.fontFamily,
+                      fontSize: 'clamp(8px, 4vw, 28px)',
+                      color: el.color,
+                      fontWeight: el.bold ? 700 : 400,
+                      fontStyle: el.italic ? 'italic' : 'normal',
+                      textAlign: el.align,
+                      whiteSpace: 'pre-wrap',
+                      width: '100%',
+                      height: '100%',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                    }}
+                  >
+                    {el.content}
+                  </div>
+                )}
+                {el.type === 'image' && el.imageUrl && (
+                  <img src={el.imageUrl} alt="" className="w-full h-full object-cover" />
+                )}
+                {el.type === 'shape' && el.shape === 'rectangle' && (
+                  <div className="w-full h-full" style={{ backgroundColor: el.color }} />
+                )}
+                {el.type === 'shape' && el.shape === 'circle' && (
+                  <div
+                    className="w-full h-full rounded-full"
+                    style={{ backgroundColor: el.color }}
+                  />
+                )}
+                {el.type === 'shape' && el.shape === 'triangle' && (
+                  <svg viewBox="0 0 100 100" className="w-full h-full" preserveAspectRatio="none">
+                    <polygon points="50,0 100,100 0,100" fill={el.color} />
+                  </svg>
+                )}
+                {el.type === 'shape' && el.shape === 'star' && (
+                  <svg viewBox="0 0 100 100" className="w-full h-full" preserveAspectRatio="none">
+                    <polygon
+                      points="50,5 61,38 95,38 67,58 78,92 50,72 22,92 33,58 5,38 39,38"
+                      fill={el.color}
+                    />
+                  </svg>
+                )}
+                {el.type === 'line' && (
+                  <div
+                    className="w-full h-full rounded-full"
+                    style={{ backgroundColor: el.color }}
+                  />
+                )}
+              </div>
             ))}
           </div>
 
-          {/* Post Visual Canvas */}
-          <div
-            className={`relative rounded-2xl shadow-2xl border border-white/15 p-8 flex flex-col justify-between overflow-hidden transition-all ${
-              post.aspectRatio === '1:1'
-                ? 'w-[360px] sm:w-[400px] aspect-square'
-                : post.aspectRatio === '4:5'
-                  ? 'w-[340px] sm:w-[380px] aspect-[4/5]'
-                  : 'w-[280px] sm:w-[320px] aspect-[9/16]'
-            } ${post.bgType === 'gradient' ? `bg-gradient-to-br ${post.bgGradient}` : ''}`}
-            style={{
-              backgroundColor: post.bgType === 'color' ? post.bgColor : undefined,
-              filter:
-                post.filter === 'cinematic'
-                  ? 'contrast(115%) saturate(120%)'
-                  : post.filter === 'vintage'
-                    ? 'sepia(30%)'
-                    : 'none',
-            }}
-          >
-            {/* Top Badge */}
-            <div className="flex items-center justify-between">
-              <span className="px-3 py-1 rounded-full bg-white/10 backdrop-blur-md text-[11px] font-bold tracking-wider uppercase text-[#22D3EE] border border-white/10">
-                {post.badgeText}
-              </span>
-              {post.watermark && (
-                <span className="text-[10px] font-bold text-white/50 tracking-widest uppercase">
-                  LUMEN STUDIO
-                </span>
-              )}
+          {/* Camadas */}
+          {activePost.elements.length > 0 && (
+            <div className="w-full max-w-[480px] rounded-xl bg-[#14141C] border border-white/10 p-2 space-y-1">
+              <span className="text-[10px] text-[#9494A8] font-bold uppercase px-1">Camadas</span>
+              {[...activePost.elements].reverse().map((el, revIdx) => {
+                const idx = activePost.elements.length - 1 - revIdx
+                return (
+                  <div
+                    key={el.id}
+                    className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer ${
+                      selectedElId === el.id ? 'bg-[#7C5CFC]/20' : 'hover:bg-white/5'
+                    }`}
+                    onClick={() => setSelectedElId(el.id)}
+                  >
+                    <span className="text-[10px] text-[#9494A8] w-4">{idx + 1}</span>
+                    <span className="text-xs text-white flex-1 truncate">
+                      {el.type === 'text' ? el.content : el.type === 'shape' ? el.shape : 'imagem'}
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        moveLayer(el.id, 'up')
+                      }}
+                      className="p-1 rounded text-[#9494A8] hover:text-white"
+                    >
+                      <ArrowUp className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        moveLayer(el.id, 'down')
+                      }}
+                      className="p-1 rounded text-[#9494A8] hover:text-white"
+                    >
+                      <ArrowDown className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        deleteEl(el.id)
+                      }}
+                      className="p-1 rounded text-red-400 hover:bg-red-500/10"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                )
+              })}
             </div>
-
-            {/* Central Headline and Subtitle */}
-            <div className="space-y-4 my-auto">
-              <h2 className="text-2xl sm:text-3xl font-extrabold text-white leading-tight drop-shadow-md">
-                "{post.headline}"
-              </h2>
-              {post.subtitle && (
-                <p className="text-sm text-slate-300 leading-relaxed drop-shadow">
-                  {post.subtitle}
-                </p>
-              )}
-            </div>
-
-            {/* Author Card Footer */}
-            <div className="flex items-center gap-3 pt-4 border-t border-white/10">
-              <img
-                src={post.authorAvatar}
-                alt={post.authorName}
-                className="w-10 h-10 rounded-full object-cover ring-2 ring-[#7C5CFC]"
-              />
-              <div>
-                <h4 className="text-xs font-bold text-white">{post.authorName}</h4>
-                <p className="text-[11px] text-[#22D3EE] font-mono">{post.authorHandle}</p>
-              </div>
-            </div>
-          </div>
+          )}
         </div>
 
-        {/* RIGHT PROPERTY CONTROLS (4 cols) */}
+        {/* Painel direito: ferramentas */}
         <div className="lg:col-span-4 bg-[#14141C] border border-white/10 rounded-2xl p-4 space-y-4 overflow-y-auto">
           <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5 pb-2 border-b border-white/5">
-            <Type className="w-3.5 h-3.5 text-amber-400" />
-            Configurações do Post
+            <Shapes className="w-3.5 h-3.5 text-amber-400" /> Ferramentas
           </h3>
 
-          <div className="space-y-3">
-            <div>
-              <label className="text-[11px] text-[#9494A8] block mb-1">Frase de Destaque</label>
-              <textarea
-                value={post.headline}
-                onChange={(e) => updatePost({ headline: e.target.value })}
-                rows={3}
-                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
-              />
-            </div>
-
-            <div>
-              <label className="text-[11px] text-[#9494A8] block mb-1">
-                Subtítulo / Explicação
+          {/* Fundo */}
+          <div className="space-y-2">
+            <span className="text-[11px] text-[#9494A8]">Fundo</span>
+            <div className="grid grid-cols-3 gap-1">
+              <button
+                onClick={() => updatePost((p) => ({ ...p, backgroundType: 'color' }))}
+                className={`py-1.5 rounded-lg text-[10px] font-bold border ${
+                  activePost.backgroundType === 'color'
+                    ? 'bg-[#7C5CFC] text-white border-[#7C5CFC]'
+                    : 'bg-[#1C1C27] text-[#9494A8] border-white/10'
+                }`}
+              >
+                Cor
+              </button>
+              <button
+                onClick={() => updatePost((p) => ({ ...p, backgroundType: 'gradient' }))}
+                className={`py-1.5 rounded-lg text-[10px] font-bold border ${
+                  activePost.backgroundType === 'gradient'
+                    ? 'bg-[#7C5CFC] text-white border-[#7C5CFC]'
+                    : 'bg-[#1C1C27] text-[#9494A8] border-white/10'
+                }`}
+              >
+                Gradiente
+              </button>
+              <label
+                className={`py-1.5 rounded-lg text-[10px] font-bold border text-center cursor-pointer ${
+                  activePost.backgroundType === 'image'
+                    ? 'bg-[#7C5CFC] text-white border-[#7C5CFC]'
+                    : 'bg-[#1C1C27] text-[#9494A8] border-white/10'
+                }`}
+              >
+                <input type="file" accept="image/*" onChange={handleBgUpload} className="hidden" />
+                Imagem
               </label>
-              <textarea
-                value={post.subtitle}
-                onChange={(e) => updatePost({ subtitle: e.target.value })}
-                rows={2}
-                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
-              />
             </div>
-
-            <div>
-              <label className="text-[11px] text-[#9494A8] block mb-1">Badge Superior</label>
+            {activePost.backgroundType === 'color' && (
               <input
-                type="text"
-                value={post.badgeText}
-                onChange={(e) => updatePost({ badgeText: e.target.value })}
-                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
+                type="color"
+                value={activePost.backgroundColor}
+                onChange={(e) => updatePost((p) => ({ ...p, backgroundColor: e.target.value }))}
+                className="w-full h-9 rounded-lg bg-transparent border border-white/10 cursor-pointer"
               />
-            </div>
-
-            {/* Gradient Switcher */}
-            <div className="pt-2 border-t border-white/5 space-y-2">
-              <label className="text-[11px] text-[#9494A8] block">Paleta de Fundo</label>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                {[
-                  {
-                    id: 'g1',
-                    label: 'Violeta / Ciano',
-                    grad: 'from-violet-950 via-slate-950 to-cyan-950',
-                  },
-                  { id: 'g2', label: 'Dark Neon', grad: 'from-purple-950 via-black to-slate-950' },
-                  {
-                    id: 'g3',
-                    label: 'Âmbar Dourado',
-                    grad: 'from-amber-950 via-slate-950 to-black',
-                  },
-                  { id: 'g4', label: 'Esmeralda', grad: 'from-emerald-950 via-slate-950 to-black' },
-                ].map((g) => (
-                  <button
-                    key={g.id}
-                    onClick={() => updatePost({ bgType: 'gradient', bgGradient: g.grad })}
-                    className="p-2 rounded-xl bg-[#1C1C27] hover:bg-[#252535] border border-white/5 text-[11px] font-medium text-white"
-                  >
-                    {g.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Watermark toggle */}
-            <div className="pt-2 border-t border-white/5 flex items-center justify-between">
-              <span className="text-xs text-[#9494A8]">Marca d'água LUMEN</span>
-              <Switch
-                checked={post.watermark}
-                onCheckedChange={(val) => updatePost({ watermark: val })}
+            )}
+            {activePost.backgroundType === 'gradient' && (
+              <input
+                type="color"
+                value={activePost.backgroundColor}
+                onChange={(e) => updatePost((p) => ({ ...p, backgroundColor: e.target.value }))}
+                className="w-full h-9 rounded-lg bg-transparent border border-white/10 cursor-pointer"
               />
+            )}
+          </div>
+
+          {/* Texto */}
+          <div className="space-y-2 pt-2 border-t border-white/5">
+            <span className="text-[11px] text-[#9494A8]">Texto</span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={addText}
+              className="w-full border-white/10 text-xs gap-1.5"
+            >
+              <Type className="w-3.5 h-3.5" /> Adicionar Texto
+            </Button>
+          </div>
+
+          {/* Formas */}
+          <div className="space-y-2 pt-2 border-t border-white/5">
+            <span className="text-[11px] text-[#9494A8]">Elementos</span>
+            <div className="grid grid-cols-5 gap-1">
+              <button
+                onClick={() => addShape('rectangle')}
+                className="aspect-square rounded-lg bg-[#1C1C27] border border-white/10 hover:border-[#7C5CFC]/40 flex items-center justify-center"
+                title="Retângulo"
+              >
+                <Square className="w-4 h-4 text-[#7C5CFC]" />
+              </button>
+              <button
+                onClick={() => addShape('circle')}
+                className="aspect-square rounded-lg bg-[#1C1C27] border border-white/10 hover:border-[#7C5CFC]/40 flex items-center justify-center"
+                title="Círculo"
+              >
+                <Circle className="w-4 h-4 text-[#22D3EE]" />
+              </button>
+              <button
+                onClick={() => addShape('triangle')}
+                className="aspect-square rounded-lg bg-[#1C1C27] border border-white/10 hover:border-[#7C5CFC]/40 flex items-center justify-center"
+                title="Triângulo"
+              >
+                <TriangleIcon className="w-4 h-4 text-[#F59E0B]" />
+              </button>
+              <button
+                onClick={() => addShape('star')}
+                className="aspect-square rounded-lg bg-[#1C1C27] border border-white/10 hover:border-[#7C5CFC]/40 flex items-center justify-center"
+                title="Estrela"
+              >
+                <Star className="w-4 h-4 text-[#EC4899]" />
+              </button>
+              <button
+                onClick={addLine}
+                className="aspect-square rounded-lg bg-[#1C1C27] border border-white/10 hover:border-[#7C5CFC]/40 flex items-center justify-center"
+                title="Linha"
+              >
+                <Minus className="w-4 h-4 text-[#10B981]" />
+              </button>
             </div>
           </div>
+
+          {/* Mídia */}
+          <div className="space-y-2 pt-2 border-t border-white/5">
+            <span className="text-[11px] text-[#9494A8]">Mídia</span>
+            <label className="cursor-pointer block">
+              <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+              <div className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#1C1C27] border border-white/10 text-xs text-white hover:border-white/20">
+                <ImageIcon className="w-3.5 h-3.5" /> Upload imagem
+              </div>
+            </label>
+          </div>
+
+          {/* Propriedades do elemento selecionado */}
+          {selectedEl && (
+            <div className="space-y-2 pt-2 border-t border-white/5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-[#9494A8]">Propriedades</span>
+                <button
+                  onClick={() => deleteEl(selectedEl.id)}
+                  className="text-red-400 hover:bg-red-500/10 p-1 rounded"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+              {selectedEl.type === 'text' && (
+                <>
+                  <textarea
+                    value={selectedEl.content}
+                    onChange={(e) => updateEl(selectedEl.id, { content: e.target.value })}
+                    rows={2}
+                    className="w-full bg-[#1C1C27] border border-white/10 rounded p-2 text-xs text-white resize-none"
+                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={selectedEl.color}
+                      onChange={(e) => updateEl(selectedEl.id, { color: e.target.value })}
+                      className="w-8 h-8 rounded bg-transparent border border-white/10 cursor-pointer"
+                    />
+                    <select
+                      value={selectedEl.fontFamily}
+                      onChange={(e) => updateEl(selectedEl.id, { fontFamily: e.target.value })}
+                      className="flex-1 bg-[#1C1C27] border border-white/10 rounded px-2 py-1.5 text-xs text-white"
+                    >
+                      {STATIC_FONTS.map((f) => (
+                        <option key={f} value={f}>
+                          {f}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="range"
+                      min={12}
+                      max={120}
+                      value={selectedEl.fontSize}
+                      onChange={(e) =>
+                        updateEl(selectedEl.id, { fontSize: Number(e.target.value) })
+                      }
+                      className="flex-1 accent-[#7C5CFC]"
+                    />
+                    <span className="text-[10px] text-[#9494A8] w-10">{selectedEl.fontSize}px</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {(['left', 'center', 'right'] as const).map((a) => (
+                      <button
+                        key={a}
+                        onClick={() => updateEl(selectedEl.id, { align: a })}
+                        className={`flex-1 py-1 rounded text-[10px] font-bold ${
+                          selectedEl.align === a
+                            ? 'bg-[#7C5CFC] text-white'
+                            : 'bg-[#1C1C27] text-[#9494A8]'
+                        }`}
+                      >
+                        {a}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => updateEl(selectedEl.id, { bold: !selectedEl.bold })}
+                      className={`flex-1 py-1.5 rounded text-xs font-bold ${selectedEl.bold ? 'bg-[#7C5CFC] text-white' : 'bg-[#1C1C27] text-[#9494A8]'}`}
+                    >
+                      B
+                    </button>
+                    <button
+                      onClick={() => updateEl(selectedEl.id, { italic: !selectedEl.italic })}
+                      className={`flex-1 py-1.5 rounded text-xs italic ${selectedEl.italic ? 'bg-[#7C5CFC] text-white' : 'bg-[#1C1C27] text-[#9494A8]'}`}
+                    >
+                      I
+                    </button>
+                  </div>
+                </>
+              )}
+              {selectedEl.type === 'shape' && (
+                <input
+                  type="color"
+                  value={selectedEl.color}
+                  onChange={(e) => updateEl(selectedEl.id, { color: e.target.value })}
+                  className="w-full h-9 rounded-lg bg-transparent border border-white/10 cursor-pointer"
+                />
+              )}
+              {selectedEl.type === 'line' && (
+                <input
+                  type="color"
+                  value={selectedEl.color}
+                  onChange={(e) => updateEl(selectedEl.id, { color: e.target.value })}
+                  className="w-full h-9 rounded-lg bg-transparent border border-white/10 cursor-pointer"
+                />
+              )}
+              {(selectedEl.type === 'shape' ||
+                selectedEl.type === 'image' ||
+                selectedEl.type === 'line') && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-[#9494A8]">Opacidade</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.1}
+                    value={selectedEl.opacity ?? 1}
+                    onChange={(e) => updateEl(selectedEl.id, { opacity: Number(e.target.value) })}
+                    className="flex-1 accent-[#22D3EE]"
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
   )
+}
+
+// --- Helpers de desenho ---
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('img load fail'))
+    img.src = src
+  })
+}
+
+function drawStar(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
+  const spikes = 5
+  const outer = r
+  const inner = r * 0.4
+  let rot = (Math.PI / 2) * 3
+  const step = Math.PI / spikes
+  ctx.beginPath()
+  ctx.moveTo(cx, cy - outer)
+  for (let i = 0; i < spikes; i++) {
+    ctx.lineTo(cx + Math.cos(rot) * outer, cy + Math.sin(rot) * outer)
+    rot += step
+    ctx.lineTo(cx + Math.cos(rot) * inner, cy + Math.sin(rot) * inner)
+    rot += step
+  }
+  ctx.lineTo(cx, cy - outer)
+  ctx.closePath()
+  ctx.fill()
 }
