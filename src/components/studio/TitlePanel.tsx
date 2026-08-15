@@ -96,9 +96,10 @@ export function TitlePanel() {
                 type="text"
                 value={titleConfig.text}
                 maxLength={100}
+                aria-label="Texto do título"
                 placeholder="Digite o título do vídeo..."
                 onChange={(e) => update({ text: e.target.value })}
-                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
+                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
               />
             </div>
 
@@ -110,7 +111,9 @@ export function TitlePanel() {
                   <button
                     key={f.id}
                     onClick={() => update({ font: f.id })}
-                    className={`py-2 rounded-lg border text-[11px] transition-colors ${
+                    aria-pressed={titleConfig.font === f.id}
+                    aria-label={`Fonte: ${f.label}`}
+                    className={`py-2 rounded-lg border text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
                       titleConfig.font === f.id
                         ? 'border-[#7C5CFC] bg-[#7C5CFC]/10 text-white'
                         : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'
@@ -142,12 +145,13 @@ export function TitlePanel() {
                   min={30}
                   max={180}
                   step={2}
+                  aria-label="Tamanho da fonte em pixels"
                   value={titleConfig.fontSize}
                   onChange={(e) => {
                     const n = Math.min(180, Math.max(30, Number(e.target.value) || 30))
                     update({ fontSize: n })
                   }}
-                  className="w-14 bg-[#1C1C27] border border-white/10 rounded-md px-1.5 py-1 text-[10px] text-white text-center focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
+                  className="w-14 bg-[#1C1C27] border border-white/10 rounded-md px-1.5 py-1 text-[10px] text-white text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
                 />
               </div>
             </div>
@@ -178,7 +182,9 @@ export function TitlePanel() {
                     key={c.value}
                     onClick={() => update({ color: c.value })}
                     title={c.name}
-                    className={`aspect-square rounded-md border-2 transition-all ${
+                    aria-label={`Cor do texto: ${c.name}`}
+                    aria-pressed={titleConfig.color === c.value}
+                    className={`aspect-square rounded-md border-2 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
                       titleConfig.color === c.value
                         ? 'border-[#7C5CFC] scale-105'
                         : 'border-white/10 hover:border-white/30'
@@ -213,7 +219,9 @@ export function TitlePanel() {
                   <button
                     onClick={() => update({ bgColor: 'transparent' })}
                     title="Transparente"
-                    className={`aspect-square rounded-md border-2 flex items-center justify-center text-[8px] font-bold transition-all ${
+                    aria-label="Fundo transparente"
+                    aria-pressed={titleConfig.bgColor === 'transparent'}
+                    className={`aspect-square rounded-md border-2 flex items-center justify-center text-[8px] font-bold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
                       titleConfig.bgColor === 'transparent'
                         ? 'border-[#7C5CFC] text-white'
                         : 'border-white/10 text-[#9494A8] hover:border-white/30'
@@ -232,14 +240,16 @@ export function TitlePanel() {
                       key={c.value}
                       onClick={() => update({ bgColor: c.value })}
                       title={c.name}
-                      className={`aspect-square rounded-md border-2 transition-all ${
+                      aria-label={`Cor de fundo: ${c.name}`}
+                      aria-pressed={titleConfig.bgColor === c.value}
+                      className={`aspect-square rounded-md border-2 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
                         titleConfig.bgColor === c.value
                           ? 'border-[#7C5CFC] scale-105'
                           : 'border-white/10 hover:border-white/30'
                       }`}
                       style={{ backgroundColor: c.value }}
                     />
-                  ))}
+                  ))}{' '}
                 </div>
               )}
             </div>
@@ -254,7 +264,9 @@ export function TitlePanel() {
                   <button
                     key={a.id}
                     onClick={() => update({ alignment: a.id })}
-                    className={`flex flex-col items-center gap-0.5 py-1.5 rounded-lg border transition-colors ${
+                    aria-pressed={titleConfig.alignment === a.id}
+                    aria-label={`Alinhamento: ${a.label}`}
+                    className={`flex flex-col items-center gap-0.5 py-1.5 rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
                       titleConfig.alignment === a.id
                         ? 'border-[#7C5CFC] bg-[#7C5CFC]/10 text-white'
                         : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'
@@ -278,7 +290,9 @@ export function TitlePanel() {
                   <button
                     key={p.id}
                     onClick={() => update({ position: p.id })}
-                    className={`flex flex-col items-center gap-0.5 py-1.5 rounded-lg border transition-colors ${
+                    aria-pressed={titleConfig.position === p.id}
+                    aria-label={`Posição vertical: ${p.label}`}
+                    className={`flex flex-col items-center gap-0.5 py-1.5 rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
                       titleConfig.position === p.id
                         ? 'border-[#7C5CFC] bg-[#7C5CFC]/10 text-white'
                         : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'
@@ -300,7 +314,8 @@ export function TitlePanel() {
                     onClick={() =>
                       update({ position: 'middle', normalizedX: 0.5, normalizedY: 0.5 })
                     }
-                    className="text-[9px] text-[#7C5CFC] hover:bg-[#7C5CFC]/10 px-1.5 py-0.5 rounded"
+                    aria-label="Resetar posição do título"
+                    className="text-[9px] text-[#7C5CFC] hover:bg-[#7C5CFC]/10 px-1.5 py-0.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
                   >
                     Resetar
                   </button>
@@ -343,7 +358,7 @@ export function TitlePanel() {
                       const n = Math.min(120, Math.max(1, Number(e.target.value) || 1))
                       update({ durationSeconds: n })
                     }}
-                    className="w-20 bg-[#1C1C27] border border-white/10 rounded-md px-2 py-1 text-[10px] text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
+                    className="w-20 bg-[#1C1C27] border border-white/10 rounded-md px-2 py-1 text-[10px] text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
                   />
                   <span className="text-[9px] text-[#9494A8]">segundos (1 a 120)</span>
                 </div>

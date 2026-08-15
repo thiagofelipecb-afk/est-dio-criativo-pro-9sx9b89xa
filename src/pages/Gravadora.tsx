@@ -41,8 +41,11 @@ import {
   AudioLines,
   Volume2,
   RefreshCw,
+  Loader2,
+  Check,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type {
   StageLayout,
   LowerPanelMode,
@@ -192,6 +195,12 @@ export default function Gravadora() {
   /* ── Mobile QR (legado) ────────────────────────────────────────────────── */
   const [showMobileQR, setShowMobileQR] = useState(false)
 
+  /* ── Loading state da câmera (getUserMedia pendente) ───────────────────── */
+  const [cameraStarting, setCameraStarting] = useState(false)
+
+  /* ── Indicador visual de take gravado (checkmark verde por 2s) ─────────── */
+  const [showTakeSuccess, setShowTakeSuccess] = useState(false)
+
   /* ── FASE 2: Lower Panel (Roteiro / Teleprompter por blocos) ───────────── */
   const [showLowerPanel, setShowLowerPanel] = useState(false)
   const [lowerPanelHeight, setLowerPanelHeight] = useState(38) // % da altura
@@ -334,6 +343,7 @@ export default function Gravadora() {
      Aplica MediaTrackConstraints com a cadeia de áudio configurada.
      ═══════════════════════════════════════════════════════════════════════ */
   const startCamera = async () => {
+    setCameraStarting(true)
     try {
       if (stream) {
         stream.getTracks().forEach((t) => t.stop())
@@ -384,6 +394,8 @@ export default function Gravadora() {
       transition('error')
       setHasPermission(false)
       setPermissionErrorModal(true)
+    } finally {
+      setCameraStarting(false)
     }
   }
 
@@ -549,12 +561,24 @@ export default function Gravadora() {
       } else if (key === 'f') {
         e.preventDefault()
         setFocusMode((prev) => !prev)
+      } else if (key === 'g') {
+        e.preventDefault()
+        setShowGrid((prev) => !prev)
+      } else if (key === 'h') {
+        e.preventDefault()
+        setShowSafeGuides((prev) => !prev)
+      } else if (key === 'p') {
+        e.preventDefault()
+        setPreviewHidden((prev) => !prev)
+      } else if (key === 'escape' && showLowerPanel) {
+        e.preventDefault()
+        setShowLowerPanel(false)
       }
     }
 
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [showLowerPanel])
 
   /* ═══════════════════════════════════════════════════════════════════════
      FASE 5.5 — Aviso antes de sair: se está gravando ou processando,
@@ -923,6 +947,9 @@ export default function Gravadora() {
 
     toast.success(`Take gravado com sucesso (${timeString})! Salvo em Meus Projetos.`)
     setRecordedSeconds(0)
+    // Indicador visual sutil no canvas (checkmark verde por 2s)
+    setShowTakeSuccess(true)
+    setTimeout(() => setShowTakeSuccess(false), 2000)
   }
 
   const handlePauseResume = () => {
@@ -1068,12 +1095,13 @@ export default function Gravadora() {
      ═══════════════════════════════════════════════════════════════════════ */
   const renderCanvas = () => (
     <div
-      className="relative bg-[#07070A] border border-white/10 overflow-hidden shadow-2xl rounded-xl"
+      className="relative bg-[#0B0B10] border border-white/10 overflow-hidden shadow-2xl rounded-xl"
       style={{
         aspectRatio: '9 / 16',
-        width: '100%',
-        maxHeight: focusMode ? '78vh' : '64vh',
+        maxHeight: focusMode ? 'calc(100vh - 120px)' : 'calc(100vh - 180px)',
+        maxWidth: 'min(calc((100vh - 180px) * 9 / 16), 100%)',
         margin: '0 auto',
+        width: '100%',
       }}
     >
       {/* FASE 4.1 — Fundo atrás do canvas (preenche toda a área do canvas) */}
@@ -1145,14 +1173,33 @@ export default function Gravadora() {
                     if (guard('startCamera')) startCamera()
                   }}
                   disabled={cameraBtnDisabled}
-                  className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs"
+                  className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
                 >
                   Solicitar Acesso à Webcam
                 </Button>
               </div>
             </div>
+          ) : cameraStarting ? (
+            <div className="relative w-full h-full overflow-hidden flex items-center justify-center bg-gradient-to-br from-[#0B0B10] via-[#14141C] to-[#0B0B10]">
+              <div className="flex flex-col items-center justify-center text-center p-4 space-y-3 max-w-xs">
+                <div className="relative">
+                  <div className="absolute inset-0 rounded-full bg-[#7C5CFC]/20 blur-2xl animate-pulse" />
+                  <div className="relative flex h-16 w-16 items-center justify-center rounded-full border-2 border-[#7C5CFC]/40 bg-[#7C5CFC]/10">
+                    <Loader2 className="w-7 h-7 text-[#7C5CFC] animate-spin" />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <h3 className="font-extrabold text-white text-base">
+                    Conectando câmera e microfone...
+                  </h3>
+                  <p className="text-[11px] text-[#9494A8] leading-relaxed">
+                    Autorize o acesso à webcam e ao microfone quando o navegador solicitar.
+                  </p>
+                </div>
+              </div>
+            </div>
           ) : (
-            <div className="relative w-full h-full overflow-hidden flex items-center justify-center bg-gradient-to-br from-[#0e0e15] via-[#14141C] to-[#07070A]">
+            <div className="relative w-full h-full overflow-hidden flex items-center justify-center bg-gradient-to-br from-[#0B0B10] via-[#14141C] to-[#0B0B10]">
               <div className="flex flex-col items-center justify-center text-center p-4 space-y-3 max-w-xs">
                 <div className="relative">
                   <div className="absolute inset-0 rounded-full bg-[#7C5CFC]/20 blur-2xl animate-pulse" />
@@ -1173,7 +1220,7 @@ export default function Gravadora() {
                     if (guard('startCamera')) startCamera()
                   }}
                   disabled={cameraBtnDisabled}
-                  className="bg-gradient-to-r from-[#7C5CFC] to-[#6A48E0] hover:from-[#6A48E0] hover:to-[#5835D8] text-white font-bold text-xs px-5 py-2 rounded-xl gap-2"
+                  className="bg-gradient-to-r from-[#7C5CFC] to-[#6A48E0] hover:from-[#6A48E0] hover:to-[#5835D8] text-white font-bold text-xs px-5 py-2 rounded-xl gap-2 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
                 >
                   <Camera className="w-4 h-4" /> Ativar Câmera
                 </Button>
@@ -1337,32 +1384,65 @@ export default function Gravadora() {
         elapsedSeconds={recordedSeconds}
       />
 
+      {/* Indicador visual de take gravado (checkmark verde por 2s) */}
+      {showTakeSuccess && (
+        <div className="absolute inset-0 z-[40] flex items-center justify-center pointer-events-none">
+          <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 backdrop-blur-md shadow-lg animate-fade-in">
+            <Check className="w-5 h-5 text-emerald-400" />
+            <span className="text-sm font-bold text-emerald-300">Take gravado!</span>
+          </div>
+        </div>
+      )}
+
       {/* Barra flutuante de gravação (não aparece no modo foco — lá é separada) */}
       {!focusMode && (
         <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/80 backdrop-blur-xl border border-white/15 p-1.5 rounded-2xl shadow-2xl z-30">
-          <button
-            onClick={() => setShowGrid(!showGrid)}
-            className={`p-1.5 rounded-lg ${showGrid ? 'bg-[#7C5CFC]/20 text-[#7C5CFC]' : 'text-[#9494A8]'}`}
-            title="Grade de Terços"
-          >
-            <Grid className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setShowTeleprompter(!showTeleprompter)}
-            className={`p-1.5 rounded-lg ${showTeleprompter ? 'bg-[#22D3EE]/20 text-[#22D3EE]' : 'text-[#9494A8]'}`}
-            title="Teleprompter na Tela"
-          >
-            <ScrollText className="w-4 h-4" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setShowGrid(!showGrid)}
+                aria-label={showGrid ? 'Ocultar grade de terços' : 'Mostrar grade de terços'}
+                aria-pressed={showGrid}
+                className={`p-1.5 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
+                  showGrid ? 'bg-[#7C5CFC]/20 text-[#7C5CFC]' : 'text-[#9494A8] hover:bg-white/5'
+                }`}
+                title="Grade de Terços (G)"
+              >
+                <Grid className="w-4 h-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Grade de terços (G)</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setShowTeleprompter(!showTeleprompter)}
+                aria-label={
+                  showTeleprompter ? 'Ocultar teleprompter na tela' : 'Mostrar teleprompter na tela'
+                }
+                aria-pressed={showTeleprompter}
+                className={`p-1.5 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
+                  showTeleprompter
+                    ? 'bg-[#22D3EE]/20 text-[#22D3EE]'
+                    : 'text-[#9494A8] hover:bg-white/5'
+                }`}
+                title="Teleprompter na Tela"
+              >
+                <ScrollText className="w-4 h-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Teleprompter na tela</TooltipContent>
+          </Tooltip>
 
           <button
             onClick={handleToggleRecord}
             disabled={recBtnDisabled}
-            className={`relative flex items-center justify-center rounded-full transition-all duration-200 ${
+            aria-label={isRecording ? 'Parar gravação' : 'Iniciar gravação'}
+            className={`relative flex items-center justify-center rounded-full transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
               isRecording
-                ? 'w-12 h-12 bg-red-600 hover:bg-red-700 shadow-xl shadow-red-500/50 scale-105'
+                ? 'w-12 h-12 bg-red-600 hover:bg-red-700 shadow-xl shadow-red-500/50 scale-105 animate-rec-pulse'
                 : 'w-12 h-12 bg-red-500 hover:bg-red-600 shadow-lg shadow-red-500/30'
-            } ${recBtnDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+            } ${recBtnDisabled ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''}`}
           >
             {isRecording ? (
               <Square className="w-5 h-5 text-white fill-current" />
@@ -1375,7 +1455,8 @@ export default function Gravadora() {
             <button
               onClick={handlePauseResume}
               disabled={pauseBtnDisabled}
-              className="p-1.5 rounded-lg text-white hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label={isPaused ? 'Retomar gravação' : 'Pausar gravação'}
+              className="p-1.5 rounded-lg text-white hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
               title={isPaused ? 'Retomar Gravação' : 'Pausar Gravação'}
             >
               {isPaused ? (
@@ -1405,11 +1486,12 @@ export default function Gravadora() {
             <button
               onClick={handleToggleRecord}
               disabled={recBtnDisabled}
-              className={`relative flex items-center justify-center rounded-full transition-all duration-200 ${
+              aria-label={isRecording ? 'Parar gravação' : 'Iniciar gravação'}
+              className={`relative flex items-center justify-center rounded-full transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
                 isRecording
-                  ? 'w-12 h-12 bg-red-600 hover:bg-red-700 shadow-xl shadow-red-500/50 scale-105'
+                  ? 'w-12 h-12 bg-red-600 hover:bg-red-700 shadow-xl shadow-red-500/50 scale-105 animate-rec-pulse'
                   : 'w-12 h-12 bg-red-500 hover:bg-red-600 shadow-lg shadow-red-500/30'
-              } ${recBtnDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+              } ${recBtnDisabled ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''}`}
               title="Gravar"
             >
               {isRecording ? (
@@ -1666,13 +1748,16 @@ export default function Gravadora() {
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => setStageLayout('split')}
-                  className={`p-2 rounded-xl border text-left transition-all ${
+                  aria-label="Layout dividido"
+                  aria-pressed={stageLayout === 'split'}
+                  className={`p-2 rounded-xl border text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
                     stageLayout === 'split'
                       ? 'border-[#7C5CFC] bg-[#7C5CFC]/10'
                       : 'border-white/10 bg-[#1C1C27] hover:border-white/20'
                   }`}
                   title="Layout Dividido (T)"
                 >
+                  {' '}
                   <div className="flex items-center gap-1.5 mb-1.5">
                     <RectangleHorizontal
                       className={`w-4 h-4 ${stageLayout === 'split' ? 'text-[#7C5CFC]' : 'text-[#9494A8]'}`}
@@ -1688,7 +1773,9 @@ export default function Gravadora() {
 
                 <button
                   onClick={() => setStageLayout('full')}
-                  className={`p-2 rounded-xl border text-left transition-all ${
+                  aria-label="Câmera cheia"
+                  aria-pressed={stageLayout === 'full'}
+                  className={`p-2 rounded-xl border text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
                     stageLayout === 'full'
                       ? 'border-[#7C5CFC] bg-[#7C5CFC]/10'
                       : 'border-white/10 bg-[#1C1C27] hover:border-white/20'
@@ -1724,51 +1811,73 @@ export default function Gravadora() {
 
               {/* Botões de preview / foco / guias */}
               <div className="grid grid-cols-2 gap-2 pt-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPreviewHidden(!previewHidden)}
-                  className="border-white/10 bg-[#1C1C27] text-[11px] text-white hover:bg-white/5 gap-1.5 justify-start"
-                  title={previewHidden ? 'Mostrar preview' : 'Ocultar preview'}
-                >
-                  {previewHidden ? (
-                    <Eye className="w-4 h-4 text-[#22D3EE]" />
-                  ) : (
-                    <EyeOff className="w-4 h-4 text-[#9494A8]" />
-                  )}
-                  {previewHidden ? 'Mostrar preview' : 'Ocultar preview'}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setFocusMode(true)}
-                  className="border-white/10 bg-[#1C1C27] text-[11px] text-white hover:bg-white/5 gap-1.5 justify-start"
-                  title="Modo foco (F)"
-                >
-                  <Maximize2 className="w-4 h-4 text-[#7C5CFC]" /> Modo foco (F)
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowSafeGuides(!showSafeGuides)}
-                  className={`border-white/10 bg-[#1C1C27] text-[11px] gap-1.5 justify-start ${
-                    showSafeGuides ? 'text-[#22D3EE]' : 'text-[#9494A8] hover:text-white'
-                  } hover:bg-white/5`}
-                  title="Guias de segurança (Botões/Legenda)"
-                >
-                  <ShieldCheck className="w-4 h-4" /> Guias
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowGrid(!showGrid)}
-                  className={`border-white/10 bg-[#1C1C27] text-[11px] gap-1.5 justify-start ${
-                    showGrid ? 'text-[#7C5CFC]' : 'text-[#9494A8] hover:text-white'
-                  } hover:bg-white/5`}
-                  title="Grade de Terços"
-                >
-                  <Grid className="w-4 h-4" /> Terços
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPreviewHidden(!previewHidden)}
+                      aria-label={previewHidden ? 'Mostrar preview' : 'Ocultar preview'}
+                      aria-pressed={!previewHidden}
+                      className="border-white/10 bg-[#1C1C27] text-[11px] text-white hover:bg-white/5 gap-1.5 justify-start focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
+                    >
+                      {previewHidden ? (
+                        <Eye className="w-4 h-4 text-[#22D3EE]" />
+                      ) : (
+                        <EyeOff className="w-4 h-4 text-[#9494A8]" />
+                      )}
+                      {previewHidden ? 'Mostrar preview' : 'Ocultar preview'}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Alternar preview (P)</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setFocusMode(true)}
+                      className="border-white/10 bg-[#1C1C27] text-[11px] text-white hover:bg-white/5 gap-1.5 justify-start focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
+                    >
+                      <Maximize2 className="w-4 h-4 text-[#7C5CFC]" /> Modo foco (F)
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Modo foco (F)</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowSafeGuides(!showSafeGuides)}
+                      aria-label="Guias de segurança"
+                      aria-pressed={showSafeGuides}
+                      className={`border-white/10 bg-[#1C1C27] text-[11px] gap-1.5 justify-start focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none ${
+                        showSafeGuides ? 'text-[#22D3EE]' : 'text-[#9494A8] hover:text-white'
+                      } hover:bg-white/5`}
+                    >
+                      <ShieldCheck className="w-4 h-4" /> Guias
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Guias de segurança (H)</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowGrid(!showGrid)}
+                      aria-label="Grade de terços"
+                      aria-pressed={showGrid}
+                      className={`border-white/10 bg-[#1C1C27] text-[11px] gap-1.5 justify-start focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none ${
+                        showGrid ? 'text-[#7C5CFC]' : 'text-[#9494A8] hover:text-white'
+                      } hover:bg-white/5`}
+                    >
+                      <Grid className="w-4 h-4" /> Terços
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Grade de terços (G)</TooltipContent>
+                </Tooltip>
               </div>
 
               {/* Seletor do modo da parte inferior (split) */}
@@ -1788,7 +1897,8 @@ export default function Gravadora() {
                       <button
                         key={m.id}
                         onClick={() => setLowerPanelMode(m.id)}
-                        className={`py-1.5 rounded-lg font-medium text-[10px] transition-colors ${
+                        aria-pressed={lowerPanelMode === m.id}
+                        className={`py-1.5 rounded-lg font-medium text-[10px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
                           lowerPanelMode === m.id
                             ? 'bg-[#7C5CFC] text-white'
                             : 'bg-[#1C1C27] text-[#9494A8] hover:text-white'
@@ -1820,7 +1930,8 @@ export default function Gravadora() {
                       toast.error('Não foi possível listar dispositivos.')
                     }
                   }}
-                  className="text-[10px] text-[#9494A8] hover:text-white flex items-center gap-1"
+                  aria-label="Reenumerar dispositivos"
+                  className="text-[10px] text-[#9494A8] hover:text-white flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] rounded"
                   title="Reenumerar dispositivos"
                 >
                   <RefreshCw className="w-3 h-3" /> Atualizar
@@ -1836,7 +1947,8 @@ export default function Gravadora() {
                     value={selectedCamera}
                     onChange={(e) => setSelectedCamera(e.target.value)}
                     disabled={deviceSelectDisabled}
-                    className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC] disabled:opacity-50 disabled:cursor-not-allowed"
+                    aria-label="Câmera principal"
+                    className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none"
                   >
                     <option value="">Webcam Padrão / Câmera Integrada</option>
                     {videoDevices.map((d) => (
@@ -1858,7 +1970,8 @@ export default function Gravadora() {
                       setAudioConfig((prev) => ({ ...prev, inputDeviceId: e.target.value }))
                     }}
                     disabled={deviceSelectDisabled}
-                    className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC] disabled:opacity-50 disabled:cursor-not-allowed"
+                    aria-label="Microfone de captura"
+                    className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none"
                   >
                     <option value="">Microfone Padrão do Sistema</option>
                     {audioDevices.map((d) => (
@@ -2014,7 +2127,8 @@ export default function Gravadora() {
                       <button
                         key={m.id}
                         onClick={() => setBgMode(m.id as any)}
-                        className={`py-1.5 rounded-lg font-medium text-[11px] transition-colors ${
+                        aria-pressed={bgMode === m.id}
+                        className={`py-1.5 rounded-lg font-medium text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
                           bgMode === m.id
                             ? 'bg-[#7C5CFC] text-white'
                             : 'bg-[#1C1C27] text-[#9494A8] hover:text-white'
@@ -2053,10 +2167,16 @@ export default function Gravadora() {
                 </h3>
                 <button
                   onClick={() => setIsPromptScrolling(!isPromptScrolling)}
-                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                  aria-label={
+                    isPromptScrolling
+                      ? 'Pausar rolagem do teleprompter'
+                      : 'Iniciar rolagem do teleprompter'
+                  }
+                  aria-pressed={isPromptScrolling}
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
                     isPromptScrolling
                       ? 'bg-emerald-500/20 text-emerald-400'
-                      : 'bg-white/10 text-[#9494A8]'
+                      : 'bg-white/10 text-[#9494A8] hover:text-white'
                   }`}
                 >
                   {isPromptScrolling ? 'Rolando' : 'Pausado'}
@@ -2067,8 +2187,9 @@ export default function Gravadora() {
                 value={teleprompterScript}
                 onChange={(e) => setTeleprompterScript(e.target.value)}
                 rows={3}
+                aria-label="Roteiro do teleprompter"
                 placeholder="Digite ou cole aqui o texto que você vai falar no vídeo..."
-                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
+                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2.5 text-xs text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
               />
 
               <div className="grid grid-cols-2 gap-3 pt-1">

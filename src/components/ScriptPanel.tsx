@@ -286,10 +286,15 @@ export default function ScriptPanel({
     <div className="flex flex-col h-full bg-[#0B0B10] border-t border-white/10">
       {/* Tabs header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-white/5 shrink-0">
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1" role="tablist" aria-label="Painel do estúdio">
           <button
+            role="tab"
+            id="tab-script"
+            aria-selected={tab === 'script'}
+            aria-controls="tabpanel-script"
+            tabIndex={tab === 'script' ? 0 : -1}
             onClick={() => setTab('script')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
               tab === 'script'
                 ? 'bg-[#7C5CFC] text-white'
                 : 'text-[#9494A8] hover:text-white hover:bg-white/5'
@@ -298,8 +303,13 @@ export default function ScriptPanel({
             <ScrollText className="w-3.5 h-3.5" /> Roteiro
           </button>
           <button
+            role="tab"
+            id="tab-teleprompter"
+            aria-selected={tab === 'teleprompter'}
+            aria-controls="tabpanel-teleprompter"
+            tabIndex={tab === 'teleprompter' ? 0 : -1}
             onClick={() => setTab('teleprompter')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
               tab === 'teleprompter'
                 ? 'bg-[#7C5CFC] text-white'
                 : 'text-[#9494A8] hover:text-white hover:bg-white/5'
@@ -308,8 +318,13 @@ export default function ScriptPanel({
             <Play className="w-3.5 h-3.5" /> Teleprompter
           </button>
           <button
+            role="tab"
+            id="tab-reaction"
+            aria-selected={tab === 'reaction'}
+            aria-controls="tabpanel-reaction"
+            tabIndex={tab === 'reaction' ? 0 : -1}
             onClick={() => setTab('reaction')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
               tab === 'reaction'
                 ? 'bg-[#7C5CFC] text-white'
                 : 'text-[#9494A8] hover:text-white hover:bg-white/5'
@@ -319,8 +334,13 @@ export default function ScriptPanel({
           </button>
           {blocks.length > 0 && (
             <button
+              role="tab"
+              id="tab-board"
+              aria-selected={tab === 'board'}
+              aria-controls="tabpanel-board"
+              tabIndex={tab === 'board' ? 0 : -1}
               onClick={() => setTab('board')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
                 tab === 'board'
                   ? 'bg-[#7C5CFC] text-white'
                   : 'text-[#9494A8] hover:text-white hover:bg-white/5'
@@ -331,8 +351,13 @@ export default function ScriptPanel({
             </button>
           )}
           <button
+            role="tab"
+            id="tab-background"
+            aria-selected={tab === 'background'}
+            aria-controls="tabpanel-background"
+            tabIndex={tab === 'background' ? 0 : -1}
             onClick={() => setTab('background')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
               tab === 'background'
                 ? 'bg-[#7C5CFC] text-white'
                 : 'text-[#9494A8] hover:text-white hover:bg-white/5'
@@ -341,8 +366,13 @@ export default function ScriptPanel({
             <ImagePlus className="w-3.5 h-3.5" /> Fundo
           </button>
           <button
+            role="tab"
+            id="tab-title"
+            aria-selected={tab === 'title'}
+            aria-controls="tabpanel-title"
+            tabIndex={tab === 'title' ? 0 : -1}
             onClick={() => setTab('title')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
               tab === 'title'
                 ? 'bg-[#7C5CFC] text-white'
                 : 'text-[#9494A8] hover:text-white hover:bg-white/5'
@@ -367,77 +397,84 @@ export default function ScriptPanel({
 
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {tab === 'script' ? (
-          <ScriptTab
-            gravadoraScript={gravadoraScript}
-            handleTextChange={handleTextChange}
-            textareaRef={textareaRef}
-            blocks={blocks}
-            activeBlockIndex={activeBlockIndex}
-            expandedId={expandedId}
-            setExpandedId={setExpandedId}
-            confirmDeleteId={confirmDeleteId}
-            setConfirmDeleteId={setConfirmDeleteId}
-            onSelectBlock={handleSelectBlock}
-            onToggleStatus={toggleStatus}
-            onSplit={handleSplitAtCursor}
-            onJoinPrev={joinWithPrevious}
-            onMoveUp={moveUp}
-            onMoveDown={moveDown}
-            onDelete={deleteBlock}
-            onJoinAll={joinAll}
-            onSplitAll={() => {
-              splitAll(gravadoraScript)
-              toast.success('Roteiro reprocessado em blocos.')
-            }}
-            canUndo={canUndo}
-            canRedo={canRedo}
-            onUndo={undo}
-            onRedo={redo}
-            loadingAI={loadingAI}
-            suggestions={suggestions}
-            onSuggestAI={handleSuggestAI}
-            onAcceptSuggestion={acceptSuggestion}
-            onAcceptAll={acceptAllSuggestions}
-            onClearSuggestions={() => setSuggestions([])}
-            totalSeconds={totalSeconds}
-          />
-        ) : tab === 'reaction' ? (
-          <ReactionVideoPanel />
-        ) : tab === 'board' ? (
-          <Whiteboard />
-        ) : tab === 'background' ? (
-          <BackgroundPanel />
-        ) : tab === 'title' ? (
-          <TitlePanel />
-        ) : (
-          <TeleprompterTab
-            blocks={blocks}
-            activeBlockIndex={activeBlockIndex}
-            setActiveBlockIndex={handleSelectBlock}
-            currentBlock={currentBlock}
-            nextBlock={nextBlock}
-            tpMode={tpMode}
-            setTpMode={setTpMode}
-            tpFontSize={tpFontSize}
-            setTpFontSize={setTpFontSize}
-            tpSpeed={tpSpeed}
-            setTpSpeed={setTpSpeed}
-            tpColor={tpColor}
-            setTpColor={setTpColor}
-            tpMirror={tpMirror}
-            setTpMirror={setTpMirror}
-            tpActive={tpActive}
-            setTpActive={setTpActive}
-            syncArts={syncArts}
-            setSyncArts={setSyncArts}
-            autoStartOnRecord={autoStartOnRecord}
-            setAutoStartOnRecord={setAutoStartOnRecord}
-            tp={tp}
-            fullText={gravadoraScript}
-            isRecording={isRecording}
-          />
-        )}
+        <div
+          role="tabpanel"
+          id={`tabpanel-${tab}`}
+          aria-labelledby={`tab-${tab}`}
+          className="h-full"
+        >
+          {tab === 'script' ? (
+            <ScriptTab
+              gravadoraScript={gravadoraScript}
+              handleTextChange={handleTextChange}
+              textareaRef={textareaRef}
+              blocks={blocks}
+              activeBlockIndex={activeBlockIndex}
+              expandedId={expandedId}
+              setExpandedId={setExpandedId}
+              confirmDeleteId={confirmDeleteId}
+              setConfirmDeleteId={setConfirmDeleteId}
+              onSelectBlock={handleSelectBlock}
+              onToggleStatus={toggleStatus}
+              onSplit={handleSplitAtCursor}
+              onJoinPrev={joinWithPrevious}
+              onMoveUp={moveUp}
+              onMoveDown={moveDown}
+              onDelete={deleteBlock}
+              onJoinAll={joinAll}
+              onSplitAll={() => {
+                splitAll(gravadoraScript)
+                toast.success('Roteiro reprocessado em blocos.')
+              }}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              onUndo={undo}
+              onRedo={redo}
+              loadingAI={loadingAI}
+              suggestions={suggestions}
+              onSuggestAI={handleSuggestAI}
+              onAcceptSuggestion={acceptSuggestion}
+              onAcceptAll={acceptAllSuggestions}
+              onClearSuggestions={() => setSuggestions([])}
+              totalSeconds={totalSeconds}
+            />
+          ) : tab === 'reaction' ? (
+            <ReactionVideoPanel />
+          ) : tab === 'board' ? (
+            <Whiteboard />
+          ) : tab === 'background' ? (
+            <BackgroundPanel />
+          ) : tab === 'title' ? (
+            <TitlePanel />
+          ) : (
+            <TeleprompterTab
+              blocks={blocks}
+              activeBlockIndex={activeBlockIndex}
+              setActiveBlockIndex={handleSelectBlock}
+              currentBlock={currentBlock}
+              nextBlock={nextBlock}
+              tpMode={tpMode}
+              setTpMode={setTpMode}
+              tpFontSize={tpFontSize}
+              setTpFontSize={setTpFontSize}
+              tpSpeed={tpSpeed}
+              setTpSpeed={setTpSpeed}
+              tpColor={tpColor}
+              setTpColor={setTpColor}
+              tpMirror={tpMirror}
+              setTpMirror={setTpMirror}
+              tpActive={tpActive}
+              setTpActive={setTpActive}
+              syncArts={syncArts}
+              setSyncArts={setSyncArts}
+              autoStartOnRecord={autoStartOnRecord}
+              setAutoStartOnRecord={setAutoStartOnRecord}
+              tp={tp}
+              fullText={gravadoraScript}
+              isRecording={isRecording}
+            />
+          )}
+        </div>
       </div>
     </div>
   )
@@ -522,7 +559,8 @@ function ScriptTab(props: ScriptTabProps) {
             size="sm"
             onClick={onUndo}
             disabled={!canUndo}
-            className="h-7 px-2 text-[10px] text-[#9494A8] hover:text-white"
+            aria-label="Desfazer"
+            className="h-7 px-2 text-[10px] text-[#9494A8] hover:text-white disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
             title="Desfazer"
           >
             <Undo2 className="w-3.5 h-3.5" />
@@ -532,7 +570,8 @@ function ScriptTab(props: ScriptTabProps) {
             size="sm"
             onClick={onRedo}
             disabled={!canRedo}
-            className="h-7 px-2 text-[10px] text-[#9494A8] hover:text-white"
+            aria-label="Refazer"
+            className="h-7 px-2 text-[10px] text-[#9494A8] hover:text-white disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
             title="Refazer"
           >
             <Redo2 className="w-3.5 h-3.5" />
@@ -542,7 +581,8 @@ function ScriptTab(props: ScriptTabProps) {
             variant="ghost"
             size="sm"
             onClick={onSplitAll}
-            className="h-7 px-2 text-[10px] text-[#9494A8] hover:text-white gap-1"
+            aria-label="Dividir tudo em blocos"
+            className="h-7 px-2 text-[10px] text-[#9494A8] hover:text-white gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
             title="Reprocessar todo o texto em blocos"
           >
             <SplitSquareHorizontal className="w-3.5 h-3.5" /> Dividir tudo
@@ -551,7 +591,8 @@ function ScriptTab(props: ScriptTabProps) {
             variant="ghost"
             size="sm"
             onClick={onJoinAll}
-            className="h-7 px-2 text-[10px] text-[#9494A8] hover:text-white gap-1"
+            aria-label="Juntar todos os blocos"
+            className="h-7 px-2 text-[10px] text-[#9494A8] hover:text-white gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
             title="Juntar todos os blocos em texto único"
           >
             <Combine className="w-3.5 h-3.5" /> Juntar tudo
@@ -562,7 +603,8 @@ function ScriptTab(props: ScriptTabProps) {
             size="sm"
             onClick={onSuggestAI}
             disabled={loadingAI}
-            className="h-7 px-2 text-[10px] border-[#7C5CFC]/40 text-[#7C5CFC] hover:bg-[#7C5CFC]/10 gap-1"
+            aria-label="Sugerir divisão com IA"
+            className="h-7 px-2 text-[10px] border-[#7C5CFC]/40 text-[#7C5CFC] hover:bg-[#7C5CFC]/10 gap-1 disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
           >
             {loadingAI ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -579,8 +621,9 @@ function ScriptTab(props: ScriptTabProps) {
             ref={textareaRef}
             value={gravadoraScript}
             onChange={handleTextChange}
+            aria-label="Editor de roteiro"
             placeholder="Digite ou cole seu roteiro aqui..."
-            className="w-full h-full resize-none bg-transparent border-0 p-3 text-xs text-white leading-relaxed focus:outline-none scrollbar-thin"
+            className="w-full h-full resize-none bg-transparent border-0 p-3 text-xs text-white leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] scrollbar-thin"
             spellCheck={false}
           />
           {/* Indicador de sugestões */}
@@ -591,13 +634,15 @@ function ScriptTab(props: ScriptTabProps) {
               </span>
               <button
                 onClick={onAcceptAll}
-                className="text-[9px] text-emerald-400 hover:text-emerald-300 font-bold"
+                aria-label="Aceitar todas as sugestões"
+                className="text-[9px] text-emerald-400 hover:text-emerald-300 font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] rounded"
               >
                 Aceitar todas
               </button>
               <button
                 onClick={onClearSuggestions}
-                className="text-[9px] text-[#9494A8] hover:text-white"
+                aria-label="Limpar sugestões"
+                className="text-[9px] text-[#9494A8] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] rounded"
               >
                 <X className="w-3 h-3" />
               </button>
@@ -610,7 +655,8 @@ function ScriptTab(props: ScriptTabProps) {
                 <button
                   key={off}
                   onClick={() => onAcceptSuggestion(off)}
-                  className="flex items-center gap-1 text-[9px] bg-[#7C5CFC]/20 border border-dashed border-[#7C5CFC]/60 text-[#7C5CFC] rounded px-1.5 py-0.5 hover:bg-[#7C5CFC]/30"
+                  aria-label={`Aceitar divisão sugerida ${i + 1}`}
+                  className="flex items-center gap-1 text-[9px] bg-[#7C5CFC]/20 border border-dashed border-[#7C5CFC]/60 text-[#7C5CFC] rounded px-1.5 py-0.5 hover:bg-[#7C5CFC]/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
                   title="Ponto de divisão sugerido"
                 >
                   <ArrowDownToLine className="w-3 h-3" /> Divisão {i + 1}
@@ -733,7 +779,16 @@ function BlockCard({
   return (
     <div
       onClick={onSelect}
-      className={`group rounded-xl border p-2.5 cursor-pointer transition-all ${
+      tabIndex={0}
+      role="button"
+      aria-pressed={isActive}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onSelect()
+        }
+      }}
+      className={`group rounded-xl border p-2.5 cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
         isActive
           ? 'border-[#7C5CFC] bg-[#7C5CFC]/10 shadow-lg shadow-[#7C5CFC]/10'
           : 'border-white/10 bg-[#14141C] hover:border-white/20'
@@ -747,7 +802,8 @@ function BlockCard({
               e.stopPropagation()
               onToggleStatus()
             }}
-            className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors ${
+            aria-label={`Alternar status do bloco ${index + 1}`}
+            className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
               block.status === 'ready'
                 ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'
                 : 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30'
@@ -948,7 +1004,8 @@ function TeleprompterTab({
           <div className="flex items-center gap-1 bg-[#1C1C27] rounded-lg p-0.5">
             <button
               onClick={() => setTpMode('blocks')}
-              className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-colors ${
+              aria-pressed={tpMode === 'blocks'}
+              className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
                 tpMode === 'blocks' ? 'bg-[#7C5CFC] text-white' : 'text-[#9494A8] hover:text-white'
               }`}
             >
@@ -956,7 +1013,8 @@ function TeleprompterTab({
             </button>
             <button
               onClick={() => setTpMode('continuous')}
-              className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-colors ${
+              aria-pressed={tpMode === 'continuous'}
+              className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
                 tpMode === 'continuous'
                   ? 'bg-[#7C5CFC] text-white'
                   : 'text-[#9494A8] hover:text-white'
@@ -989,7 +1047,7 @@ function TeleprompterTab({
         </div>
 
         {/* Área de exibição */}
-        <div className="flex-1 min-h-0 relative bg-[#07070A]">
+        <div className="flex-1 min-h-0 relative bg-[#0B0B10]">
           {tpMode === 'blocks' ? (
             blocks.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-center px-4">
@@ -1142,7 +1200,9 @@ function TeleprompterTab({
                 <button
                   key={b.id}
                   onClick={() => setActiveBlockIndex(i)}
-                  className={`flex items-center gap-1.5 rounded px-1.5 py-1 text-left transition-colors ${
+                  aria-label={`Selecionar bloco ${i + 1}`}
+                  aria-pressed={i === activeBlockIndex}
+                  className={`flex items-center gap-1.5 rounded px-1.5 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
                     i === activeBlockIndex
                       ? 'bg-[#7C5CFC]/20 border border-[#7C5CFC]/40'
                       : 'hover:bg-white/5 border border-transparent'

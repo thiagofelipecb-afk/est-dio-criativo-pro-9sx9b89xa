@@ -101,7 +101,28 @@ export function TitleOverlay({ config, onChange, locked, elapsedSeconds = 0 }: T
         onTouchStart={(e) => {
           if (e.touches[0]) startDrag(e.touches[0].clientX, e.touches[0].clientY)
         }}
-        className="absolute transition-all duration-200 ease-out select-none"
+        className="absolute transition-all duration-200 ease-out select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
+        tabIndex={locked ? -1 : 0}
+        role="slider"
+        aria-label="Posição do título no canvas"
+        aria-valuetext={`X ${posX.toFixed(2)}, Y ${posY.toFixed(2)}`}
+        onKeyDown={(e) => {
+          if (locked) return
+          const step = e.shiftKey ? 0.1 : 0.02
+          if (e.key === 'ArrowLeft') {
+            e.preventDefault()
+            onChange({ normalizedX: Math.max(0, posX - step), position: 'custom' })
+          } else if (e.key === 'ArrowRight') {
+            e.preventDefault()
+            onChange({ normalizedX: Math.min(1, posX + step), position: 'custom' })
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault()
+            onChange({ normalizedY: Math.max(0, posY - step), position: 'custom' })
+          } else if (e.key === 'ArrowDown') {
+            e.preventDefault()
+            onChange({ normalizedY: Math.min(1, posY + step), position: 'custom' })
+          }
+        }}
         style={{
           left: `${posX * 100}%`,
           top: `${posY * 100}%`,

@@ -120,7 +120,9 @@ export function BackgroundPanel() {
                 <button
                   key={opt.id}
                   onClick={() => update({ type: opt.id })}
-                  className={`flex flex-col items-center gap-1 py-2 rounded-lg border text-[10px] font-semibold transition-colors ${
+                  aria-pressed={backgroundConfig.type === opt.id}
+                  aria-label={`Tipo de fundo: ${opt.label}`}
+                  className={`flex flex-col items-center gap-1 py-2 rounded-lg border text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
                     backgroundConfig.type === opt.id
                       ? 'border-[#7C5CFC] bg-[#7C5CFC]/10 text-white'
                       : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'
@@ -164,7 +166,9 @@ export function BackgroundPanel() {
                   <button
                     key={c.value}
                     onClick={() => update({ presetColor: c.value })}
-                    className={`flex flex-col items-center gap-1 rounded-lg p-1.5 border transition-all ${
+                    aria-pressed={backgroundConfig.presetColor === c.value}
+                    aria-label={`Cor de fundo: ${c.name}`}
+                    className={`flex flex-col items-center gap-1 rounded-lg p-1.5 border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] ${
                       backgroundConfig.presetColor === c.value
                         ? 'border-[#7C5CFC] bg-[#7C5CFC]/10'
                         : 'border-white/10 hover:border-white/30'
@@ -204,7 +208,8 @@ export function BackgroundPanel() {
                       <div className="flex items-center gap-1.5 mt-1.5">
                         <button
                           onClick={() => fileRef.current?.click()}
-                          className="flex items-center gap-1 text-[9px] text-[#7C5CFC] hover:bg-[#7C5CFC]/10 px-1.5 py-0.5 rounded font-semibold"
+                          aria-label="Trocar imagem de fundo"
+                          className="flex items-center gap-1 text-[9px] text-[#7C5CFC] hover:bg-[#7C5CFC]/10 px-1.5 py-0.5 rounded font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
                         >
                           <Upload className="w-3 h-3" /> Trocar
                         </button>
@@ -213,13 +218,15 @@ export function BackgroundPanel() {
                             <span className="text-[9px] text-red-300">Remover?</span>
                             <button
                               onClick={removeImage}
-                              className="text-[9px] text-red-400 hover:bg-red-500/20 px-1 rounded font-bold"
+                              aria-label="Confirmar remoção"
+                              className="text-[9px] text-red-400 hover:bg-red-500/20 px-1 rounded font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
                             >
                               Sim
                             </button>
                             <button
                               onClick={() => setConfirmRemove(false)}
-                              className="text-[9px] text-[#9494A8] hover:text-white px-1 rounded"
+                              aria-label="Cancelar remoção"
+                              className="text-[9px] text-[#9494A8] hover:text-white px-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
                             >
                               Não
                             </button>
@@ -227,7 +234,8 @@ export function BackgroundPanel() {
                         ) : (
                           <button
                             onClick={() => setConfirmRemove(true)}
-                            className="flex items-center gap-1 text-[9px] text-red-400 hover:bg-red-500/10 px-1.5 py-0.5 rounded font-semibold"
+                            aria-label="Remover imagem de fundo"
+                            className="flex items-center gap-1 text-[9px] text-red-400 hover:bg-red-500/10 px-1.5 py-0.5 rounded font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
                           >
                             <Trash2 className="w-3 h-3" /> Remover
                           </button>
@@ -242,7 +250,8 @@ export function BackgroundPanel() {
                   <p className="text-[10px] text-[#9494A8]">Nenhuma imagem selecionada.</p>
                   <button
                     onClick={() => fileRef.current?.click()}
-                    className="flex items-center gap-1.5 text-[10px] bg-[#7C5CFC] hover:bg-[#6A48E0] text-white px-3 py-1.5 rounded-lg font-semibold"
+                    aria-label="Selecionar imagem de fundo"
+                    className="flex items-center gap-1.5 text-[10px] bg-[#7C5CFC] hover:bg-[#6A48E0] text-white px-3 py-1.5 rounded-lg font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10]"
                   >
                     <ImagePlus className="w-3.5 h-3.5" /> Selecionar imagem
                   </button>

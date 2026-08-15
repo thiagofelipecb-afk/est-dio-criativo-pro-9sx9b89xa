@@ -20,7 +20,7 @@ export function BackgroundRenderer({
   cameraStreamUrl,
   className,
 }: BackgroundRendererProps) {
-  const base = 'absolute inset-0 w-full h-full overflow-hidden'
+  const base = 'absolute inset-0 w-full h-full min-h-full min-w-full overflow-hidden'
 
   if (config.type === 'blur') {
     return (
