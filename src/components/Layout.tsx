@@ -36,6 +36,7 @@ import {
   FolderKanban,
   Film,
   ListChecks,
+  Scissors,
 } from 'lucide-react'
 import ClaraWidget from '@/components/ClaraWidget'
 import { usePlatform } from '@/context/PlatformContext'
@@ -88,6 +89,7 @@ export default function Layout() {
   }
 
   const studioItems: NavItem[] = [
+    { label: 'Auto-Clipper IA', path: '/ai-clipper', icon: Scissors, badge: 'IA' },
     { label: 'Gravadora', path: '/gravadora', icon: Camera, badge: 'REC' },
     { label: 'Criar Carrossel', path: '/carrossel', icon: Layers },
     { label: 'Criar Post', path: '/criar-post', icon: FileImage },
@@ -120,15 +122,6 @@ export default function Layout() {
     { label: 'Mídias', path: '/midias', icon: FolderOpen },
     { label: 'Elementos', path: '/elementos', icon: Shapes },
   ]
-
-  // Mantém compatibilidade com o modal legado de biblioteca de arquivos
-  // aberto pelo menu de perfil; os itens da seção "Bibliotecas" agora
-  // navegam para rotas próprias (/modelos, /musicas, /midias, /elementos).
-  const openLibrary = (cat: 'all' | 'video' | 'image' | 'audio') => {
-    setMediaModalCategory(cat)
-    setIsMediaLibraryOpen(true)
-  }
-  void openLibrary
 
   const handleShowHelp = () => {
     toast.info('Central de Ajuda LUMEN Studio', {
@@ -210,7 +203,7 @@ export default function Layout() {
           </div>
 
           {/* Nav Links */}
-          <nav className="p-2 space-y-1">
+          <nav className="p-2 space-y-1 overflow-y-auto max-h-[calc(100vh-160px)]">
             {navItems.map((item) => {
               const isActive = location.pathname === item.path
               const Icon = item.icon

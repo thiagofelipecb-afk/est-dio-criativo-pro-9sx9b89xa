@@ -1,9 +1,9 @@
 {
   "_versions": {
-    "pexels-proxy": 8,
-    "tiktok-publish": 1,
-    "platform-tokens-status": 1,
-    "instagram-publish": 1,
-    "youtube-publish": 1
+    "pexels-proxy": 10,
+    "tiktok-publish": 3,
+    "platform-tokens-status": 3,
+    "instagram-publish": 3,
+    "youtube-publish": 3
   }
 }

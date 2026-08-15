@@ -3,9 +3,19 @@ import { Button } from '@/components/ui/button'
 import { Music, Play, Pause, Search, Volume2, SkipBack, SkipForward, Check } from 'lucide-react'
 import { toast } from 'sonner'
 import { MUSIC_TRACKS } from '@/lib/libraryData'
+import { CAPCUT_TRACKS_PACK } from '@/lib/assets-pack'
 import type { MusicTrack } from '@/types/library'
 
-const GENRES = ['Todos', 'Lo-fi', 'Cinematic', 'Eletrônico', 'Pop', 'Hip-hop', 'Ambiente'] as const
+const GENRES = [
+  'Todos',
+  'Lo-fi',
+  'Cinematic',
+  'Eletrônico',
+  'Pop',
+  'Hip-hop',
+  'Ambiente',
+  'CapCut Viral',
+] as const
 
 const formatTime = (s: number) => {
   const m = Math.floor(s / 60)
@@ -20,10 +30,26 @@ export default function Musicas() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [progress, setProgress] = useState(0)
   const [volume, setVolume] = useState(0.7)
+  const [autoDucking, setAutoDucking] = useState(true)
   const intervalRef = useRef<number | null>(null)
 
+  const allTracks = useMemo(() => {
+    const convertedCapcut: MusicTrack[] = CAPCUT_TRACKS_PACK.map((cc) => ({
+      id: cc.id,
+      title: cc.title,
+      artist: cc.artist,
+      album: 'Trilhas CapCut',
+      duration: cc.duration,
+      genre: 'Hip-hop', // Mapeia para um gênero válido da interface MusicTrack
+      bpm: cc.bpm,
+      cover: cc.coverUrl,
+      color: '#7C5CFC',
+    }))
+    return [...convertedCapcut, ...MUSIC_TRACKS]
+  }, [])
+
   const filtered = useMemo(() => {
-    return MUSIC_TRACKS.filter((t) => {
+    return allTracks.filter((t) => {
       if (genre !== 'Todos' && t.genre !== genre) return false
       if (
         search &&
@@ -92,6 +118,32 @@ export default function Musicas() {
             className="bg-[#14141C] border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC] w-full sm:w-72"
           />
         </div>
+      </div>
+
+      {/* Ducking Banner */}
+      <div className="p-3.5 rounded-2xl bg-[#14141C] border border-[#7C5CFC]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-xl bg-[#7C5CFC]/20 text-[#7C5CFC]">
+            <Music className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-xs font-bold text-white">
+              Pack de Trilhas CapCut & Ducking Automático
+            </h3>
+            <p className="text-[11px] text-[#9494A8]">
+              Ajusta automaticamente o áudio da música para -18dB durante a fala principal.
+            </p>
+          </div>
+        </div>
+        <Button
+          size="sm"
+          onClick={() => setAutoDucking(!autoDucking)}
+          className={`text-xs font-semibold ${
+            autoDucking ? 'bg-[#7C5CFC] text-white' : 'bg-white/5 text-[#9494A8]'
+          }`}
+        >
+          {autoDucking ? '⚡ Ducking Ativo (-18dB)' : 'Ducking Desativado'}
+        </Button>
       </div>
 
       {/* Filtros */}

@@ -12,6 +12,7 @@ import Layout from './components/Layout'
 import Index from './pages/Index'
 import Projetos from './pages/Projetos'
 import Gravadora from './pages/Gravadora'
+import AIClipper from './pages/AIClipper'
 import EditorVideo from './pages/EditorVideo'
 import Carrossel from './pages/Carrossel'
 import PostEstatico from './pages/PostEstatico'
@@ -55,6 +56,7 @@ const App = () => (
                 <Route path="/" element={<Index />} />
                 <Route path="/projetos" element={<Projetos />} />
                 <Route path="/gravadora" element={<Gravadora />} />
+                <Route path="/ai-clipper" element={<AIClipper />} />
                 <Route path="/editor/:id" element={<EditorVideo />} />
                 <Route path="/carrossel" element={<Carrossel />} />
                 <Route path="/post" element={<PostEstatico />} />
