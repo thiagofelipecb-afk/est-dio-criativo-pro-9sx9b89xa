@@ -1,11 +1,17 @@
 // AVOID UPDATING THIS FILE DIRECTLY. It is automatically generated.
-export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
 
 export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: '14.15'
+    PostgrestVersion: "14.15"
   }
   public: {
     Tables: {
@@ -39,11 +45,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'analysis_reports_workspace_id_fkey'
-            columns: ['workspace_id']
+            foreignKeyName: "analysis_reports_workspace_id_fkey"
+            columns: ["workspace_id"]
             isOneToOne: false
-            referencedRelation: 'workspaces'
-            referencedColumns: ['id']
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -74,11 +80,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'asset_requirements_funnel_plan_id_fkey'
-            columns: ['funnel_plan_id']
+            foreignKeyName: "asset_requirements_funnel_plan_id_fkey"
+            columns: ["funnel_plan_id"]
             isOneToOne: false
-            referencedRelation: 'funnel_plans'
-            referencedColumns: ['id']
+            referencedRelation: "funnel_plans"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -112,11 +118,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'audit_events_workspace_id_fkey'
-            columns: ['workspace_id']
+            foreignKeyName: "audit_events_workspace_id_fkey"
+            columns: ["workspace_id"]
             isOneToOne: false
-            referencedRelation: 'workspaces'
-            referencedColumns: ['id']
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -144,11 +150,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'brand_profile_versions_profile_id_fkey'
-            columns: ['profile_id']
+            foreignKeyName: "brand_profile_versions_profile_id_fkey"
+            columns: ["profile_id"]
             isOneToOne: false
-            referencedRelation: 'brand_profiles'
-            referencedColumns: ['id']
+            referencedRelation: "brand_profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -173,11 +179,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'brand_profiles_workspace_id_fkey'
-            columns: ['workspace_id']
+            foreignKeyName: "brand_profiles_workspace_id_fkey"
+            columns: ["workspace_id"]
             isOneToOne: false
-            referencedRelation: 'workspaces'
-            referencedColumns: ['id']
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -211,11 +217,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'capture_tokens_workspace_id_fkey'
-            columns: ['workspace_id']
+            foreignKeyName: "capture_tokens_workspace_id_fkey"
+            columns: ["workspace_id"]
             isOneToOne: false
-            referencedRelation: 'workspaces'
-            referencedColumns: ['id']
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -258,11 +264,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'captured_creatives_workspace_id_fkey'
-            columns: ['workspace_id']
+            foreignKeyName: "captured_creatives_workspace_id_fkey"
+            columns: ["workspace_id"]
             isOneToOne: false
-            referencedRelation: 'workspaces'
-            referencedColumns: ['id']
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -293,11 +299,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'checklist_items_funnel_plan_id_fkey'
-            columns: ['funnel_plan_id']
+            foreignKeyName: "checklist_items_funnel_plan_id_fkey"
+            columns: ["funnel_plan_id"]
             isOneToOne: false
-            referencedRelation: 'funnel_plans'
-            referencedColumns: ['id']
+            referencedRelation: "funnel_plans"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -334,11 +340,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'content_blocks_content_id_fkey'
-            columns: ['content_id']
+            foreignKeyName: "content_blocks_content_id_fkey"
+            columns: ["content_id"]
             isOneToOne: false
-            referencedRelation: 'content_items'
-            referencedColumns: ['id']
+            referencedRelation: "content_items"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -390,11 +396,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'content_items_workspace_id_fkey'
-            columns: ['workspace_id']
+            foreignKeyName: "content_items_workspace_id_fkey"
+            columns: ["workspace_id"]
             isOneToOne: false
-            referencedRelation: 'workspaces'
-            referencedColumns: ['id']
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -428,11 +434,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'content_schedules_content_id_fkey'
-            columns: ['content_id']
+            foreignKeyName: "content_schedules_content_id_fkey"
+            columns: ["content_id"]
             isOneToOne: false
-            referencedRelation: 'content_items'
-            referencedColumns: ['id']
+            referencedRelation: "content_items"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -511,11 +517,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'funnel_diagnoses_workspace_id_fkey'
-            columns: ['workspace_id']
+            foreignKeyName: "funnel_diagnoses_workspace_id_fkey"
+            columns: ["workspace_id"]
             isOneToOne: false
-            referencedRelation: 'workspaces'
-            referencedColumns: ['id']
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -552,18 +558,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'funnel_ecosystems_diagnosis_id_fkey'
-            columns: ['diagnosis_id']
+            foreignKeyName: "funnel_ecosystems_diagnosis_id_fkey"
+            columns: ["diagnosis_id"]
             isOneToOne: false
-            referencedRelation: 'funnel_diagnoses'
-            referencedColumns: ['id']
+            referencedRelation: "funnel_diagnoses"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'funnel_ecosystems_workspace_id_fkey'
-            columns: ['workspace_id']
+            foreignKeyName: "funnel_ecosystems_workspace_id_fkey"
+            columns: ["workspace_id"]
             isOneToOne: false
-            referencedRelation: 'workspaces'
-            referencedColumns: ['id']
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -597,18 +603,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'funnel_plans_catalog_item_id_fkey'
-            columns: ['catalog_item_id']
+            foreignKeyName: "funnel_plans_catalog_item_id_fkey"
+            columns: ["catalog_item_id"]
             isOneToOne: false
-            referencedRelation: 'funnel_catalog_items'
-            referencedColumns: ['id']
+            referencedRelation: "funnel_catalog_items"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'funnel_plans_ecosystem_id_fkey'
-            columns: ['ecosystem_id']
+            foreignKeyName: "funnel_plans_ecosystem_id_fkey"
+            columns: ["ecosystem_id"]
             isOneToOne: false
-            referencedRelation: 'funnel_ecosystems'
-            referencedColumns: ['id']
+            referencedRelation: "funnel_ecosystems"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -657,11 +663,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'generation_jobs_workspace_id_fkey'
-            columns: ['workspace_id']
+            foreignKeyName: "generation_jobs_workspace_id_fkey"
+            columns: ["workspace_id"]
             isOneToOne: false
-            referencedRelation: 'workspaces'
-            referencedColumns: ['id']
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -692,11 +698,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'interview_answers_profile_id_fkey'
-            columns: ['profile_id']
+            foreignKeyName: "interview_answers_profile_id_fkey"
+            columns: ["profile_id"]
             isOneToOne: false
-            referencedRelation: 'brand_profiles'
-            referencedColumns: ['id']
+            referencedRelation: "brand_profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -727,11 +733,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'media_assets_workspace_id_fkey'
-            columns: ['workspace_id']
+            foreignKeyName: "media_assets_workspace_id_fkey"
+            columns: ["workspace_id"]
             isOneToOne: false
-            referencedRelation: 'workspaces'
-            referencedColumns: ['id']
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -759,11 +765,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'metric_readings_content_id_fkey'
-            columns: ['content_id']
+            foreignKeyName: "metric_readings_content_id_fkey"
+            columns: ["content_id"]
             isOneToOne: false
-            referencedRelation: 'content_items'
-            referencedColumns: ['id']
+            referencedRelation: "content_items"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -806,11 +812,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'offers_workspace_id_fkey'
-            columns: ['workspace_id']
+            foreignKeyName: "offers_workspace_id_fkey"
+            columns: ["workspace_id"]
             isOneToOne: false
-            referencedRelation: 'workspaces'
-            referencedColumns: ['id']
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -853,11 +859,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'page_projects_workspace_id_fkey'
-            columns: ['workspace_id']
+            foreignKeyName: "page_projects_workspace_id_fkey"
+            columns: ["workspace_id"]
             isOneToOne: false
-            referencedRelation: 'workspaces'
-            referencedColumns: ['id']
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -888,11 +894,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'page_sections_page_id_fkey'
-            columns: ['page_id']
+            foreignKeyName: "page_sections_page_id_fkey"
+            columns: ["page_id"]
             isOneToOne: false
-            referencedRelation: 'page_projects'
-            referencedColumns: ['id']
+            referencedRelation: "page_projects"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -920,11 +926,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'profile_captures_workspace_id_fkey'
-            columns: ['workspace_id']
+            foreignKeyName: "profile_captures_workspace_id_fkey"
+            columns: ["workspace_id"]
             isOneToOne: false
-            referencedRelation: 'workspaces'
-            referencedColumns: ['id']
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1000,11 +1006,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'research_answers_profile_id_fkey'
-            columns: ['profile_id']
+            foreignKeyName: "research_answers_profile_id_fkey"
+            columns: ["profile_id"]
             isOneToOne: false
-            referencedRelation: 'brand_profiles'
-            referencedColumns: ['id']
+            referencedRelation: "brand_profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1041,11 +1047,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'sales_assist_requests_workspace_id_fkey'
-            columns: ['workspace_id']
+            foreignKeyName: "sales_assist_requests_workspace_id_fkey"
+            columns: ["workspace_id"]
             isOneToOne: false
-            referencedRelation: 'workspaces'
-            referencedColumns: ['id']
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1076,11 +1082,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'support_conversations_workspace_id_fkey'
-            columns: ['workspace_id']
+            foreignKeyName: "support_conversations_workspace_id_fkey"
+            columns: ["workspace_id"]
             isOneToOne: false
-            referencedRelation: 'workspaces'
-            referencedColumns: ['id']
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1120,11 +1126,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'video_scripts_workspace_id_fkey'
-            columns: ['workspace_id']
+            foreignKeyName: "video_scripts_workspace_id_fkey"
+            columns: ["workspace_id"]
             isOneToOne: false
-            referencedRelation: 'workspaces'
-            referencedColumns: ['id']
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1155,11 +1161,11 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'workspaces_owner_id_fkey'
-            columns: ['owner_id']
+            foreignKeyName: "workspaces_owner_id_fkey"
+            columns: ["owner_id"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1179,31 +1185,33 @@ export type Database = {
   }
 }
 
-type DatabaseWithoutInternals = Omit<Database, '__InternalSupabase'>
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
 
-type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, 'public'>]
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends
-    | keyof (DefaultSchema['Tables'] & DefaultSchema['Views'])
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'] &
-        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Views'])
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
     : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
-  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'] &
-      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Views'])[TableName] extends {
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
       Row: infer R
     }
     ? R
     : never
-  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema['Tables'] & DefaultSchema['Views'])
-    ? (DefaultSchema['Tables'] & DefaultSchema['Views'])[DefaultSchemaTableNameOrOptions] extends {
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
         Row: infer R
       }
       ? R
@@ -1212,23 +1220,23 @@ export type Tables<
 
 export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema['Tables']
+    | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables']
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
-  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'][TableName] extends {
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
       Insert: infer I
     }
     ? I
     : never
-  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema['Tables']
-    ? DefaultSchema['Tables'][DefaultSchemaTableNameOrOptions] extends {
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
         Insert: infer I
       }
       ? I
@@ -1237,23 +1245,23 @@ export type TablesInsert<
 
 export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema['Tables']
+    | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables']
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
-  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'][TableName] extends {
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
       Update: infer U
     }
     ? U
     : never
-  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema['Tables']
-    ? DefaultSchema['Tables'][DefaultSchemaTableNameOrOptions] extends {
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
         Update: infer U
       }
       ? U
@@ -1262,36 +1270,36 @@ export type TablesUpdate<
 
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
-    | keyof DefaultSchema['Enums']
+    | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
   EnumName extends DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions['schema']]['Enums']
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
     : never = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
-  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions['schema']]['Enums'][EnumName]
-  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema['Enums']
-    ? DefaultSchema['Enums'][DefaultSchemaEnumNameOrOptions]
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
     : never
 
 export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
-    | keyof DefaultSchema['CompositeTypes']
+    | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
   CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions['schema']]['CompositeTypes']
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
     : never = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
-  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions['schema']]['CompositeTypes'][CompositeTypeName]
-  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema['CompositeTypes']
-    ? DefaultSchema['CompositeTypes'][PublicCompositeTypeNameOrOptions]
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
     : never
 
 export const Constants = {
@@ -1299,3 +1307,4 @@ export const Constants = {
     Enums: {},
   },
 } as const
+
