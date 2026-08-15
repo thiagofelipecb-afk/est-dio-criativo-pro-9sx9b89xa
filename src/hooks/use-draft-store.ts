@@ -176,8 +176,8 @@ export function useDraftStore(
       const { data: session } = await supabase.auth.getSession()
       if (!session?.session?.user) return // sem sessão → só local
       // Tenta detectar conflito comparando updated_at remoto.
-      const { data: remoteRow } = await supabase
-        .from('projects')
+      // Cast 'projects' como 'any' para bypass de tipos até regerar types.ts no backend.
+      const { data: remoteRow } = await (supabase.from('projects' as any) as any)
         .select('updated_at')
         .eq('id', snap.projectId)
         .maybeSingle()
@@ -200,7 +200,9 @@ export function useDraftStore(
         updated_at: new Date().toISOString(),
         snapshot: snap as any,
       }
-      const { error } = await supabase.from('projects').upsert(payload, { onConflict: 'id' })
+      const { error } = await (supabase.from('projects' as any) as any).upsert(payload, {
+        onConflict: 'id',
+      })
       if (error) {
         // Tabela/coluna pode não existir → marca pendência e segue só local.
         await idbPut(dbRef.current, STORE_META, snap.projectId, {

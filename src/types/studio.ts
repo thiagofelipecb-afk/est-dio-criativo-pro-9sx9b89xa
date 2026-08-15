@@ -312,6 +312,8 @@ export interface ReactionVideo {
   size: number
   /** Canto onde o vídeo aparece. Padrão bottom-right. */
   corner: OverlayCorner
+  /** PROMPT 67 / GAP 1 — ID do ativo no AssetManager (refcount), se registrado. */
+  assetId?: string
 }
 
 /** Tipos de elemento do quadro editável (estilo Excalidraw). */

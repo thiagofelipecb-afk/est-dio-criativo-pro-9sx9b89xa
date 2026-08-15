@@ -50,7 +50,13 @@ import {
   Save,
   AlertTriangle,
   Package,
+  Zap,
+  Cloud,
+  CloudOff,
+  CloudCheck,
+  Upload,
 } from 'lucide-react'
+import { ImportTake } from '@/components/studio/ImportTake'
 import { toast } from 'sonner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type {
@@ -509,6 +515,9 @@ export default function Gravadora() {
 
   /* ── Indicador visual de take gravado (checkmark verde por 2s) ─────────── */
   const [showTakeSuccess, setShowTakeSuccess] = useState(false)
+
+  /* ── GAP 70 — Modal de Importação de Take (Vídeo + Manifesto JSON) ─────── */
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false)
 
   /* ── FASE 2: Lower Panel (Roteiro / Teleprompter por blocos) ───────────── */
   const [showLowerPanel, setShowLowerPanel] = useState(false)
@@ -2142,25 +2151,25 @@ export default function Gravadora() {
         {label}
       </div>
 
-      {/* PROMPT 68 / GAP 2 — Indicador de save status (canto inferior direito),
+      {/* PROMPT 68 / GAP 2 — Indicador de save status com ícones de nuvem (canto inferior direito),
           sobreposto ao canvas, não atrapalha o conteúdo. */}
       <div className="absolute bottom-3 right-3 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-md border border-white/10 text-[10px] font-medium pointer-events-auto">
         {draftStore.saveStatus === 'saving' && (
           <>
-            <Loader2 className="w-3 h-3 text-[#7C5CFC] animate-spin" />
+            <Cloud className="w-3.5 h-3.5 text-[#7C5CFC] animate-pulse" />
             <span className="text-[#9494A8]">Salvando...</span>
           </>
         )}
         {draftStore.saveStatus === 'saved' && (
           <>
-            <Check className="w-3 h-3 text-emerald-400" />
-            <span className="text-white/80">Salvo ✓</span>
+            <CloudCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="text-white/80">Salvo na nuvem</span>
           </>
         )}
         {draftStore.saveStatus === 'error' && (
           <>
-            <AlertTriangle className="w-3 h-3 text-amber-400" />
-            <span className="text-amber-200">Erro ao salvar ⚠️</span>
+            <CloudOff className="w-3.5 h-3.5 text-amber-400" />
+            <span className="text-amber-200">Erro ao salvar</span>
             <button
               onClick={() => void draftStore.retrySave()}
               className="ml-1 text-[#7C5CFC] hover:underline"
@@ -2171,8 +2180,14 @@ export default function Gravadora() {
         )}
         {draftStore.saveStatus === 'idle' && draftStore.pendingChanges > 0 && (
           <>
-            <Save className="w-3 h-3 text-[#9494A8]" />
+            <Save className="w-3.5 h-3.5 text-[#9494A8]" />
             <span className="text-[#9494A8]">{draftStore.pendingChanges} alterações</span>
+          </>
+        )}
+        {draftStore.saveStatus === 'idle' && draftStore.pendingChanges === 0 && (
+          <>
+            <Cloud className="w-3.5 h-3.5 text-white/40" />
+            <span className="text-[#9494A8]">Sincronizado</span>
           </>
         )}
         {draftStore.conflictState !== 'none' && (
@@ -2897,9 +2912,19 @@ export default function Gravadora() {
                   <FolderPlus className="w-4 h-4 text-[#7C5CFC]" />
                   Takes Gravados Nesta Sessão ({recordedClips.length})
                 </span>
-                <span className="text-[11px] text-[#9494A8]">
-                  Salvos automaticamente em Meus Projetos
-                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsImportModalOpen(true)}
+                    className="h-7 text-[11px] border-white/10 bg-[#1C1C27] text-white hover:bg-white/5 gap-1.5 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
+                  >
+                    <Upload className="w-3.5 h-3.5 text-[#22D3EE]" /> Importar Take
+                  </Button>
+                  <span className="text-[11px] text-[#9494A8] hidden sm:inline">
+                    Salvos automaticamente em Meus Projetos
+                  </span>
+                </div>
               </div>
 
               {recordedClips.length === 0 ? (
@@ -3498,6 +3523,56 @@ export default function Gravadora() {
           <span className="text-[11px] font-bold text-emerald-300">Teleprompter ativo</span>
         </div>
       )}
+
+      {/* GAP 70 — Componente de Importação de Take */}
+      <ImportTake
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onImportSuccess={(importedTake, _videoFile, manifest) => {
+          // Adiciona o take à lista de takes gravados da sessão
+          setRecordedClips((prev) => [importedTake, ...prev])
+
+          // Se o manifesto trouxer roteiro, restaura o roteiro no teleprompter
+          if (manifest.scriptText) {
+            setTeleprompterScript(manifest.scriptText)
+          }
+
+          // Se o manifesto trouxer configurações do palco, restaura
+          if (manifest.layout) {
+            setStageLayout(manifest.layout)
+          }
+          if (typeof manifest.cameraCover === 'number') {
+            setCameraCover(manifest.cameraCover)
+          }
+
+          // Cria projeto em Meus Projetos para permitir edição
+          const newProj = createProject({
+            title: `Take Importado (${importedTake.timeString})`,
+            type: 'reel',
+            aspectRatio: '9:16',
+            resolution: '1080p',
+            duration: importedTake.duration,
+            status: 'draft',
+            thumbnail: importedTake.url,
+            scriptText: manifest.scriptText || teleprompterScript,
+            clips: [
+              {
+                id: 'clip-imported-main',
+                track: 'video',
+                name: 'Take Importado',
+                startTime: 0,
+                duration: importedTake.duration,
+                sourceUrl: importedTake.url,
+                mediaType: 'video',
+                volume: 100,
+              },
+            ],
+          })
+          takeProjectMapRef.current[importedTake.id] = newProj.id
+
+          toast.success('Take importado e estado do projeto restaurado no estúdio!')
+        }}
+      />
 
       {/* Modal: Permissão negada */}
       <Dialog open={permissionErrorModal} onOpenChange={setPermissionErrorModal}>
