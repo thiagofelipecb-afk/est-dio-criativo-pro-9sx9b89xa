@@ -88,19 +88,32 @@ export default function Gravadora() {
   // Mobile QR simulation modal
   const [showMobileQR, setShowMobileQR] = useState(false)
 
-  // Initialize camera stream
+  // Initialize camera stream — chamado apenas por gesto do usuário (clique no botão).
+  // Browsers bloqueiam getUserMedia automático no mount sem interação, então NÃO
+  // disparamos no useEffect de mount. A troca de dispositivo só recomeça a câmera
+  // se já houver permissão concedida (evita pedir novamente sem gesto).
   const startCamera = async () => {
+    console.log('[Gravadora] Solicitando acesso à câmera/microfone…', {
+      hasPermission,
+      selectedCamera,
+      selectedMic,
+    })
     try {
       if (stream) {
         stream.getTracks().forEach((t) => t.stop())
       }
 
+      // Se não houver deviceId selecionado, pede permissão genérica (video+audio true)
       const constraints: MediaStreamConstraints = {
         video: selectedCamera ? { deviceId: { exact: selectedCamera } } : true,
         audio: selectedMic ? { deviceId: { exact: selectedMic } } : true,
       }
 
       const userStream = await navigator.mediaDevices.getUserMedia(constraints)
+      console.log('[Gravadora] Permissão concedida. Stream ativo.', {
+        videoTracks: userStream.getVideoTracks().length,
+        audioTracks: userStream.getAudioTracks().length,
+      })
       setStream(userStream)
       setHasPermission(true)
       setPermissionErrorModal(false)
@@ -109,26 +122,36 @@ export default function Gravadora() {
         videoRef.current.srcObject = userStream
       }
 
-      // Enumerate devices
+      // Enumerate devices (labels só ficam disponíveis após permissão)
       const devices = await navigator.mediaDevices.enumerateDevices()
       setVideoDevices(devices.filter((d) => d.kind === 'videoinput'))
       setAudioDevices(devices.filter((d) => d.kind === 'audioinput'))
-    } catch (err) {
-      console.warn('Erro ao acessar webcam:', err)
+    } catch (err: any) {
+      console.warn('[Gravadora] Erro ao acessar webcam:', err?.name || err, err?.message || '')
       setHasPermission(false)
       setPermissionErrorModal(true)
     }
   }
 
+  // Troca de dispositivo só reinicia a câmera se já tivermos permissão
+  // (evita nova chamada automática de getUserMedia sem gesto do usuário).
   useEffect(() => {
-    startCamera()
+    if (hasPermission === true) {
+      startCamera()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCamera, selectedMic])
+
+  // Cleanup ao desmontar
+  useEffect(() => {
     return () => {
       if (stream) {
         stream.getTracks().forEach((t) => t.stop())
       }
       if (timerRef.current) clearInterval(timerRef.current)
     }
-  }, [selectedCamera, selectedMic])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Recording Timer loop
   useEffect(() => {
@@ -299,8 +322,8 @@ export default function Gravadora() {
                   }px) saturate(${100 + beautySmooth / 2}%)`,
                 }}
               />
-            ) : (
-              /* Fallback Simulated Camera Feed */
+            ) : hasPermission === false ? (
+              /* Fallback Simulado — permissão negada ou erro */
               <div className="relative w-full h-full overflow-hidden flex items-center justify-center">
                 <img
                   src="https://img.usecurling.com/p/1080/1920?q=podcaster+creator+microphone+speaking&color=purple"
@@ -312,25 +335,59 @@ export default function Gravadora() {
                     }px)`,
                   }}
                 />
-                {!hasPermission && (
-                  <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center text-center p-6 space-y-3">
-                    <VideoOff className="w-10 h-10 text-red-400 animate-pulse" />
-                    <div>
-                      <h3 className="font-bold text-white text-base">Prévia Simulada Ativa</h3>
-                      <p className="text-xs text-[#9494A8] max-w-sm mt-1">
-                        Câmera local desativada ou não autorizada. Você pode testar todos os
-                        controles de gravação e teleprompter normalmente!
-                      </p>
-                    </div>
-                    <Button
-                      size="sm"
-                      onClick={startCamera}
-                      className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs"
-                    >
-                      Solicitar Acesso à Webcam
-                    </Button>
+                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center text-center p-6 space-y-3">
+                  <VideoOff className="w-10 h-10 text-red-400 animate-pulse" />
+                  <div>
+                    <h3 className="font-bold text-white text-base">Prévia Simulada Ativa</h3>
+                    <p className="text-xs text-[#9494A8] max-w-md mt-1 leading-relaxed">
+                      Câmera local desativada ou não autorizada. Você pode testar todos os controles
+                      de gravação e teleprompter normalmente!
+                    </p>
+                    <p className="text-[11px] text-[#9494A8]/80 max-w-md mt-2 leading-relaxed">
+                      <strong className="text-amber-300">Como liberar:</strong> Verifique se seu
+                      navegador tem permissão de câmera. No Chrome: cadeado na barra de endereço ›
+                      Câmera › Permitir. No Firefox: Preferências › Privacidade › Câmera. No Safari:
+                      Preferências › Sites › Câmera.
+                    </p>
                   </div>
-                )}
+                  <Button
+                    size="sm"
+                    onClick={startCamera}
+                    className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs"
+                  >
+                    Solicitar Acesso à Webcam
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              /* Estado inicial — nunca tentou. Botão grande de ativar câmera. */
+              <div className="relative w-full h-full overflow-hidden flex items-center justify-center bg-gradient-to-br from-[#0e0e15] via-[#14141C] to-[#07070A]">
+                <div className="flex flex-col items-center justify-center text-center p-6 space-y-5 max-w-lg">
+                  <div className="relative">
+                    <div className="absolute inset-0 rounded-full bg-[#7C5CFC]/20 blur-2xl animate-pulse" />
+                    <div className="relative flex h-24 w-24 items-center justify-center rounded-full border-2 border-[#7C5CFC]/40 bg-[#7C5CFC]/10">
+                      <Camera className="w-10 h-10 text-[#7C5CFC]" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="font-extrabold text-white text-xl">Ativar Câmera do Estúdio</h3>
+                    <p className="text-sm text-[#9494A8] leading-relaxed">
+                      Clique no botão abaixo para autorizar o acesso à sua webcam e microfone. O
+                      navegador vai pedir permissão — aceite para iniciar a transmissão ao vivo.
+                    </p>
+                    <p className="text-[11px] text-[#9494A8]/70">
+                      Sem permissão, você ainda pode testar todos os controles com a prévia
+                      simulada.
+                    </p>
+                  </div>
+                  <Button
+                    size="lg"
+                    onClick={startCamera}
+                    className="bg-gradient-to-r from-[#7C5CFC] to-[#6A48E0] hover:from-[#6A48E0] hover:to-[#5835D8] text-white font-bold text-sm px-8 py-3 rounded-xl shadow-lg shadow-[#7C5CFC]/30 gap-2"
+                  >
+                    <Camera className="w-5 h-5" /> Ativar Câmera
+                  </Button>
+                </div>
               </div>
             )}
 

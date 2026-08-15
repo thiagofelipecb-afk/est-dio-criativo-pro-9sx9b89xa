@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { usePlatform } from '@/context/PlatformContext'
 import { useStudio } from '@/context/StudioContext'
 import { useAIGeneration } from '@/hooks/use-ai-generation'
@@ -51,6 +52,8 @@ import {
   Loader2,
   XCircle,
   Clock,
+  FileBarChart,
+  ExternalLink,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -272,6 +275,69 @@ const RESEARCH_GROUPS: ResearchGroupDef[] = [
 const TOTAL_RESEARCH_FIELDS = RESEARCH_GROUPS.reduce((s, g) => s + g.fields.length, 0) // 42
 
 /* =====================================================================
+   DEFINIÇÕES — Perguntas Avançadas (Base Essencial, recomendado)
+   ===================================================================== */
+
+interface AdvancedQuestionDef {
+  key: string
+  label: string
+  type: 'text' | 'textarea'
+  placeholder?: string
+}
+
+const ADVANCED_QUESTIONS: AdvancedQuestionDef[] = [
+  {
+    key: 'maior_objecao',
+    label: 'Qual a maior objeção que seus clientes têm antes de comprar?',
+    type: 'textarea',
+    placeholder:
+      'Ex: "Está caro", "Não vou ter tempo de aplicar", "Já tentei antes e não funcionou"…',
+  },
+  {
+    key: 'uma_frase',
+    label: 'Se seu cliente ideal lesse apenas UMA frase sua, qual seria?',
+    type: 'text',
+    placeholder: 'A frase definitiva que resume o seu valor…',
+  },
+  {
+    key: 'erro_concorrentes',
+    label: 'Qual o maior erro que seus concorrentes cometem?',
+    type: 'text',
+    placeholder: 'Ex: Prometem rápido e não entregam suporte…',
+  },
+  {
+    key: 'porque_voce',
+    label: 'O que faz um cliente escolher você em vez do concorrente mais barato?',
+    type: 'textarea',
+    placeholder: 'Seu diferencial inimitável em poucas linhas…',
+  },
+  {
+    key: 'momento_aha',
+    label: 'Qual foi o momento "aha" que fez você criar esse negócio?',
+    type: 'textarea',
+    placeholder: 'A insight original, o ponto de virada…',
+  },
+  {
+    key: 'momento_percebe',
+    label: 'Descreva o momento exato em que seu cliente percebe que precisa de você.',
+    type: 'textarea',
+    placeholder: 'O gatilho de conscientização do cliente…',
+  },
+  {
+    key: 'perguntas_fechar',
+    label: 'Quais perguntas seus clientes sempre fazem antes de fechar?',
+    type: 'textarea',
+    placeholder: 'Liste as dúvidas recorrentes na decisão de compra…',
+  },
+  {
+    key: 'todos_soubessem',
+    label: 'O que você gostaria que TODO mundo soubesse sobre seu mercado?',
+    type: 'textarea',
+    placeholder: 'A verdade que poucos enxergam no seu nicho…',
+  },
+]
+
+/* =====================================================================
    DEFINIÇÕES — Entrevista Guiada (8 etapas)
    ===================================================================== */
 
@@ -419,8 +485,32 @@ export default function Posicionamento() {
     usePlatform()
   const { setBrandOS } = useStudio()
   const { generateBrandOS } = useAIGeneration()
+  const navigate = useNavigate()
 
   const [tab, setTab] = useState<'base' | 'pesquisa' | 'entrevista'>('base')
+
+  // Perguntas avançadas (Base Essencial) — localStorage próprio
+  const [advancedQuestions, setAdvancedQuestions] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem('lumen_posicionamento_advanced_questions')
+      return saved ? JSON.parse(saved) : {}
+    } catch {
+      return {}
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        'lumen_posicionamento_advanced_questions',
+        JSON.stringify(advancedQuestions),
+      )
+    } catch {
+      /* ignore */
+    }
+  }, [advancedQuestions])
+  const updateAdvancedQuestion = (key: string, value: string) =>
+    setAdvancedQuestions((prev) => ({ ...prev, [key]: value }))
+  const advancedFilled = Object.values(advancedQuestions).filter((v) => v?.trim()).length
 
   // Geração
   const [loading, setLoading] = useState(false)
@@ -541,12 +631,18 @@ export default function Posicionamento() {
       return
     }
 
-    // Monta os 13 ativos
+    // Monta os 13 ativos (inclui perguntas avançadas como contexto adicional)
     const assets: BrandAsset[] = ASSET_DEFS.map((def) => ({
       type: def.type,
       layer: def.layer,
       title: def.title,
-      content: generateAssetContent(def.type, base, brandProfile.research, brandProfile.interview),
+      content: generateAssetContent(
+        def.type,
+        base,
+        brandProfile.research,
+        brandProfile.interview,
+        advancedQuestions,
+      ),
     }))
     setAssets(assets)
     setGenerationMeta({
@@ -578,7 +674,16 @@ export default function Posicionamento() {
     setLoading(false)
     setProgress(0)
     setProgressLabel('')
-    toast.success(`Brand OS gerado! ${assets.length} ativos criados (v${res.contextVersion + 1}).`)
+    toast.success(
+      `Brand OS gerado! ${assets.length} ativos criados (v${res.contextVersion + 1}).`,
+      {
+        description: 'Seu documento visual de marca está pronto.',
+        action: {
+          label: 'Ver Documento Visual →',
+          onClick: () => navigate('/posicionamento/documento'),
+        },
+      },
+    )
   }
 
   const handleGenerateClick = () => {
@@ -611,6 +716,7 @@ export default function Posicionamento() {
       base,
       brandProfile.research,
       brandProfile.interview,
+      advancedQuestions,
     )
     const updated = brandProfile.assets.map((a) =>
       a.type === type ? { ...a, content: newContent } : a,
@@ -882,6 +988,69 @@ export default function Posicionamento() {
                   placeholder="Descreva sua oferta principal em detalhes…"
                 />
               </EssentialField>
+            </div>
+
+            {/* Perguntas Avançadas (recomendado) */}
+            <div className="rounded-2xl bg-gradient-to-br from-[#1C1C27] to-[#14141C] border border-[#7C5CFC]/20 p-5 space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#7C5CFC]/15 border border-[#7C5CFC]/30">
+                    <Sparkles className="w-3.5 h-3.5 text-[#7C5CFC]" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white">
+                      Perguntas Avançadas (recomendado)
+                    </h3>
+                    <p className="text-[10px] text-[#9494A8]">
+                      Aprofundamento estratégico que enriquece a geração do Brand OS
+                    </p>
+                  </div>
+                </div>
+                <Badge
+                  className={
+                    advancedFilled === ADVANCED_QUESTIONS.length
+                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[10px]'
+                      : 'bg-[#7C5CFC]/15 text-[#7C5CFC] border-[#7C5CFC]/30 text-[10px]'
+                  }
+                >
+                  {advancedFilled}/{ADVANCED_QUESTIONS.length} preenchidas
+                </Badge>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {ADVANCED_QUESTIONS.map((q) => {
+                  const val = advancedQuestions[q.key] || ''
+                  const isFilled = !!val.trim()
+                  return (
+                    <div key={q.key} className={q.type === 'textarea' ? 'md:col-span-2' : ''}>
+                      <Label className="text-xs font-medium text-[#9494A8] flex items-center gap-1 mb-1.5">
+                        {q.label}
+                        {isFilled && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
+                      </Label>
+                      {q.type === 'textarea' ? (
+                        <Textarea
+                          className={fieldInputClass(isFilled)}
+                          rows={2}
+                          value={val}
+                          onChange={(e) => updateAdvancedQuestion(q.key, e.target.value)}
+                          placeholder={q.placeholder || '…'}
+                        />
+                      ) : (
+                        <Input
+                          className={fieldInputClass(isFilled)}
+                          value={val}
+                          onChange={(e) => updateAdvancedQuestion(q.key, e.target.value)}
+                          placeholder={q.placeholder || '…'}
+                        />
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+              <p className="text-[10px] text-[#9494A8]/70 flex items-center gap-1">
+                <Clock className="w-3 h-3" /> Salvamento automático no localStorage. Estas respostas
+                alimentam a geração do Brand OS como contexto adicional.
+              </p>
             </div>
 
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
@@ -1156,6 +1325,34 @@ export default function Posicionamento() {
             })()}
           </TabsContent>
         </Tabs>
+
+        {/* ============ BANNER DOCUMENTO VISUAL DA MARCA ============ */}
+        {hasAssets && (
+          <div className="rounded-2xl bg-gradient-to-r from-[#1C1C27] via-[#14141C] to-[#0e0e15] border border-[#7C5CFC]/30 p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-[#7C5CFC]/15 border border-[#7C5CFC]/30 shrink-0">
+              <FileBarChart className="w-7 h-7 text-[#7C5CFC]" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                Documento da Marca
+                <Badge className="bg-[#7C5CFC]/20 text-[#7C5CFC] border-[#7C5CFC]/30 text-[9px]">
+                  Visual
+                </Badge>
+              </h3>
+              <p className="text-[11px] text-[#9494A8] mt-0.5">
+                Arquitetura completa de marca em formato visual: mapa mental, gráficos, esteira de
+                ofertas, concorrência e mais. Pronto para compartilhar ou salvar como PDF.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => navigate('/posicionamento/documento')}
+              className="bg-gradient-to-r from-[#7C5CFC] to-[#6A48E0] hover:from-[#6A48E0] hover:to-[#5835D8] text-white font-semibold text-xs gap-1.5 shrink-0"
+            >
+              <ExternalLink className="w-3.5 h-3.5" /> Abrir Documento Completo
+            </Button>
+          </div>
+        )}
 
         {/* ============ ATIVOS GERADOS (abaixo das tabs) ============ */}
         {hasAssets && (
@@ -1470,6 +1667,7 @@ function generateAssetContent(
   base: BrandProfile['base'],
   research: ResearchAnswer[],
   interview: InterviewAnswer[],
+  advanced?: Record<string, string>,
 ): string {
   const niche = base.niche?.trim() || '[Preencha este dado]'
   const audience = base.audience?.trim() || '[Preencha este dado]'
@@ -1479,16 +1677,28 @@ function generateAssetContent(
 
   const r = (key: string) => research.find((x) => x.fieldKey === key)?.value || ''
   const i = (code: string) => interview.find((x) => x.guideCode === code)?.transcript || ''
+  const a = (key: string) => advanced?.[key]?.trim() || ''
+  // Bloco de contexto das perguntas avançadas (só adiciona se houver conteúdo)
+  const advancedContext =
+    advanced && Object.values(advanced).some((v) => v?.trim())
+      ? `\n\n[Contexto avançado]\n` +
+        Object.entries(advanced)
+          .filter(([, v]) => v?.trim())
+          .map(
+            ([k, v]) => `- ${ADVANCED_QUESTIONS.find((q) => q.key === k)?.label || k}: ${v.trim()}`,
+          )
+          .join('\n')
+      : ''
 
   switch (type) {
     case 'posicionamento':
-      return `Para ${audience} que buscam ${result}, ${service} é a alternativa que entrega ${differential} — diferente das soluções genéricas de ${niche}.`
+      return `Para ${audience} que buscam ${result}, ${service} é a alternativa que entrega ${differential} — diferente das soluções genéricas de ${niche}.${a('uma_frase') ? `\n\nFrase-resumo: "${a('uma_frase')}"` : ''}${advancedContext}`
     case 'promessa':
-      return `Em até 90 dias você vai ${result.toLowerCase()}, ou seu investimento de volta. Sem promessas vazias — entregamos ${differential.toLowerCase()}.`
+      return `Em até 90 dias você vai ${result.toLowerCase()}, ou seu investimento de volta. Sem promessas vazias — entregamos ${differential.toLowerCase()}.${a('maior_objecao') ? `\nObjeção principal que respondemos: ${a('maior_objecao')}.` : ''}${advancedContext}`
     case 'arquetipo':
-      return `${i('G6') ? 'Baseado na sua personalidade: ' : ''}Arquétipo "O Sábio + O Guia". Você traduz complexidade de ${niche} em clareza prática e conduz o cliente até a transformação.`
+      return `${i('G6') ? 'Baseado na sua personalidade: ' : ''}Arquétipo "O Sábio + O Guia". Você traduz complexidade de ${niche} em clareza prática e conduz o cliente até a transformação.${advancedContext}`
     case 'inimigo_narrativo':
-      return `O inimigo é a abordagem superficial de ${niche} que promete rápido e entrega pouco. ${i('G4') ? 'Sua raiva do mercado sustenta essa narrativa.' : 'Combata a desinformação e o atalho ilusório.'}`
+      return `O inimigo é a abordagem superficial de ${niche} que promete rápido e entrega pouco. ${i('G4') ? 'Sua raiva do mercado sustenta essa narrativa.' : 'Combata a desinformação e o atalho ilusório.'}${a('erro_concorrentes') ? ` Erro dos concorrentes: ${a('erro_concorrentes')}.` : ''}`
     case 'tom_de_voz':
       return base.voice
         ? `${base.voice}. ${TOM_LABELS[base.voice] || ''}`
@@ -1498,9 +1708,9 @@ function generateAssetContent(
     case 'storytelling':
       return i('G1')
         ? `História de origem: ${i('G1').slice(0, 320)}…`
-        : `A jornada começa quando você percebeu que ${audience} precisavam de ${result}, mas as opções de ${niche} não entregavam ${differential.toLowerCase()}. Decidiu construir um caminho próprio.`
+        : `A jornada começa quando você percebeu que ${audience} precisavam de ${result}, mas as opções de ${niche} não entregavam ${differential.toLowerCase()}. Decidiu construir um caminho próprio.${a('momento_aha') ? `\n\nMomento "aha": ${a('momento_aha')}` : ''}${advancedContext}`
     case 'stack_de_prova':
-      return `1. Números: ${r('clientes_ativos') || '[Preencha este dado]'} clientes ativos\n2. Cases: ${r('cases') || '[Preencha este dado]'}\n3. Depoimentos: ${r('depoimentos') || '[Preencha este dado]'}\n4. Autoridade: ${r('selos_premiacoes') || r('certificacoes') || '[Preencha este dado]'}`
+      return `1. Números: ${r('clientes_ativos') || '[Preencha este dado]'} clientes ativos\n2. Cases: ${r('cases') || '[Preencha este dado]'}\n3. Depoimentos: ${r('depoimentos') || '[Preencha este dado]'}\n4. Autoridade: ${r('selos_premiacoes') || r('certificacoes') || '[Preencha este dado]'}${advancedContext}`
     case 'identidade_visual':
       return `Estilo: ${r('estilo_visual') || '[Preencha este dado]'}. Cores: ${r('cores_marca') || '[Preencha este dado]'}. Referências: ${r('referencias_visuais') || '[Preencha este dado]'}. Manter consistência em todas as peças.`
     case 'pilares_de_conteudo':
@@ -1511,8 +1721,12 @@ function generateAssetContent(
       return `Bio: ${service} para ${audience}. ${result}.\nTagline 1: ${differential}\nTagline 2: ${niche} sem enrolação.\nTagline 3: O método que entrega ${result.toLowerCase()}.`
     case 'oferta_principal':
       return base.mainOffer?.trim()
-        ? base.mainOffer
-        : `${service} para ${audience}. Entrega: ${result}. Diferencial: ${differential}. Garantia: ${r('etapa_5') ? 'processo estruturado em 5 etapas' : '[Preencha este dato]'}.`
+        ? base.mainOffer +
+            (a('porque_voce') ? `\n\nPor que escolher você: ${a('porque_voce')}` : '') +
+            advancedContext
+        : `${service} para ${audience}. Entrega: ${result}. Diferencial: ${differential}. Garantia: ${r('etapa_5') ? 'processo estruturado em 5 etapas' : '[Preencha este dato]'}.${a('porque_voce') ? `\n\nPor que escolher você: ${a('porque_voce')}` : ''}${advancedContext}`
+    default:
+      return ''
   }
 }
 

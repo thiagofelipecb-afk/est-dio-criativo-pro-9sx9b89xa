@@ -1051,30 +1051,7 @@ function FunnelPlanDetail({ plan }: { plan: FunnelPlan }) {
         </TabsContent>
 
         <TabsContent value="estrutura" className="mt-3">
-          {/* Diagrama visual de etapas encadeadas com setas CSS */}
-          <div className="flex flex-col gap-1">
-            {plan.estrutura.map((s, i) => (
-              <div key={i}>
-                <div className="rounded-lg bg-[#0e0e15]/60 border border-white/5 p-2.5">
-                  <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-xs font-bold text-white">
-                      {s.ordem}. {s.nome}
-                    </span>
-                    <Badge className="bg-[#22D3EE]/15 text-[#22D3EE] border-[#22D3EE]/30 text-[9px]">
-                      {s.canal}
-                    </Badge>
-                  </div>
-                  <p className="text-[11px] text-[#9494A8]">{s.descricao}</p>
-                  <p className="text-[10px] text-[#9494A8]/70 mt-0.5">⏱ {s.duracao}</p>
-                </div>
-                {i < plan.estrutura.length - 1 && (
-                  <div className="flex justify-center py-0.5">
-                    <ChevronRight className="w-3 h-3 text-[#7C5CFC] rotate-90" />
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+          <FunnelStructureFlow plan={plan} />
         </TabsContent>
 
         <TabsContent value="tecnica" className="mt-3">
@@ -1111,79 +1088,15 @@ function FunnelPlanDetail({ plan }: { plan: FunnelPlan }) {
         </TabsContent>
 
         <TabsContent value="mapa" className="mt-3">
-          <div className="rounded-lg bg-[#0e0e15]/60 p-3 border border-white/5">
-            <div className="flex flex-wrap items-center gap-1">
-              {plan.mapa.map((s, i) => (
-                <React.Fragment key={i}>
-                  <span className="px-2 py-1 rounded-lg bg-[#1C1C27] text-[11px] text-white">
-                    {s}
-                  </span>
-                  {i < plan.mapa.length - 1 && <ArrowRight className="w-3 h-3 text-[#7C5CFC]" />}
-                </React.Fragment>
-              ))}
-            </div>
-          </div>
+          <FunnelMindMap plan={plan} />
         </TabsContent>
 
         <TabsContent value="ativos" className="mt-3">
-          <div className="space-y-1.5">
-            {plan.ativos.length === 0 && (
-              <p className="text-[11px] text-[#9494A8]">Nenhum ativo do Brand OS necessário.</p>
-            )}
-            {plan.ativos.map((a, i) => (
-              <div key={i} className="rounded-lg bg-[#0e0e15]/60 border border-white/5 p-2.5">
-                <div className="flex items-center justify-between mb-0.5">
-                  <span className="text-xs font-bold text-white">{a.nome}</span>
-                  <Badge
-                    className={`text-[9px] ${
-                      a.status === 'pronto'
-                        ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                        : a.status === 'pendente'
-                          ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
-                          : 'bg-red-500/15 text-red-400 border-red-500/30'
-                    }`}
-                  >
-                    {a.status}
-                  </Badge>
-                </div>
-                <p className="text-[10px] text-[#9494A8]">{a.rationale}</p>
-                <p className="text-[9px] text-[#22D3EE] mt-0.5">ID: {a.assetId}</p>
-              </div>
-            ))}
-          </div>
+          <FunnelAssetsRadar plan={plan} />
         </TabsContent>
 
         <TabsContent value="checklist" className="mt-3">
-          <div className="mb-2">
-            <div className="flex items-center justify-between text-[10px] text-[#9494A8] mb-1">
-              <span>
-                {done}/{plan.checklist.length} concluídas
-              </span>
-              <span>{pct}%</span>
-            </div>
-            <Progress value={pct} className="h-1.5 bg-white/10" />
-          </div>
-          <div className="space-y-1.5">
-            {plan.checklist.map((c) => (
-              <label
-                key={c.id}
-                className="flex items-center gap-2 rounded-lg bg-[#0e0e15]/60 p-2.5 cursor-pointer hover:bg-[#0e0e15]"
-              >
-                <input
-                  type="checkbox"
-                  checked={!!c.concluido_em}
-                  onChange={() => toggleCheck(c.id)}
-                  className="accent-[#7C5CFC] w-4 h-4"
-                />
-                <span
-                  className={`text-xs flex-1 ${c.concluido_em ? 'line-through text-[#9494A8]' : 'text-white'}`}
-                >
-                  {c.title}
-                </span>
-                <Badge className={prioridadeBadge(c.prioridade)}>{c.prioridade}</Badge>
-              </label>
-            ))}
-          </div>
+          <FunnelChecklistChart plan={plan} toggleCheck={toggleCheck} done={done} pct={pct} />
         </TabsContent>
       </Tabs>
 
@@ -1194,6 +1107,360 @@ function FunnelPlanDetail({ plan }: { plan: FunnelPlan }) {
             : 'Não gerado'}
           {item ? ` • ${labelDificuldade(item.dificuldade)} • ${item.tempo_estimado}` : ''}
         </span>
+      </div>
+    </div>
+  )
+}
+
+/* =====================================================================
+   VISUALIZAÇÕES — Mapa Mental, Gráficos, Fluxos (CSS + SVG inline)
+   ===================================================================== */
+
+const PRIO_COLOR: Record<string, string> = {
+  critica: '#ef4444',
+  alta: '#f97316',
+  media: '#F59E0B',
+  baixa: '#22c55e',
+}
+
+/* --- Mapa Mental do Funil (aba Mapa) --- */
+function FunnelMindMap({ plan }: { plan: FunnelPlan }) {
+  const item = FUNNEL_CATALOG.find((f) => f.id === plan.catalogItemId)
+  const color = item ? ETAPA_COLOR[item.etapa] : '#7C5CFC'
+  const center = item?.nome || plan.catalogItemId
+  const etapaLabel = item ? ETAPA_LABEL[item.etapa] : ''
+  const nodes = plan.estrutura
+
+  return (
+    <div className="rounded-xl bg-[#0e0e15]/60 p-4 border border-white/5 overflow-x-auto">
+      <div className="min-w-[520px] flex flex-col items-center gap-4 py-2">
+        {/* Nó central */}
+        <div className="relative">
+          <div
+            className="absolute inset-0 rounded-2xl blur-xl opacity-50"
+            style={{ background: color }}
+          />
+          <div
+            className="relative px-5 py-2.5 rounded-2xl text-white font-extrabold text-center shadow-lg flex flex-col items-center gap-1"
+            style={{ background: `linear-gradient(135deg, ${color}, ${color}cc)` }}
+          >
+            <span className="text-xs">{center}</span>
+            <span className="text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/20">
+              {etapaLabel}
+            </span>
+          </div>
+        </div>
+
+        {/* Linhas SVG conectoras animadas */}
+        <svg width="520" height="40" className="overflow-visible">
+          {nodes.map((_, i) => {
+            const n = nodes.length
+            const x = 60 + (i * (520 - 120)) / Math.max(n - 1, 1)
+            return (
+              <line
+                key={i}
+                x1="260"
+                y1="0"
+                x2={x}
+                y2="40"
+                stroke={color}
+                strokeWidth="1.5"
+                strokeOpacity="0.4"
+                strokeDasharray="4 3"
+                style={{ animation: 'funnelDash 1.5s linear infinite' }}
+              />
+            )
+          })}
+          <style>{`@keyframes funnelDash { to { stroke-dashoffset: -14; } }`}</style>
+        </svg>
+
+        {/* Nós filhos */}
+        <div
+          className="grid gap-2 w-full"
+          style={{ gridTemplateColumns: `repeat(${Math.min(nodes.length, 4)}, minmax(0,1fr))` }}
+        >
+          {nodes.map((s, i) => (
+            <div
+              key={i}
+              className="rounded-lg border p-2.5 space-y-0.5"
+              style={{ borderColor: `${color}33`, background: `${color}0d` }}
+            >
+              <div className="text-[11px] font-bold text-white truncate">{s.nome}</div>
+              <div className="flex items-center gap-1">
+                <span
+                  className="text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded"
+                  style={{ background: `${color}22`, color }}
+                >
+                  {s.canal}
+                </span>
+                <span className="text-[9px] text-[#9494A8]">⏱ {s.duracao}</span>
+              </div>
+              <p className="text-[9px] text-[#9494A8] leading-snug line-clamp-2">{s.descricao}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* --- Gráfico de barras do Checklist (aba Checklist) --- */
+function FunnelChecklistChart({
+  plan,
+  toggleCheck,
+  done,
+  pct,
+}: {
+  plan: FunnelPlan
+  toggleCheck: (id: string) => void
+  done: number
+  pct: number
+}) {
+  return (
+    <div className="space-y-3">
+      {/* Barra de progresso geral */}
+      <div className="rounded-lg bg-[#0e0e15]/60 p-3 border border-white/5">
+        <div className="flex items-center justify-between text-[10px] text-[#9494A8] mb-1.5">
+          <span className="font-semibold text-white">
+            Progresso geral — {done}/{plan.checklist.length} concluídas
+          </span>
+          <span className="font-bold text-[#7C5CFC]">{pct}%</span>
+        </div>
+        <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all duration-700"
+            style={{
+              width: `${pct}%`,
+              background: 'linear-gradient(90deg, #7C5CFC, #22D3EE)',
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Barras horizontais por item */}
+      <div className="space-y-1.5">
+        {plan.checklist.map((c) => {
+          const prio = PRIO_COLOR[c.prioridade] || '#9494A8'
+          const isDone = !!c.concluido_em
+          return (
+            <label
+              key={c.id}
+              className="flex items-center gap-2 rounded-lg bg-[#0e0e15]/60 p-2 cursor-pointer hover:bg-[#0e0e15] transition-colors"
+            >
+              <input
+                type="checkbox"
+                checked={isDone}
+                onChange={() => toggleCheck(c.id)}
+                className="accent-[#7C5CFC] w-4 h-4 shrink-0"
+              />
+              <span
+                className={`text-[11px] flex-1 truncate ${isDone ? 'line-through text-[#9494A8]' : 'text-white'}`}
+              >
+                {c.title}
+              </span>
+              {/* Mini barra de prioridade */}
+              <div className="hidden sm:flex items-center gap-1.5 w-28 shrink-0">
+                <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{
+                      width: isDone ? '100%' : '30%',
+                      background: isDone ? '#22c55e' : prio,
+                      opacity: isDone ? 0.5 : 1,
+                    }}
+                  />
+                </div>
+              </div>
+              <Badge
+                className="text-[8px] shrink-0"
+                style={{
+                  background: `${prio}22`,
+                  color: prio,
+                  borderColor: `${prio}55`,
+                }}
+              >
+                {c.prioridade}
+              </Badge>
+            </label>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+/* --- Gráfico de radar dos ativos (aba Ativos) --- */
+function FunnelAssetsRadar({ plan }: { plan: FunnelPlan }) {
+  // Eixos fixos, mapeando ativos do plano por categoria
+  const axes = [
+    { label: 'Copy Base', ids: ['posicionamento', 'promessa', 'bio_taglines'] },
+    { label: 'Visual', ids: ['identidade_visual'] },
+    { label: 'Técnico', ids: ['tom_de_voz', 'vocabulario'] },
+    { label: 'Conteúdo', ids: ['pilares_de_conteudo', 'linha_editorial'] },
+    { label: 'Conversão', ids: ['oferta_principal', 'inimigo_narrativo'] },
+    { label: 'Relacionamento', ids: ['storytelling', 'stack_de_prova', 'arquetipo'] },
+  ]
+
+  const valueFor = (ids: string[]) => {
+    const relevant = plan.ativos.filter((a) => ids.includes(a.assetId))
+    if (relevant.length === 0) return 10
+    const map = { pronto: 100, concluido: 100, pendente: 50, gerando: 30, falhou: 10, ausente: 10 }
+    const avg = relevant.reduce((s, a) => s + (map[a.status] ?? 10), 0) / relevant.length
+    return Math.round(avg)
+  }
+
+  const cx = 110
+  const cy = 110
+  const r = 80
+  const n = axes.length
+  const points = axes
+    .map((_, i) => {
+      const angle = (Math.PI * 2 * i) / n - Math.PI / 2
+      const dist = (valueFor(axes[i].ids) / 100) * r
+      return `${cx + Math.cos(angle) * dist},${cy + Math.sin(angle) * dist}`
+    })
+    .join(' ')
+
+  return (
+    <div className="flex flex-col sm:flex-row items-center gap-4">
+      <svg width="220" height="220" className="shrink-0">
+        {[0.25, 0.5, 0.75, 1].map((f) => {
+          const pts = axes
+            .map((_, i) => {
+              const angle = (Math.PI * 2 * i) / n - Math.PI / 2
+              return `${cx + Math.cos(angle) * r * f},${cy + Math.sin(angle) * r * f}`
+            })
+            .join(' ')
+          return <polygon key={f} points={pts} fill="none" stroke="#ffffff14" strokeWidth="1" />
+        })}
+        {axes.map((_, i) => {
+          const angle = (Math.PI * 2 * i) / n - Math.PI / 2
+          return (
+            <line
+              key={i}
+              x1={cx}
+              y1={cy}
+              x2={cx + Math.cos(angle) * r}
+              y2={cy + Math.sin(angle) * r}
+              stroke="#ffffff10"
+              strokeWidth="1"
+            />
+          )
+        })}
+        <polygon
+          points={points}
+          fill="#7C5CFC33"
+          stroke="#7C5CFC"
+          strokeWidth="2"
+          style={{ animation: 'radarIn 0.6s ease-out' }}
+        />
+        {axes.map((a, i) => {
+          const angle = (Math.PI * 2 * i) / n - Math.PI / 2
+          const lx = cx + Math.cos(angle) * (r + 14)
+          const ly = cy + Math.sin(angle) * (r + 14)
+          return (
+            <text
+              key={i}
+              x={lx}
+              y={ly}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              fill="#9494A8"
+              fontSize="7"
+            >
+              {a.label.split(' ')[0]}
+            </text>
+          )
+        })}
+        <style>{`@keyframes radarIn { from { opacity: 0; transform: scale(0.5); transform-origin: 110px 110px; } to { opacity: 1; } }`}</style>
+      </svg>
+      <div className="flex-1 space-y-1.5 w-full">
+        {plan.ativos.length === 0 && (
+          <p className="text-[11px] text-[#9494A8]">Nenhum ativo do Brand OS necessário.</p>
+        )}
+        {plan.ativos.map((a, i) => {
+          const statusColor =
+            a.status === 'pronto' || a.status === 'concluido'
+              ? '#22c55e'
+              : a.status === 'pendente'
+                ? '#F59E0B'
+                : '#ef4444'
+          return (
+            <div key={i} className="rounded-lg bg-[#0e0e15]/60 border border-white/5 p-2.5">
+              <div className="flex items-center justify-between mb-0.5">
+                <span className="text-xs font-bold text-white">{a.nome}</span>
+                <Badge
+                  className="text-[9px]"
+                  style={{
+                    background: `${statusColor}22`,
+                    color: statusColor,
+                    borderColor: `${statusColor}55`,
+                  }}
+                >
+                  {a.status}
+                </Badge>
+              </div>
+              <p className="text-[10px] text-[#9494A8]">{a.rationale}</p>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+/* --- Diagrama de fluxo horizontal da Estrutura (aba Estrutura) --- */
+function FunnelStructureFlow({ plan }: { plan: FunnelPlan }) {
+  const item = FUNNEL_CATALOG.find((f) => f.id === plan.catalogItemId)
+  const etapa = item?.etapa || 'conversao'
+  const color = ETAPA_COLOR[etapa] || '#7C5CFC'
+  return (
+    <div className="rounded-lg bg-[#0e0e15]/40 p-3 border border-white/5">
+      <div className="flex flex-col lg:flex-row items-stretch gap-1">
+        {plan.estrutura.map((s, i) => (
+          <React.Fragment key={i}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div
+                  className="flex-1 rounded-xl border p-3 cursor-help transition-transform hover:scale-[1.02] min-w-[120px]"
+                  style={{ borderColor: `${color}40`, background: `${color}0d` }}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span
+                      className="flex h-6 w-6 items-center justify-center rounded-full text-white text-[10px] font-bold shrink-0"
+                      style={{ background: color }}
+                    >
+                      {s.ordem}
+                    </span>
+                    <span className="text-[11px] font-bold text-white truncate">{s.nome}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <Badge
+                      className="text-[8px]"
+                      style={{
+                        background: '#22D3EE1a',
+                        color: '#22D3EE',
+                        borderColor: '#22D3EE40',
+                      }}
+                    >
+                      {s.canal}
+                    </Badge>
+                    <span className="text-[9px] text-[#9494A8]">⏱ {s.duracao}</span>
+                  </div>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent className="bg-[#1C1C27] border-white/10 text-[11px] max-w-xs">
+                {s.descricao}
+              </TooltipContent>
+            </Tooltip>
+            {i < plan.estrutura.length - 1 && (
+              <div className="flex items-center justify-center px-1">
+                <ArrowRight className="w-4 h-4 text-[#7C5CFC] hidden lg:block" />
+                <ChevronRight className="w-3 h-3 text-[#7C5CFC] rotate-90 lg:hidden" />
+              </div>
+            )}
+          </React.Fragment>
+        ))}
       </div>
     </div>
   )
@@ -1366,11 +1633,11 @@ function statusBadge(s: string) {
     case 'diagnostico':
       return 'bg-white/5 text-[#9494A8] border-white/10'
     case 'recomendado':
-      return 'bg-[#7C5CFC]/15 text-[#7C5CFC] border-[#7C5CFC]/30'
+      return 'bg-[#7C5CFC]/20 text-[#7C5CFC] border-[#7C5CFC]/40 shadow-[0_0_8px_rgba(124,92,252,0.3)]'
     case 'aprovado':
-      return 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+      return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-[0_0_8px_rgba(34,197,94,0.3)]'
     case 'em_revisao':
-      return 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+      return 'bg-amber-500/20 text-amber-400 border-amber-500/40 animate-pulse shadow-[0_0_8px_rgba(245,158,11,0.4)]'
     default:
       return 'bg-white/5 text-[#9494A8] border-white/10'
   }
