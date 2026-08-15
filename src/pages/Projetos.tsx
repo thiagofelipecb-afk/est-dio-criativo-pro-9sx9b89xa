@@ -111,6 +111,21 @@ export default function Projetos() {
     { id: 'post', label: 'Posts Estáticos' },
   ]
 
+  const statusLabel = (status: Project['status']): string => {
+    switch (status) {
+      case 'ready':
+        return 'Exportado'
+      case 'draft':
+        return 'Rascunho'
+      case 'scheduled':
+        return 'Agendado'
+      case 'published':
+        return 'Publicado'
+      default:
+        return status
+    }
+  }
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6 animate-fade-in">
       {/* Header */}
@@ -226,6 +241,14 @@ export default function Projetos() {
                   <span>{proj.type}</span>
                 </div>
 
+                {/* Badge Exportado — projetos vindos da Gravadora após exportar */}
+                {proj.status === 'ready' && (
+                  <div className="absolute bottom-2.5 left-2.5 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-500/90 text-white text-[10px] font-bold uppercase tracking-wider">
+                    <Sparkles className="w-3 h-3" />
+                    Exportado
+                  </div>
+                )}
+
                 {/* Duration */}
                 <span className="absolute bottom-2.5 right-2.5 px-2 py-0.5 rounded bg-black/80 text-[10px] font-mono text-white flex items-center gap-1">
                   <Clock className="w-3 h-3 text-[#22D3EE]" />
@@ -319,7 +342,7 @@ export default function Projetos() {
                     h
                   </span>
                   <span
-                    className={`px-1.5 py-0.5 rounded capitalize ${
+                    className={`px-1.5 py-0.5 rounded ${
                       proj.status === 'ready'
                         ? 'bg-emerald-500/20 text-emerald-400'
                         : proj.status === 'scheduled'
@@ -327,7 +350,7 @@ export default function Projetos() {
                           : 'bg-white/5 text-[#9494A8]'
                     }`}
                   >
-                    {proj.status}
+                    {statusLabel(proj.status)}
                   </span>
                 </div>
               </div>

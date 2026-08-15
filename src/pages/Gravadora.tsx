@@ -49,6 +49,8 @@ import type {
   AudioConfig,
   RecordingTake,
   ProjectSnapshot,
+  BlockArt,
+  BlockBRoll,
 } from '@/types/studio'
 import ScriptPanel from '@/components/ScriptPanel'
 import { PanelBottom, GripHorizontal, AlertTriangle, RotateCcw } from 'lucide-react'
@@ -96,12 +98,13 @@ export default function Gravadora() {
     clearRawVideo,
     saveProjectSnapshot,
     recoverInterruptedRecording,
+    updateProject,
   } = useStudio()
 
-  // FASE 3 — mantém lista de IDs dos blocos sincronizada para overlays.
-  useEffect(() => {
-    setScriptBlockIds(scriptBlocks.map((b) => b.id))
-  }, [scriptBlocks])
+  // Vínculo do(s) take(s) desta sessão com seus projetos em Meus Projetos.
+  // Mapa takeId → projectId (para que "Editar" abra o projeto com snapshot,
+  // e não crie um projeto novo paralelo).
+  const takeProjectMapRef = useRef<Record<string, string>>({})
 
   /* ── Video / Device state ──────────────────────────────────────────────── */
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -765,12 +768,20 @@ export default function Gravadora() {
     setRecordedClips((prev) => [newClip, ...prev])
 
     // Salva no StudioContext como projeto tipo 'reel' / aspectRatio '9:16'
+    // (tipo "video" reaproveita os mesmos filtros/fluxo de Meus Projetos).
+    const projTitle = `Gravação ${new Date().toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })}`
     const newProj = createProject({
-      title: `Take Estúdio (${timeString})`,
+      title: projTitle,
       type: 'reel',
       aspectRatio: '9:16',
       resolution: '1080p',
       duration,
+      status: 'draft',
       thumbnail:
         blob && blob.type.startsWith('video')
           ? url
@@ -789,6 +800,16 @@ export default function Gravadora() {
         },
       ],
     })
+    // Vínculo takeId → projectId (reabertura sem criar projeto paralelo).
+    takeProjectMapRef.current[newClip.id] = newProj.id
+    // Tenta capturar o primeiro frame como thumbnail real (assíncrono).
+    if (blob && blob.type.startsWith('video')) {
+      captureFirstFrame(url).then((thumbDataUrl) => {
+        if (thumbDataUrl) {
+          updateProject(newProj.id, { thumbnail: thumbDataUrl })
+        }
+      })
+    }
 
     // FASE 5.1 — Preservação do vídeo bruto + snapshot JSON do projeto.
     // IDs de blocos já são UUIDs estáveis vindos do use-script-blocks.
@@ -797,8 +818,8 @@ export default function Gravadora() {
       saveRawVideo(newProj.id, blob, duration, mimeType)
         .then(() => {
           // Monta o snapshot completo (versionado) com todos os metadados.
-          const artsByBlock: Record<string, import('@/types/studio').BlockArt[]> = {}
-          const brollByBlock: Record<string, import('@/types/studio').BlockBRoll | null> = {}
+          const artsByBlock: Record<string, BlockArt[]> = {}
+          const brollByBlock: Record<string, BlockBRoll | null> = {}
           for (const b of scriptBlocks) {
             artsByBlock[b.id] = readBlockArts(b.id)
             brollByBlock[b.id] = readBlockBRoll(b.id)
@@ -890,8 +911,14 @@ export default function Gravadora() {
   }
 
   const handleSendToEditor = (clip: RecordingTake) => {
-    // createProject já foi chamado em finalizeTake; aqui apenas navegamos para
-    // o editor de um projeto novo vinculado a este take.
+    // Reabre o projeto já criado em finalizeTake (mesmo snapshot, mesmo ID),
+    // em vez de criar um projeto paralelo. Se o vínculo não existir (ex: take
+    // recuperado), cria um projeto novo para garantir que sempre haja ação real.
+    const existingId = takeProjectMapRef.current[clip.id]
+    if (existingId) {
+      navigate(`/editor/${existingId}`)
+      return
+    }
     const newProj = createProject({
       title: `Edição Take Estúdio (${clip.timeString})`,
       type: 'reel',
@@ -920,6 +947,53 @@ export default function Gravadora() {
     const m = Math.floor(secs / 60)
     const s = secs % 60
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+  }
+
+  /** Captura o primeiro frame de um vídeo (blob URL) como data URL JPEG. */
+  const captureFirstFrame = (videoUrl: string): Promise<string | null> => {
+    return new Promise((resolve) => {
+      try {
+        const video = document.createElement('video')
+        video.src = videoUrl
+        video.muted = true
+        video.playsInline = true
+        video.crossOrigin = 'anonymous'
+        const cleanup = () => {
+          video.removeAttribute('src')
+          video.load()
+        }
+        video.onloadeddata = () => {
+          // Busca o primeiro frame.
+          video.currentTime = 0
+        }
+        video.onseeked = () => {
+          try {
+            const canvas = document.createElement('canvas')
+            canvas.width = video.videoWidth || 360
+            canvas.height = video.videoHeight || 640
+            const ctx = canvas.getContext('2d')
+            if (!ctx) {
+              cleanup()
+              resolve(null)
+              return
+            }
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.7)
+            cleanup()
+            resolve(dataUrl)
+          } catch {
+            cleanup()
+            resolve(null)
+          }
+        }
+        video.onerror = () => {
+          cleanup()
+          resolve(null)
+        }
+      } catch {
+        resolve(null)
+      }
+    })
   }
 
   /* ── Derivados para o preview ──────────────────────────────────────────── */

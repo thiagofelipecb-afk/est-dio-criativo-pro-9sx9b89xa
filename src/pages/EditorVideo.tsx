@@ -120,23 +120,49 @@ export default function EditorVideo() {
   void restoredBRoll
 
   // Vídeo bruto recuperado do snapshot/blobs.
-  const rawVideoUrl =
-    snapshot?.rawVideoUrl || project?.clips.find((c) => c.track === 'video')?.sourceUrl || ''
-  const rawVideoDuration = snapshot?.rawVideoDuration || project?.duration || 30
+  // rawVideoUrl do snapshot é um blob URL em memória que NÃO persiste entre
+  // sessões. Regeneramos um novo blob URL a partir do rawBlob salvo (IndexedDB
+  // / localStorage) para que o player e a exportação continuem funcionando ao
+  // reabrir o projeto por Meus Projetos.
   const [rawBlob, setRawBlob] = useState<Blob | null>(null)
+  const [liveRawVideoUrl, setLiveRawVideoUrl] = useState<string>(
+    snapshot?.rawVideoUrl || project?.clips.find((c) => c.track === 'video')?.sourceUrl || '',
+  )
+  const rawVideoUrl = liveRawVideoUrl
+  const rawVideoDuration = snapshot?.rawVideoDuration || project?.duration || 30
 
-  // Carrega o blob do vídeo bruto (para waveform) quando disponível.
+  // Carrega o blob do vídeo bruto (para waveform + player) quando disponível.
+  // Detecta também o cenário "snapshot sumiu": sem snapshot, sem blob bruto e
+  // com sourceUrl morto (blob: ou vazio) → exibe estado vazio acolhedor.
+  const [videoUnavailable, setVideoUnavailable] = useState(false)
   useEffect(() => {
     let cancelled = false
+    let createdUrl: string | null = null
     async function load() {
       if (!id) return
       const blob = await loadRawVideo(id)
-      if (!cancelled) setRawBlob(blob)
+      if (cancelled) return
+      setRawBlob(blob)
+      // Se o snapshot apontava para um blob URL morto, regenera a partir do
+      // blob persistido para que o player volte a tocar.
+      if (blob && (!liveRawVideoUrl || !liveRawVideoUrl.startsWith('blob:'))) {
+        createdUrl = URL.createObjectURL(blob)
+        setLiveRawVideoUrl(createdUrl)
+      }
+      // Estado vazio: projeto veio da Gravadora mas o snapshot/vídeo bruto
+      // não existem mais (ex: localStorage/IndexedDB limpos).
+      const src =
+        liveRawVideoUrl || project?.clips.find((c) => c.track === 'video')?.sourceUrl || ''
+      if (!blob && (!src || src.startsWith('blob:')) && !snapshot) {
+        setVideoUnavailable(true)
+      }
     }
     load()
     return () => {
       cancelled = true
+      if (createdUrl) URL.revokeObjectURL(createdUrl)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, loadRawVideo])
 
   /* ═══════════════════════════════════════════════════════════════════════
@@ -549,6 +575,48 @@ export default function EditorVideo() {
     }
     return () => clearInterval(interval)
   }, [isPlaying, currentProject?.duration])
+
+  // Estado vazio acolhedor: snapshot/vídeo bruto não existem mais.
+  if (videoUnavailable) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center p-6 text-center animate-fade-in">
+        <div className="max-w-md w-full rounded-2xl bg-[#14141C] border border-white/10 p-8 space-y-4">
+          <div className="mx-auto w-16 h-16 rounded-2xl bg-[#7C5CFC]/10 border border-[#7C5CFC]/20 flex items-center justify-center">
+            <AlertCircle className="w-8 h-8 text-[#7C5CFC]" />
+          </div>
+          <div className="space-y-1.5">
+            <h2 className="text-lg font-bold text-white">
+              Conteúdo deste projeto não está mais disponível
+            </h2>
+            <p className="text-sm text-[#9494A8] leading-relaxed">
+              Este projeto foi criado na Gravadora, mas o vídeo bruto e o snapshot associado não
+              foram encontrados no seu navegador. Isso pode acontecer após limpar o cache, o
+              armazenamento local ou usar um dispositivo diferente.
+            </p>
+            <p className="text-xs text-[#9494A8]/80 leading-relaxed">
+              Os metadados (título, roteiro, descrição) foram preservados. Você pode gravar um novo
+              take na Gravadora ou iniciar uma nova edição a partir deste projeto.
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2 justify-center pt-1">
+            <Button
+              onClick={() => navigate('/gravadora')}
+              className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-white text-xs font-semibold gap-1.5"
+            >
+              <Camera className="w-4 h-4" /> Ir para a Gravadora
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => navigate('/projetos')}
+              className="border-white/10 text-[#9494A8] hover:text-white text-xs gap-1.5"
+            >
+              Voltar para Meus Projetos
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   if (!currentProject) return null
 

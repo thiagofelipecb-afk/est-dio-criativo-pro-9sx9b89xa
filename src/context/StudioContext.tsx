@@ -943,6 +943,9 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (activeProjectId === id) {
       setActiveProjectId(projects.find((p) => p.id !== id)?.id || null)
     }
+    // Limpa snapshot + vídeo bruto + rascunhos associados ao projeto.
+    clearProjectSnapshot(id)
+    clearRawVideo(id)
   }
 
   const duplicateProject = (id: string): Project => {
@@ -954,6 +957,7 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       title: `${original.title} (Cópia)`,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      status: 'draft',
       clips: original.clips.map((c) => ({
         ...c,
         id: 'clip-' + Math.random().toString(36).substring(2, 9),
@@ -964,6 +968,22 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       })),
     }
     setProjects((prev) => [duplicated, ...prev])
+    // Copia o snapshot (metadados: roteiro, artes, fundo, título, timeline)
+    // SEM o blob de vídeo bruto, que é pesado e específico da sessão original.
+    const originalSnapshot = loadProjectSnapshot(id)
+    if (originalSnapshot) {
+      const newSnapshot: ProjectSnapshot = {
+        ...originalSnapshot,
+        projectId: duplicated.id,
+        title: duplicated.title,
+        savedAt: new Date().toISOString(),
+        // rawVideoUrl era um blob URL em memória — não persiste entre sessões.
+        rawVideoUrl: undefined,
+        rawVideoDuration: originalSnapshot.rawVideoDuration,
+        takes: [],
+      }
+      saveProjectSnapshot(newSnapshot)
+    }
     return duplicated
   }
 
