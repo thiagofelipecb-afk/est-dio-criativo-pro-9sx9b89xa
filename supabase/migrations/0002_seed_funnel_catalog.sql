@@ -3,6 +3,16 @@
 -- Idempotente: usa ON CONFLICT (name) DO UPDATE.
 -- =====================================================================
 
+-- Garantir restrição de unicidade na coluna name para o ON CONFLICT (name) funcionar
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'funnel_catalog_items_name_key'
+  ) THEN
+    ALTER TABLE funnel_catalog_items ADD CONSTRAINT funnel_catalog_items_name_key UNIQUE (name);
+  END IF;
+END $$;
+
 INSERT INTO funnel_catalog_items
   (name, stage_tags, ticket_tags, requirements_json, assets_json, status, difficulty, estimated_time)
 VALUES
