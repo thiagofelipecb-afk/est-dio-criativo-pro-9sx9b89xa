@@ -628,15 +628,27 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   })
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
-  const [teleprompterScript, setTeleprompterScript] = useState(
-    'Bem-vindos ao LUMEN Studio! Hoje vamos gravar nosso novo vídeo com inteligência artificial.\n\nLembre-se de olhar fixamente para a lente da câmera, manter uma postura confiante e fazer pausas expressivas nos momentos-chave.\n\nO teleprompter sincroniza automaticamente com seu ritmo de fala.',
-  )
 
-  // FASE 2 — Roteiro por blocos na Gravadora (persistência própria)
+  // FASE 2 — Roteiro por blocos na Gravadora (persistência própria).
+  // FONTE ÚNICA DE VERDADE: `gravadoraScript` é o roteiro canônico da Gravadora.
+  // `teleprompterScript` é um alias (mesmo estado) para a página Teleprompter
+  // independente e demais consumidores, eliminando conteúdo divergente entre
+  // o painel superior e o painel inferior. Migra o conteúdo existente: se não
+  // houver roteiro salvo, semeia com o texto padrão anterior (não-demo, apenas
+  // um ponto de partida editável) para nunca deixar o campo vazio sem motivo.
+  const DEFAULT_SCRIPT =
+    'Bem-vindos ao LUMEN Studio! Hoje vamos gravar nosso novo vídeo com inteligência artificial.\n\nLembre-se de olhar fixamente para a lente da câmera, manter uma postura confiante e fazer pausas expressivas nos momentos-chave.\n\nO teleprompter sincroniza automaticamente com seu ritmo de fala.'
+
   const [gravadoraScript, setGravadoraScript] = useState<string>(() => {
     const saved = localStorage.getItem('lumen_gravadora_script')
-    return saved ?? ''
+    // Migração: se existia texto no antigo `teleprompterScript` (não persistido)
+    // e nada foi salvo ainda no canônico, usa o padrão. Usuários que já salvaram
+    // roteiro mantêm seu conteúdo intacto.
+    return saved ?? DEFAULT_SCRIPT
   })
+  // Alias canônico: teleprompterScript NÃO tem estado próprio.
+  const teleprompterScript = gravadoraScript
+  const setTeleprompterScript = setGravadoraScript
   const [scriptBlocks, setScriptBlocks] = useState<ScriptBlock[]>(() => {
     const saved = localStorage.getItem('lumen_gravadora_blocks')
     if (saved) {
