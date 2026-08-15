@@ -199,6 +199,13 @@ export interface StageConfig {
    * (camada `pointer-events-none`).
    */
   showGuides?: boolean
+  /**
+   * FASE 2 / GAP 1 — Modo de desempenho do preview.
+   * 'auto' (padrão) reduz efeitos opcionais automaticamente quando o FPS cai;
+   * 'quality' mantém todos os efeitos; 'performance' força redução permanente.
+   * NUNCA afeta a resolução de saída (1080×1920) nem o MediaRecorder/áudio.
+   */
+  performanceMode?: 'auto' | 'quality' | 'performance'
 }
 
 /** Cadeia de captação de áudio. */

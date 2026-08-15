@@ -129,6 +129,12 @@ interface StudioContextType {
   /** Atualiza (merge) a configuração do palco e persiste com debounce. */
   updateStageConfig: (updates: Partial<StageConfig>) => void
 
+  // FASE 2 / GAP 2 — Persistência da preferência de dispositivo (câmera/mic).
+  /** Salva (debounced 500ms) a preferência de câmera/mic. Só salva quando há permissão. */
+  saveDevicePreference: (cameraId: string, micId: string) => void
+  /** Lê a preferência de câmera/mic salva (ou zeros). */
+  loadDevicePreference: () => { cameraId: string; micId: string }
+
   // FASE 5 — Preservação, recuperação e snapshot do projeto
   /** Salva o blob do vídeo bruto em localStorage/IndexedDB por projectId. */
   saveRawVideo: (projectId: string, blob: Blob, duration: number, mimeType: string) => Promise<void>
@@ -700,6 +706,41 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [])
 
   /* ═══════════════════════════════════════════════════════════════════════
+     FASE 2 / GAP 2 — Persistência da preferência de dispositivo (câmera/mic).
+     Chave: lumen_gravadora_devices = { cameraId, micId }.
+     Salvamento com debounce 500ms. A preferência só deve ser salva quando
+     hasPermission === true (labels disponíveis) — essa guarda é feita no
+     consumidor (Gravadora); aqui mantemos apenas a mecânica de leitura/escrita.
+     ═══════════════════════════════════════════════════════════════════════ */
+  const DEVICES_KEY = 'lumen_gravadora_devices'
+  const deviceSaveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  const saveDevicePreference = useCallback((cameraId: string, micId: string) => {
+    if (deviceSaveTimerRef.current) clearTimeout(deviceSaveTimerRef.current)
+    deviceSaveTimerRef.current = setTimeout(() => {
+      try {
+        localStorage.setItem(DEVICES_KEY, JSON.stringify({ cameraId, micId }))
+      } catch {
+        /* quota — ignora */
+      }
+    }, 500)
+  }, [])
+
+  const loadDevicePreference = useCallback((): { cameraId: string; micId: string } => {
+    try {
+      const raw = localStorage.getItem(DEVICES_KEY)
+      if (!raw) return { cameraId: '', micId: '' }
+      const parsed = JSON.parse(raw) as { cameraId?: string; micId?: string }
+      return {
+        cameraId: typeof parsed.cameraId === 'string' ? parsed.cameraId : '',
+        micId: typeof parsed.micId === 'string' ? parsed.micId : '',
+      }
+    } catch {
+      return { cameraId: '', micId: '' }
+    }
+  }, [])
+
+  /* ═══════════════════════════════════════════════════════════════════════
      FASE 5 — Preservação do vídeo bruto + snapshot JSON do projeto.
      Usa localStorage para blobs pequenos e IndexedDB para blobs > 5MB.
      ═══════════════════════════════════════════════════════════════════════ */
@@ -1183,6 +1224,8 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setTitleConfig,
         stageConfig,
         updateStageConfig,
+        saveDevicePreference,
+        loadDevicePreference,
         saveRawVideo,
         loadRawVideo,
         clearRawVideo,

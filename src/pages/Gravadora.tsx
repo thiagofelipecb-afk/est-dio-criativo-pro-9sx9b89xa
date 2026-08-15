@@ -71,6 +71,8 @@ import {
 import { BackgroundRenderer } from '@/components/studio/BackgroundRenderer'
 import { TitleOverlay } from '@/components/studio/TitleOverlay'
 import { useStudioMode, blockedMessage, type StudioAction } from '@/hooks/use-studio-mode'
+import { usePerformanceMonitor } from '@/hooks/use-performance-monitor'
+import { Zap } from 'lucide-react'
 
 /* ───────────────────────────────────────────────────────────────────────────
    LUMEN Studio — Núcleo do Estúdio de Gravação (FASE 1)
@@ -104,6 +106,8 @@ export default function Gravadora() {
     setTitleConfig,
     stageConfig,
     updateStageConfig,
+    saveDevicePreference,
+    loadDevicePreference,
     saveRawVideo,
     loadRawVideo,
     clearRawVideo,
@@ -111,6 +115,67 @@ export default function Gravadora() {
     recoverInterruptedRecording,
     updateProject,
   } = useStudio()
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     FASE 2 / GAP 1 — Monitor de desempenho do preview.
+     Quando o FPS cai abaixo de 24 por >3s, reduz efeitos visuais opcionais
+     (blur de fundo, suavização de beleza, grade de terços, guias de segurança)
+     para manter a fluidez. NUNCA altera a resolução do canvas (1080×1920),
+     MediaRecorder, áudio ou qualquer coisa que afete o arquivo de saída.
+     Quando o FPS volta acima de 30 por >5s, restaura os valores anteriores.
+     performanceMode: 'auto' ativa o monitor; 'quality' desativa; 'performance'
+     força degradação permanente. Padrão 'auto'.
+     ═══════════════════════════════════════════════════════════════════════ */
+  const perfMode = stageConfig.performanceMode ?? 'auto'
+  const perfMonitorEnabled = perfMode === 'auto'
+  const { degraded: perfDegraded, degradationReason } = usePerformanceMonitor(perfMonitorEnabled)
+  const effectiveDegraded = perfDegraded || perfMode === 'performance'
+
+  // Lembra os valores anteriores dos efeitos para restaurá-los quando a
+  // degradação terminar (não os defaults — o que o usuário tinha selecionado).
+  const savedEffectsRef = useRef<{
+    bgMode: 'none' | 'blur' | 'virtual' | 'chroma'
+    beautySmooth: number
+    showGrid: boolean
+    showSafeGuides: boolean
+  } | null>(null)
+
+  // Dispara a degradação/restauração. Roda apenas quando `effectiveDegraded`
+  // muda de valor para evitar sobrescrever ajustes manuais do usuário a cada
+  // render.
+  const prevDegradedRef = useRef<boolean>(effectiveDegraded)
+  useEffect(() => {
+    if (effectiveDegraded === prevDegradedRef.current) return
+    prevDegradedRef.current = effectiveDegraded
+
+    if (effectiveDegraded) {
+      // Salva o estado atual (apenas na primeira entrada em degradação).
+      if (!savedEffectsRef.current) {
+        savedEffectsRef.current = {
+          bgMode,
+          beautySmooth,
+          showGrid,
+          showSafeGuides,
+        }
+      }
+      // Desativa efeitos opcionais — preserva gravação e áudio.
+      if (bgMode !== 'none') setBgMode('none')
+      if (beautySmooth !== 0) setBeautySmooth(0)
+      if (showGrid) setShowGrid(false)
+      if (showSafeGuides) setShowSafeGuides(false)
+    } else {
+      // Restaura os valores que o usuário tinha selecionado.
+      const saved = savedEffectsRef.current
+      if (saved) {
+        setBgMode(saved.bgMode)
+        setBeautySmooth(saved.beautySmooth)
+        setShowGrid(saved.showGrid)
+        setShowSafeGuides(saved.showSafeGuides)
+        savedEffectsRef.current = null
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveDegraded])
 
   // Vínculo do(s) take(s) desta sessão com seus projetos em Meus Projetos.
   // Mapa takeId → projectId (para que "Editar" abra o projeto com snapshot,
@@ -495,10 +560,55 @@ export default function Gravadora() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioConfig.noiseSuppression, audioConfig.autoGainControl, audioConfig.echoCancellation])
 
-  /* Troca de dispositivo reinicia a câmera se já houver permissão. */
+  /* ═══════════════════════════════════════════════════════════════════════
+     FASE 2 / GAP 2 — Persistência da preferência de dispositivo.
+     Ao montar, carrega a preferência salva (câmera/mic) e inicializa os
+     selects. A validação de existência do deviceId acontece depois que os
+     dispositivos são enumerados (após permissão), no effect abaixo.
+     ═══════════════════════════════════════════════════════════════════════ */
+  const didLoadDevicePrefRef = useRef(false)
+  useEffect(() => {
+    if (didLoadDevicePrefRef.current) return
+    didLoadDevicePrefRef.current = true
+    const saved = loadDevicePreference()
+    if (saved.cameraId) setSelectedCamera(saved.cameraId)
+    if (saved.micId) setSelectedMic(saved.micId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  /* Validação: quando os dispositivos são enumerados (após permissão),
+     verifica se os deviceIds salvos ainda existem. Se não existirem, volta
+     ao padrão do sistema e avisa o usuário com toast. Roda uma única vez. */
+  const didValidateDevicesRef = useRef(false)
+  useEffect(() => {
+    if (didValidateDevicesRef.current) return
+    if (hasPermission !== true) return
+    if (videoDevices.length === 0 && audioDevices.length === 0) return
+    didValidateDevicesRef.current = true
+
+    const saved = loadDevicePreference()
+    let changed = false
+    if (saved.cameraId && !videoDevices.some((d) => d.deviceId === saved.cameraId)) {
+      setSelectedCamera('')
+      changed = true
+    }
+    if (saved.micId && !audioDevices.some((d) => d.deviceId === saved.micId)) {
+      setSelectedMic('')
+      changed = true
+    }
+    if (changed) {
+      toast.warning('Dispositivo salvo não encontrado. Usando o padrão do sistema.')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasPermission, videoDevices, audioDevices])
+
+  /* Troca de dispositivo reinicia a câmera se já houver permissão.
+     GAP 2 — também persiste a preferência (apenas quando hasPermission,
+     ou seja, labels estão disponíveis e a escolha é válida). */
   useEffect(() => {
     if (hasPermission === true) {
       startCamera()
+      saveDevicePreference(selectedCamera, selectedMic)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCamera, selectedMic])
@@ -1166,6 +1276,19 @@ export default function Gravadora() {
       <div className="absolute top-2 left-2 z-20 px-2 py-0.5 rounded-md bg-black/60 text-[9px] font-mono text-[#9494A8] border border-white/10">
         {CANVAS_W}×{CANVAS_H} · 9:16
       </div>
+
+      {/* FASE 2 / GAP 1 — Banner sutil de degradação de desempenho.
+          Efeitos visuais opcionais foram pausados para manter a fluidez;
+          o vídeo final NÃO é afetado. */}
+      {effectiveDegraded && (
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[30] max-w-[90%] flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/40 backdrop-blur-md shadow-lg pointer-events-none animate-fade-in">
+          <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span className="text-[10px] font-medium text-amber-200 leading-tight">
+            {degradationReason ??
+              'Alguns efeitos visuais foram pausados para manter a fluidez da gravação. O vídeo final não será afetado.'}
+          </span>
+        </div>
+      )}
 
       {/* FASE 6 — Badge sutil do estado do Modo Estúdio (canto inferior esquerdo) */}
       <div className="absolute bottom-3 left-3 z-20 px-2 py-1 rounded-lg bg-black/60 text-[10px] font-semibold text-white/80 backdrop-blur-md border border-white/10 pointer-events-none">
