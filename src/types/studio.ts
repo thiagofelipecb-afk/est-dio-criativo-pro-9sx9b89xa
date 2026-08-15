@@ -156,3 +156,67 @@ export interface AISuggestion {
   payload: any
   timestamp: string
 }
+
+/* ===========================================================================
+   LUMEN Studio — Núcleo do Estúdio de Gravação (FASE 1)
+   Tipos aditivos. Nenhum tipo existente foi removido ou alterado.
+   =========================================================================== */
+
+/** Layout do palco: câmera em cima + parte inferior reservada, ou câmera cheia. */
+export type StageLayout = 'split' | 'full'
+
+/** Modo da parte inferior do layout dividido (FASE 3 usará mais modos). */
+export type LowerPanelMode = 'none' | 'arts' | 'reaction' | 'board' | 'broll'
+
+/** Guias de zona segura do canvas (apenas preview, não entram na exportação). */
+export interface SafeGuides {
+  enabled: boolean
+  /** Linha horizontal a ~85% da altura (área de botões das redes sociais). */
+  buttons: boolean
+  /** Linha horizontal a ~92% da altura (área de legenda das redes sociais). */
+  caption: boolean
+}
+
+/** Configuração do palco/canvas 1080×1920. */
+export interface StageConfig {
+  layout: StageLayout
+  lowerPanelMode: LowerPanelMode
+  /** Enquadramento cover: 0 a 1, passo 0.01, padrão 1. */
+  cameraCover: number
+  guides: SafeGuides
+  previewHidden: boolean
+  focusMode: boolean
+}
+
+/** Cadeia de captação de áudio. */
+export interface AudioConfig {
+  inputDeviceId: string
+  /** Redução de ruído (noiseSuppression) — padrão LIGADO. */
+  noiseSuppression: boolean
+  /** Ganho automático (autoGainControl) — padrão DESLIGADO. */
+  autoGainControl: boolean
+  /** Cancelamento de eco (echoCancellation) — padrão LIGADO. */
+  echoCancellation: boolean
+  /** Ganho manual: 0 a 2 (0%–200%), passo 0.05, padrão 1. Aplicado via GainNode. */
+  manualGain: number
+}
+
+/** Take de gravação salvo na sessão do Estúdio. */
+export interface RecordingTake {
+  id: string
+  url: string
+  duration: number
+  timeString: string
+  createdAt: string
+  /** Manifesto de recuperação mínimo (JSON versionado). */
+  recoveryManifest?: {
+    version: number
+    layout: StageLayout
+    cameraCover: number
+    audio: Pick<
+      AudioConfig,
+      'noiseSuppression' | 'autoGainControl' | 'echoCancellation' | 'manualGain'
+    >
+    scriptText?: string
+  }
+}
