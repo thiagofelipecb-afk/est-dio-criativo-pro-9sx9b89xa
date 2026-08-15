@@ -323,50 +323,6 @@ export default function Gravadora() {
      idempotência por hash, conflito e sync Supabase.
      ═══════════════════════════════════════════════════════════════════════ */
   const DRAFT_PROJECT_ID = 'gravadora-session'
-  const liveSnapshot = useMemo<ProjectSnapshot>(() => {
-    const artsByBlock: Record<string, BlockArt[]> = {}
-    const brollByBlock: Record<string, BlockBRoll | null> = {}
-    for (const b of scriptBlocks) {
-      artsByBlock[b.id] = readBlockArts(b.id)
-      brollByBlock[b.id] = readBlockBRoll(b.id)
-    }
-    return {
-      version: 1,
-      savedAt: new Date().toISOString(),
-      projectId: DRAFT_PROJECT_ID,
-      title: 'Sessão Gravadora',
-      blocks: scriptBlocks,
-      scriptText: teleprompterScript,
-      artsByBlock,
-      brollByBlock,
-      background: backgroundConfig,
-      titleConfig,
-      audio: audioConfig,
-      stageLayout,
-      cameraCover,
-      takes: recordedClips,
-      timeline: {
-        segments: [
-          { id: 'seg-live', start: 0, end: Math.max(1, recordedSeconds), excluded: false },
-        ],
-        inPoint: 0,
-        outPoint: Math.max(1, recordedSeconds),
-        cursor: 0,
-      },
-      rawVideoDuration: Math.max(1, recordedSeconds),
-    }
-  }, [
-    scriptBlocks,
-    teleprompterScript,
-    backgroundConfig,
-    titleConfig,
-    audioConfig,
-    stageLayout,
-    cameraCover,
-    recordedClips,
-    recordedSeconds,
-  ])
-  const draftStore = useDraftStore(DRAFT_PROJECT_ID, liveSnapshot)
 
   // Registra IDs de ativos da sessão para revogação no cleanup.
   const sessionAssetIdsRef = useRef<Set<string>>(new Set())
@@ -458,6 +414,51 @@ export default function Gravadora() {
   useEffect(() => {
     updateStageConfig({ showGuides: showSafeGuides })
   }, [showSafeGuides, updateStageConfig])
+
+  const liveSnapshot = useMemo<ProjectSnapshot>(() => {
+    const artsByBlock: Record<string, BlockArt[]> = {}
+    const brollByBlock: Record<string, BlockBRoll | null> = {}
+    for (const b of scriptBlocks) {
+      artsByBlock[b.id] = readBlockArts(b.id)
+      brollByBlock[b.id] = readBlockBRoll(b.id)
+    }
+    return {
+      version: 1,
+      savedAt: new Date().toISOString(),
+      projectId: DRAFT_PROJECT_ID,
+      title: 'Sessão Gravadora',
+      blocks: scriptBlocks,
+      scriptText: teleprompterScript,
+      artsByBlock,
+      brollByBlock,
+      background: backgroundConfig,
+      titleConfig,
+      audio: audioConfig,
+      stageLayout,
+      cameraCover,
+      takes: recordedClips,
+      timeline: {
+        segments: [
+          { id: 'seg-live', start: 0, end: Math.max(1, recordedSeconds), excluded: false },
+        ],
+        inPoint: 0,
+        outPoint: Math.max(1, recordedSeconds),
+        cursor: 0,
+      },
+      rawVideoDuration: Math.max(1, recordedSeconds),
+    }
+  }, [
+    scriptBlocks,
+    teleprompterScript,
+    backgroundConfig,
+    titleConfig,
+    audioConfig,
+    stageLayout,
+    cameraCover,
+    recordedClips,
+    recordedSeconds,
+  ])
+  const draftStore = useDraftStore(DRAFT_PROJECT_ID, liveSnapshot)
 
   /* ── Audio config + Web Audio pipeline ───────────────────────────────────
      CORREÇÃO 1 — audioConfig vem do StudioContext (persistido em
