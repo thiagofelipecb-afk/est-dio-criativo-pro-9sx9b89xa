@@ -22,12 +22,18 @@ import {
   Check,
   X,
   Layers,
+  Clapperboard,
+  PenLine,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useStudio } from '@/context/StudioContext'
 import { useScriptBlocks, suggestSplitsLocal } from '@/hooks/use-script-blocks'
 import { useTeleprompter } from '@/hooks/use-teleprompter'
 import type { ScriptBlock, TeleprompterMode, TeleprompterTextColor } from '@/types/studio'
+import { BlockArts } from '@/components/studio/BlockArts'
+import { BlockBRoll } from '@/components/studio/BlockBRoll'
+import { ReactionVideoPanel } from '@/components/studio/ReactionVideoPanel'
+import { Whiteboard } from '@/components/studio/Whiteboard'
 
 const TEXT_COLORS: Record<TeleprompterTextColor, string> = {
   white: '#FFFFFF',
@@ -69,7 +75,7 @@ export default function ScriptPanel({
   setAutoStartOnRecord,
 }: ScriptPanelProps) {
   const { gravadoraScript, setGravadoraScript, scriptBlocks, setScriptBlocks } = useStudio()
-  const [tab, setTab] = useState<'script' | 'teleprompter'>('script')
+  const [tab, setTab] = useState<'script' | 'teleprompter' | 'reaction' | 'board'>('script')
   const [activeBlockIndex, setActiveBlockIndex] = useState(0)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
@@ -296,6 +302,29 @@ export default function ScriptPanel({
           >
             <Play className="w-3.5 h-3.5" /> Teleprompter
           </button>
+          <button
+            onClick={() => setTab('reaction')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+              tab === 'reaction'
+                ? 'bg-[#7C5CFC] text-white'
+                : 'text-[#9494A8] hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <Clapperboard className="w-3.5 h-3.5" /> Reação
+          </button>
+          {blocks.length > 0 && (
+            <button
+              onClick={() => setTab('board')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+                tab === 'board'
+                  ? 'bg-[#7C5CFC] text-white'
+                  : 'text-[#9494A8] hover:text-white hover:bg-white/5'
+              }`}
+              title="Disponível quando há blocos no roteiro"
+            >
+              <PenLine className="w-3.5 h-3.5" /> Quadro
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -348,6 +377,10 @@ export default function ScriptPanel({
             onClearSuggestions={() => setSuggestions([])}
             totalSeconds={totalSeconds}
           />
+        ) : tab === 'reaction' ? (
+          <ReactionVideoPanel />
+        ) : tab === 'board' ? (
+          <Whiteboard />
         ) : (
           <TeleprompterTab
             blocks={blocks}
@@ -645,6 +678,8 @@ interface BlockCardProps {
   onMoveDown: () => void
   onDelete: () => void
   onCancelDelete: () => void
+  /** Artes/B-roll são mostrados apenas quando o bloco está expandido. */
+  expandedExtras?: boolean
 }
 
 function BlockCard({
@@ -663,6 +698,7 @@ function BlockCard({
   onMoveDown,
   onDelete,
   onCancelDelete,
+  expandedExtras = true,
 }: BlockCardProps) {
   const summary = block.text.length > 80 ? block.text.slice(0, 80) + '…' : block.text
   return (
@@ -804,6 +840,14 @@ function BlockCard({
           </button>
         )}
       </div>
+
+      {/* FASE 3 — Artes e B-roll por bloco (apenas quando expandido) */}
+      {expanded && expandedExtras && (
+        <>
+          <BlockArts blockId={block.id} />
+          <BlockBRoll blockId={block.id} blockText={block.text} />
+        </>
+      )}
     </div>
   )
 }

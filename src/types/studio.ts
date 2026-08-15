@@ -257,3 +257,100 @@ export interface ScriptState {
   /** Índice do bloco ativo/selecionado no teleprompter. */
   activeBlockIndex: number
 }
+
+/* ===========================================================================
+   LUMEN Studio — Camadas e Mídias no Modo Estúdio (FASE 3)
+   Tipos aditivos. Nenhum tipo existente foi removido ou alterado.
+   =========================================================================== */
+
+/** Arte (imagem) anexada a um bloco de roteiro. Armazenada como data URL base64. */
+export interface BlockArt {
+  /** Identificador único da arte dentro do bloco. */
+  id: string
+  /** Data URL base64 da imagem (JPEG/PNG). */
+  dataUrl: string
+  /** Nome original do arquivo (opcional). */
+  name?: string
+}
+
+/** Posição configurável de um overlay no canvas (4 cantos). */
+export type OverlayCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+
+/** Vídeo de reação sobreposto ao canvas durante a gravação. */
+export interface ReactionVideo {
+  /** Data URL base64 do vídeo (MP4/WebM). */
+  dataUrl: string
+  /** Nome original do arquivo. */
+  name?: string
+  /** Tamanho relativo ao canvas: 0.1 a 0.4 (10%–40%). Padrão 0.2. */
+  size: number
+  /** Canto onde o vídeo aparece. Padrão bottom-right. */
+  corner: OverlayCorner
+}
+
+/** Tipos de elemento do quadro editável (estilo Excalidraw). */
+export type WhiteboardTool =
+  | 'select'
+  | 'rectangle'
+  | 'ellipse'
+  | 'arrow'
+  | 'line'
+  | 'brush'
+  | 'text'
+  | 'image'
+  | 'eraser'
+
+/** Elemento serializável do quadro. */
+export interface WhiteboardElement {
+  id: string
+  type: WhiteboardTool
+  /** Coordenadas em espaço do canvas (não em pixels de tela). */
+  x: number
+  y: number
+  width: number
+  height: number
+  /** Pontos do traço livre (brush) — coordenadas relativas. */
+  points?: { x: number; y: number }[]
+  /** Texto (apenas type='text'). */
+  text?: string
+  /** Cor de traço/preenchimento. */
+  color: string
+  /** Espessura da linha em px. */
+  strokeWidth: number
+  /** Visibilidade (olho). */
+  visible: boolean
+  /** Bloqueio de posição (cadeado). */
+  locked: boolean
+  /** Data URL de imagem (apenas type='image'). */
+  dataUrl?: string
+}
+
+/** Grupo de elementos do quadro (para agrupar/desagrupar). */
+export interface WhiteboardGroup {
+  id: string
+  /** IDs dos elementos membros. */
+  memberIds: string[]
+}
+
+/** Estado persistido do quadro editável. */
+export interface WhiteboardState {
+  elements: WhiteboardElement[]
+  groups: WhiteboardGroup[]
+  zoom: number
+}
+
+/** B-roll (vídeo do Pexels) anexado a um bloco de roteiro. */
+export interface BlockBRoll {
+  /** ID do vídeo no Pexels. */
+  pexelsId: number
+  /** URL do arquivo de vídeo (loop mudo durante a gravação). */
+  url: string
+  /** URL da miniatura. */
+  thumbnail: string
+  /** Nome do autor no Pexels (para crédito). */
+  author: string
+  /** Duração em segundos. */
+  duration: number
+  /** Resolução (ex.: "1920×1080"). */
+  resolution?: string
+}

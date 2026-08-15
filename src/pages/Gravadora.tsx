@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
+// FASE 3 — sincroniza IDs dos blocos do roteiro (vindos do StudioContext) para
+// os overlays de artes/b-roll por bloco.
 import { useNavigate } from 'react-router-dom'
 import { useStudio } from '@/context/StudioContext'
 import { Button } from '@/components/ui/button'
@@ -44,6 +46,12 @@ import { toast } from 'sonner'
 import type { StageLayout, LowerPanelMode, AudioConfig, RecordingTake } from '@/types/studio'
 import ScriptPanel from '@/components/ScriptPanel'
 import { PanelBottom, GripHorizontal } from 'lucide-react'
+import {
+  useReactionVideo,
+  readBlockArts,
+  readBlockBRoll,
+  readReactionVideo,
+} from '@/hooks/use-block-media'
 
 /* ───────────────────────────────────────────────────────────────────────────
    LUMEN Studio — Núcleo do Estúdio de Gravação (FASE 1)
@@ -65,7 +73,13 @@ const DEFAULT_AUDIO: AudioConfig = {
 
 export default function Gravadora() {
   const navigate = useNavigate()
-  const { addMediaItem, createProject, teleprompterScript, setTeleprompterScript } = useStudio()
+  const { addMediaItem, createProject, teleprompterScript, setTeleprompterScript, scriptBlocks } =
+    useStudio()
+
+  // FASE 3 — mantém lista de IDs dos blocos sincronizada para overlays.
+  useEffect(() => {
+    setScriptBlockIds(scriptBlocks.map((b) => b.id))
+  }, [scriptBlocks])
 
   /* ── Video / Device state ──────────────────────────────────────────────── */
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -135,6 +149,28 @@ export default function Gravadora() {
   const draggingPanelRef = useRef(false)
   const panelDragStartY = useRef(0)
   const panelDragStartH = useRef(0)
+
+  /* ── FASE 3 — Camadas e Mídias ─────────────────────────────────────────── */
+  const [activeBlockIndex, setActiveBlockIndex] = useState(0)
+  const [scriptBlockIds, setScriptBlockIds] = useState<string[]>([])
+  const { reaction } = useReactionVideo()
+  // Força re-render periódico para refletir mudanças de localStorage nos overlays
+  // quando o usuário edita artes/broll no painel inferior.
+  const [, setOverlayTick] = useState(0)
+  useEffect(() => {
+    const i = setInterval(() => setOverlayTick((t) => t + 1), 600)
+    return () => clearInterval(i)
+  }, [])
+
+  // Refs de vídeo para os overlays (reação + b-roll)
+  const reactionVideoRef = useRef<HTMLVideoElement | null>(null)
+  const brollVideoRef = useRef<HTMLVideoElement | null>(null)
+
+  // Sempre lê o estado persistido mais recente para os overlays.
+  const currentReaction = reaction ?? readReactionVideo()
+  const currentBlockId = scriptBlockIds[activeBlockIndex]
+  const currentArts = currentBlockId ? readBlockArts(currentBlockId) : []
+  const currentBRoll = currentBlockId ? readBlockBRoll(currentBlockId) : null
 
   /* ═══════════════════════════════════════════════════════════════════════
      Web Audio: configura o AudioContext, GainNode e AnalyserNode sobre o
@@ -853,6 +889,47 @@ export default function Gravadora() {
                 {teleprompterScript}
               </p>
             </div>
+          )}
+
+          {/* FASE 3 — B-roll de fundo (loop mudo) */}
+          {!previewHidden && currentBRoll && currentBRoll.url && (
+            <video
+              ref={brollVideoRef}
+              key={currentBRoll.pexelsId}
+              src={currentBRoll.url}
+              autoPlay
+              loop
+              muted
+              playsInline
+              className="absolute inset-0 w-full h-full object-cover opacity-100"
+              style={{ zIndex: 0 }}
+            />
+          )}
+
+          {/* FASE 3 — Artes do bloco (sincronizadas, crossfade) */}
+          {!previewHidden && syncArts && currentArts.length > 0 && (
+            <div
+              key={currentBlockId + '-' + activeBlockIndex}
+              className="absolute inset-0 flex items-center justify-center pointer-events-none z-[5] animate-fade-in"
+            >
+              {currentArts.map((art) => (
+                <img
+                  key={art.id}
+                  src={art.dataUrl}
+                  alt={art.name ?? 'arte'}
+                  className="max-w-[80%] max-h-[80%] object-contain rounded-xl shadow-2xl"
+                />
+              ))}
+            </div>
+          )}
+
+          {/* FASE 3 — Vídeo de reação (overlay em canto configurável) */}
+          {!previewHidden && currentReaction && currentReaction.dataUrl && (
+            <ReactionOverlay
+              ref={reactionVideoRef}
+              reaction={currentReaction}
+              isRecording={isRecording}
+            />
           )}
 
           {/* REC indicator */}
@@ -1626,6 +1703,7 @@ export default function Gravadora() {
               <ScriptPanel
                 isRecording={isRecording}
                 onTeleprompterActiveChange={setTeleprompterActive}
+                onActiveBlockChange={(idx) => setActiveBlockIndex(idx)}
                 syncArts={syncArts}
                 setSyncArts={setSyncArts}
                 autoStartOnRecord={autoStartOnRecord}
@@ -1773,3 +1851,35 @@ function AudioToggle({
     </div>
   )
 }
+
+/* ── FASE 3 — Overlay do vídeo de reação sobre o canvas ───────────────────── */
+const ReactionOverlay = React.forwardRef<
+  HTMLVideoElement,
+  { reaction: import('@/types/studio').ReactionVideo; isRecording: boolean }
+>(function ReactionOverlay({ reaction, isRecording }, ref) {
+  const sizePct = Math.round(reaction.size * 100)
+  const cornerClasses: Record<typeof reaction.corner, string> = {
+    'top-left': 'top-2 left-2',
+    'top-right': 'top-2 right-2',
+    'bottom-left': 'bottom-2 left-2',
+    'bottom-right': 'bottom-2 right-2',
+  }
+  return (
+    <div
+      className={`absolute z-[15] ${cornerClasses[reaction.corner]}`}
+      style={{ width: `${sizePct}%` }}
+    >
+      <video
+        ref={ref}
+        src={reaction.dataUrl}
+        autoPlay
+        loop
+        // Durante a gravação o áudio é silenciado internamente (evita eco).
+        muted={isRecording ? true : false}
+        playsInline
+        className="w-full rounded-xl border-2 border-white/20 shadow-2xl object-cover"
+        style={{ aspectRatio: '9 / 16' }}
+      />
+    </div>
+  )
+})
