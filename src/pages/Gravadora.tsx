@@ -72,6 +72,7 @@ import { BackgroundRenderer } from '@/components/studio/BackgroundRenderer'
 import { TitleOverlay } from '@/components/studio/TitleOverlay'
 import { useStudioMode, blockedMessage, type StudioAction } from '@/hooks/use-studio-mode'
 import { usePerformanceMonitor } from '@/hooks/use-performance-monitor'
+import { useRecordingGuard } from '@/hooks/use-recording-guard'
 import { Zap } from 'lucide-react'
 
 /* ───────────────────────────────────────────────────────────────────────────
@@ -84,12 +85,132 @@ import { Zap } from 'lucide-react'
 const CANVAS_W = 1080
 const CANVAS_H = 1920
 
-const DEFAULT_AUDIO: AudioConfig = {
-  inputDeviceId: '',
-  noiseSuppression: true,
-  autoGainControl: false,
-  echoCancellation: true,
-  manualGain: 1,
+/* ── Helpers de desenho para o canvas compositor (CORREÇÃO 2) ────────────── */
+
+/** Desenha uma fonte (video/image) preenchendo o retângulo (object-cover). */
+function drawCover(
+  ctx: CanvasRenderingContext2D,
+  src: CanvasImageSource,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+) {
+  const sw = (src as HTMLVideoElement).videoWidth || (src as HTMLImageElement).naturalWidth || w
+  const sh = (src as HTMLVideoElement).videoHeight || (src as HTMLImageElement).naturalHeight || h
+  if (!sw || !sh) return
+  const srcRatio = sw / sh
+  const dstRatio = w / h
+  let dw = w
+  let dh = h
+  if (srcRatio > dstRatio) {
+    dh = h
+    dw = h * srcRatio
+  } else {
+    dw = w
+    dh = w / srcRatio
+  }
+  const dx = x + (w - dw) / 2
+  const dy = y + (h - dh) / 2
+  ctx.drawImage(src, dx, dy, dw, dh)
+}
+
+/** Desenha object-cover com escala extra (cameraCover/cameraScale). */
+function drawCoverScaled(
+  ctx: CanvasRenderingContext2D,
+  src: CanvasImageSource,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  scale: number,
+) {
+  const sw = (src as HTMLVideoElement).videoWidth || (src as HTMLImageElement).naturalWidth || w
+  const sh = (src as HTMLVideoElement).videoHeight || (src as HTMLImageElement).naturalHeight || h
+  if (!sw || !sh) return
+  const srcRatio = sw / sh
+  const dstRatio = w / h
+  let dw = w
+  let dh = h
+  if (srcRatio > dstRatio) {
+    dh = h
+    dw = h * srcRatio
+  } else {
+    dw = w
+    dh = w / srcRatio
+  }
+  dw *= scale
+  dh *= scale
+  const dx = x + (w - dw) / 2
+  const dy = y + (h - dh) / 2
+  ctx.drawImage(src, dx, dy, dw, dh)
+}
+
+/** Desenha object-contain com padding máximo relativo (maxRatio do retângulo). */
+function drawContain(
+  ctx: CanvasRenderingContext2D,
+  src: CanvasImageSource,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  maxRatio = 1,
+) {
+  const sw = (src as HTMLVideoElement).videoWidth || (src as HTMLImageElement).naturalWidth || w
+  const sh = (src as HTMLVideoElement).videoHeight || (src as HTMLImageElement).naturalHeight || h
+  if (!sw || !sh) return
+  const srcRatio = sw / sh
+  const dstRatio = w / h
+  let dw = w * maxRatio
+  let dh = (w * maxRatio) / srcRatio
+  if (srcRatio < dstRatio) {
+    dh = h * maxRatio
+    dw = h * maxRatio * srcRatio
+  }
+  const dx = x + (w - dw) / 2
+  const dy = y + (h - dh) / 2
+  ctx.drawImage(src, dx, dy, dw, dh)
+}
+
+/** Desenha o título (overlay) no canvas compositor. */
+function drawTitle(
+  ctx: CanvasRenderingContext2D,
+  cfg: import('@/types/studio').TitleConfig,
+  canvasW: number,
+  canvasH: number,
+) {
+  const fontSize = Math.round((cfg.fontSize / 1080) * canvasW)
+  ctx.save()
+  ctx.font = `bold ${fontSize}px ${cfg.font}, sans-serif`
+  ctx.textAlign = cfg.alignment as CanvasTextAlign
+  ctx.textBaseline = 'middle'
+  let px = canvasW / 2
+  if (cfg.alignment === 'left') px = canvasW * 0.1
+  else if (cfg.alignment === 'right') px = canvasW * 0.9
+  let py = canvasH * 0.5
+  if (cfg.position === 'top') py = canvasH * 0.12
+  else if (cfg.position === 'bottom') py = canvasH * 0.88
+  else if (cfg.position === 'custom') {
+    px = cfg.normalizedX * canvasW
+    py = cfg.normalizedY * canvasH
+  }
+  if (cfg.bgEnabled && cfg.bgColor && cfg.bgColor !== 'transparent') {
+    const metrics = ctx.measureText(cfg.text)
+    const tw = metrics.width + fontSize
+    const th = fontSize * 1.4
+    let bx = px
+    if (cfg.alignment === 'center') bx = px - tw / 2
+    else if (cfg.alignment === 'right') bx = px - tw
+    ctx.fillStyle = cfg.bgColor
+    ctx.beginPath()
+    ctx.roundRect(bx, py - th / 2, tw, th, fontSize * 0.3)
+    ctx.fill()
+  }
+  ctx.fillStyle = cfg.color
+  ctx.shadowColor = 'rgba(0,0,0,0.6)'
+  ctx.shadowBlur = fontSize * 0.2
+  ctx.fillText(cfg.text, px, py)
+  ctx.restore()
 }
 
 export default function Gravadora() {
@@ -106,6 +227,8 @@ export default function Gravadora() {
     setTitleConfig,
     stageConfig,
     updateStageConfig,
+    audioConfig,
+    updateAudioConfig,
     saveDevicePreference,
     loadDevicePreference,
     saveRawVideo,
@@ -270,14 +393,24 @@ export default function Gravadora() {
     updateStageConfig({ showGuides: showSafeGuides })
   }, [showSafeGuides, updateStageConfig])
 
-  /* ── Audio config + Web Audio pipeline ─────────────────────────────────── */
-  const [audioConfig, setAudioConfig] = useState<AudioConfig>(DEFAULT_AUDIO)
+  /* ── Audio config + Web Audio pipeline ───────────────────────────────────
+     CORREÇÃO 1 — audioConfig vem do StudioContext (persistido em
+     lumen_gravadora_audio com debounce 500ms). Ajustes nos toggles/slider
+     chamam updateAudioConfig, que grava no localStorage. */
   const audioCtxRef = useRef<AudioContext | null>(null)
   const gainNodeRef = useRef<GainNode | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null)
   const [audioLevel, setAudioLevel] = useState(0) // 0..1 para o medidor
   const rafLevelRef = useRef<number | null>(null)
+  /* useRef para mostrar o aviso de suporte UMA vez por campo divergente. */
+  const audioSupportWarnedRef = useRef(false)
+  /* CORREÇÃO 4 — Suporte a echoCancellation detectado via track.getSettings(). */
+  const [echoCancellationSupported, setEchoCancellationSupported] = useState<boolean | null>(null)
+  /* CORREÇÃO 3 — isProcessing local (salvamento do take) para o guard de navegação. */
+  const [isProcessing, setIsProcessing] = useState(false)
+  // Mantém um ref sempre atualizado de stopRecording para uso no guard de navegação.
+  const stopRecordingRef = useRef<() => void>(() => {})
 
   /* ── Live filters (legado, mantido) ────────────────────────────────────── */
   const [brightness, setBrightness] = useState(100)
@@ -333,10 +466,225 @@ export default function Gravadora() {
   const brollVideoRef = useRef<HTMLVideoElement | null>(null)
 
   // Sempre lê o estado persistido mais recente para os overlays.
+  // Declarados antes do canvas compositor (CORREÇÃO 2) para que drawCompositorFrame
+  // possa referenciá-los dentro do useCallback sem uso-antes-de-declaração.
   const currentReaction = reaction ?? readReactionVideo()
   const currentBlockId = scriptBlockIds[activeBlockIndex]
   const currentArts = currentBlockId ? readBlockArts(currentBlockId) : []
   const currentBRoll = currentBlockId ? readBlockBRoll(currentBlockId) : null
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     CORREÇÃO 2 — Canvas compositor 1080×1920.
+     O MediaRecorder passa a gravar `canvasRef.captureStream(30)` combinado
+     com o audio track do microfone, em vez do stream bruto da câmera.
+     Assim fundo, título, artes e B-roll entram no vídeo final.
+     Um loop de render (rAF) desenha a composição a cada frame.
+     ═══════════════════════════════════════════════════════════════════════ */
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const compositorRafRef = useRef<number | null>(null)
+  const bgImgRef = useRef<HTMLImageElement | null>(null)
+  const artImgsRef = useRef<Map<string, HTMLImageElement>>(new Map())
+
+  /** Garante que um HTMLImageElement carregado exista para um dataUrl (cache). */
+  const getLoadedImage = (dataUrl: string): HTMLImageElement => {
+    let img = artImgsRef.current.get(dataUrl)
+    if (!img) {
+      img = new Image()
+      img.src = dataUrl
+      artImgsRef.current.set(dataUrl, img)
+    }
+    return img
+  }
+
+  /** Desenha um frame da composição no canvas compositor. */
+  const drawCompositorFrame = useCallback(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    // Fundo base
+    ctx.save()
+    ctx.fillStyle = '#0B0B10'
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H)
+    ctx.restore()
+
+    // Layout dividido: câmera em cima (1.3), painel inferior (0.7)
+    const cameraRatio = stageLayout === 'split' ? 1.3 / (1.3 + 0.7) : 1
+    const cameraH = Math.round(CANVAS_H * cameraRatio)
+    const panelY = cameraH
+    const panelH = CANVAS_H - cameraH
+
+    // ── Fundo da área de câmera ──────────────────────────────────────────
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(0, 0, CANVAS_W, cameraH)
+    ctx.clip()
+    if (backgroundConfig.type === 'preset' && backgroundConfig.presetColor) {
+      ctx.fillStyle = backgroundConfig.presetColor
+      ctx.fillRect(0, 0, CANVAS_W, cameraH)
+    } else if (backgroundConfig.type === 'image' && backgroundConfig.imageDataUrl) {
+      const bgImg =
+        bgImgRef.current ??
+        (bgImgRef.current = (() => {
+          const i = new Image()
+          i.src = backgroundConfig.imageDataUrl!
+          return i
+        })())
+      if (bgImg.complete && bgImg.naturalWidth > 0) {
+        drawCover(ctx, bgImg, 0, 0, CANVAS_W, cameraH)
+      }
+    } else if (backgroundConfig.type === 'blur') {
+      // fundo preto; o blur será aplicado sobre a câmera abaixo
+      ctx.fillStyle = '#0B0B10'
+      ctx.fillRect(0, 0, CANVAS_W, cameraH)
+    }
+    ctx.restore()
+
+    // ── Câmera (video element) ───────────────────────────────────────────
+    const video = videoRef.current
+    if (video && video.videoWidth > 0) {
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(0, 0, CANVAS_W, cameraH)
+      ctx.clip()
+      const scale = 1 + cameraCover
+      if (backgroundConfig.type === 'blur') {
+        ctx.filter = `blur(${(backgroundConfig.blurAmount ?? 12) * 2}px)`
+      }
+      drawCoverScaled(ctx, video, 0, 0, CANVAS_W, cameraH, scale)
+      ctx.filter = 'none'
+      ctx.restore()
+    }
+
+    // ── B-roll (sobre a área de câmera, como no preview) ─────────────────
+    if (currentBRoll && currentBRoll.url && brollVideoRef.current) {
+      const bv = brollVideoRef.current
+      if (bv.videoWidth > 0) {
+        ctx.save()
+        ctx.globalAlpha = 1
+        drawCover(ctx, bv, 0, 0, CANVAS_W, cameraH)
+        ctx.restore()
+      }
+    }
+
+    // ── Artes do bloco (contidas na área de câmera) ─────────────────────
+    if (syncArts && currentArts.length > 0) {
+      for (const art of currentArts) {
+        const img = getLoadedImage(art.dataUrl)
+        if (img.complete && img.naturalWidth > 0) {
+          drawContain(ctx, img, 0, 0, CANVAS_W, cameraH, 0.8)
+        }
+      }
+    }
+
+    // ── Vídeo de reação (canto configurável) ─────────────────────────────
+    if (currentReaction && currentReaction.dataUrl && reactionVideoRef.current) {
+      const rv = reactionVideoRef.current
+      if (rv.videoWidth > 0) {
+        const sizePx = Math.round(CANVAS_W * currentReaction.size)
+        const margin = Math.round(CANVAS_W * 0.015)
+        let rx = 0
+        let ry = 0
+        switch (currentReaction.corner) {
+          case 'top-left':
+            rx = margin
+            ry = margin
+            break
+          case 'top-right':
+            rx = CANVAS_W - sizePx - margin
+            ry = margin
+            break
+          case 'bottom-left':
+            rx = margin
+            ry = cameraH - sizePx - margin
+            break
+          case 'bottom-right':
+            rx = CANVAS_W - sizePx - margin
+            ry = cameraH - sizePx - margin
+            break
+        }
+        const rh = Math.round(sizePx * (16 / 9))
+        ctx.save()
+        ctx.beginPath()
+        ctx.roundRect(rx, ry, sizePx, rh, 12)
+        ctx.clip()
+        drawCover(ctx, rv, rx, ry, sizePx, rh)
+        ctx.restore()
+      }
+    }
+
+    // ── Painel inferior (split) ──────────────────────────────────────────
+    if (stageLayout === 'split') {
+      ctx.save()
+      ctx.fillStyle = '#0B0B10'
+      ctx.fillRect(0, panelY, CANVAS_W, panelH)
+      // Conteúdo do painel conforme lowerPanelMode
+      if (lowerPanelMode === 'arts' && syncArts && currentArts.length > 0) {
+        const img = getLoadedImage(currentArts[0].dataUrl)
+        if (img.complete && img.naturalWidth > 0) {
+          drawContain(ctx, img, 0, panelY, CANVAS_W, panelH, 1)
+        }
+      } else if (
+        lowerPanelMode === 'reaction' &&
+        currentReaction &&
+        currentReaction.dataUrl &&
+        reactionVideoRef.current
+      ) {
+        const rv = reactionVideoRef.current
+        if (rv.videoWidth > 0) {
+          drawContain(ctx, rv, 0, panelY, CANVAS_W, panelH, 1)
+        }
+      } else if (
+        lowerPanelMode === 'broll' &&
+        currentBRoll &&
+        currentBRoll.url &&
+        brollVideoRef.current
+      ) {
+        const bv = brollVideoRef.current
+        if (bv.videoWidth > 0) {
+          drawCover(ctx, bv, 0, panelY, CANVAS_W, panelH)
+        }
+      }
+      ctx.restore()
+    }
+
+    // ── Título (overlay sobre todo o canvas) ─────────────────────────────
+    if (titleConfig.enabled && titleConfig.text) {
+      const showTitle =
+        titleConfig.duration === 'full' || recordedSeconds <= (titleConfig.durationSeconds || 5)
+      if (showTitle) {
+        drawTitle(ctx, titleConfig, CANVAS_W, CANVAS_H)
+      }
+    }
+  }, [
+    backgroundConfig,
+    stageLayout,
+    cameraCover,
+    currentBRoll,
+    currentArts,
+    syncArts,
+    currentReaction,
+    lowerPanelMode,
+    titleConfig,
+    recordedSeconds,
+  ])
+
+  /* Loop do compositor: roda enquanto há stream ativo. */
+  useEffect(() => {
+    if (!stream) return
+    let cancelled = false
+    const loop = () => {
+      if (cancelled) return
+      drawCompositorFrame()
+      compositorRafRef.current = requestAnimationFrame(loop)
+    }
+    compositorRafRef.current = requestAnimationFrame(loop)
+    return () => {
+      cancelled = true
+      if (compositorRafRef.current) cancelAnimationFrame(compositorRafRef.current)
+    }
+  }, [stream, drawCompositorFrame])
 
   /* GAP 1 — Estado do quadro (whiteboard) para a parte inferior do canvas.
      Lido do mesmo localStorage que o WhiteboardPanel edita, para que o
@@ -489,6 +837,37 @@ export default function Gravadora() {
 
       // Configura o pipeline Web Audio (ganho manual + medidor)
       setupAudioPipeline(userStream)
+
+      // CORREÇÃO 1 — Verifica suporte real da cadeia de áudio via track.getSettings().
+      // Mostra toast UMA vez quando o navegador/dispositivo diverge do solicitado.
+      const audioTrack = userStream.getAudioTracks()[0]
+      if (audioTrack) {
+        try {
+          const settings = audioTrack.getSettings()
+          const checks: {
+            key: 'noiseSuppression' | 'echoCancellation' | 'autoGainControl'
+            label: string
+          }[] = [
+            { key: 'noiseSuppression', label: 'Redução de ruído' },
+            { key: 'echoCancellation', label: 'Cancelamento de eco' },
+            { key: 'autoGainControl', label: 'Ganho automático' },
+          ]
+          for (const c of checks) {
+            const requested = audioConfig[c.key]
+            const effective = (settings as any)[c.key]
+            if (requested && effective === false && !audioSupportWarnedRef.current) {
+              toast.warning(`⚠️ ${c.label} não é suportado pelo seu navegador/dispositivo.`)
+            }
+          }
+          audioSupportWarnedRef.current = true
+          // CORREÇÃO 4 — Detecta suporte a echoCancellation para o banner do modo reação.
+          setEchoCancellationSupported(
+            settings.echoCancellation === undefined ? true : settings.echoCancellation === true,
+          )
+        } catch {
+          /* getSettings pode falhar em alguns navegadores — ignora */
+        }
+      }
 
       // Listener de fim de track → desconexão de dispositivo durante gravação
       userStream.getTracks().forEach((track) => {
@@ -744,10 +1123,9 @@ export default function Gravadora() {
      FASE 5.5 — Aviso antes de sair: se está gravando ou processando,
      intercepta beforeunload para alertar o usuário.
      ═══════════════════════════════════════════════════════════════════════ */
-  const isProcessingRef = useRef(false)
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isRecording || isProcessingRef.current) {
+      if (isRecording || isProcessing) {
         e.preventDefault()
         e.returnValue = 'Você tem uma gravação em andamento. Sair agora irá interrompê-la.'
         return e.returnValue
@@ -755,7 +1133,7 @@ export default function Gravadora() {
     }
     window.addEventListener('beforeunload', onBeforeUnload)
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
-  }, [isRecording])
+  }, [isRecording, isProcessing])
 
   /* ═══════════════════════════════════════════════════════════════════════
      FASE 5.6 — Recuperação após falha: detecta blob bruto sem snapshot
@@ -900,7 +1278,10 @@ export default function Gravadora() {
     setRecordedSeconds(0)
     chunksRef.current = []
 
-    // Tenta MediaRecorder real sobre o stream ativo
+    // Tenta MediaRecorder real sobre o stream ativo.
+    // CORREÇÃO 2 — Grava o canvas compositor 1080×1920 (vídeo + camadas) em vez
+    // do stream bruto da câmera. Combina o video track do canvas com o audio
+    // track do microfone num novo MediaStream, preservando timeslice/chunks/onstop.
     if (stream && hasPermission) {
       let mimeType = ''
       const candidates = [
@@ -916,7 +1297,23 @@ export default function Gravadora() {
         }
       }
       try {
-        const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+        const canvas = canvasRef.current
+        const audioTrack = stream.getAudioTracks()[0]
+        let recordStream: MediaStream
+        if (canvas && typeof canvas.captureStream === 'function') {
+          // Força um frame inicial no canvas antes de capturar a stream.
+          drawCompositorFrame()
+          const canvasVideoTrack = canvas.captureStream(30).getVideoTracks()[0]
+          const tracks: MediaStreamTrack[] = [canvasVideoTrack]
+          if (audioTrack) tracks.push(audioTrack)
+          recordStream = new MediaStream(tracks)
+        } else if (audioTrack) {
+          // Sem canvas compositor disponível: fallback ao stream de áudio/câmera.
+          recordStream = new MediaStream([audioTrack])
+        } else {
+          recordStream = stream
+        }
+        const recorder = new MediaRecorder(recordStream, mimeType ? { mimeType } : undefined)
         recorder.ondataavailable = (ev) => {
           if (ev.data && ev.data.size > 0) chunksRef.current.push(ev.data)
         }
@@ -944,7 +1341,7 @@ export default function Gravadora() {
     toast.info('Gravação (simulada) iniciada! Roteiro rolando.')
   }
 
-  const stopRecording = () => {
+  const stopRecording = useCallback(() => {
     transition('processing')
     setIsRecording(false)
     setIsPaused(false)
@@ -959,7 +1356,20 @@ export default function Gravadora() {
     } else {
       finalizeTake()
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // CORREÇÃO 3 — Guard de navegação interna (cliques na sidebar durante gravação).
+  const recordingGuardBlocker = useRecordingGuard(isRecording, isProcessing)
+  const handleRecordingGuardProceed = useCallback(() => {
+    stopRecordingRef.current()
+    recordingGuardBlocker.proceed?.()
+  }, [recordingGuardBlocker])
+
+  // Mantém o ref de stopRecording sincronizado para o hook de guard de navegação.
+  useEffect(() => {
+    stopRecordingRef.current = stopRecording
+  }, [stopRecording])
 
   const finalizeTake = () => {
     const duration = Math.max(1, recordedSeconds)
@@ -1044,7 +1454,7 @@ export default function Gravadora() {
     // FASE 5.1 — Preservação do vídeo bruto + snapshot JSON do projeto.
     // IDs de blocos já são UUIDs estáveis vindos do use-script-blocks.
     if (blob) {
-      isProcessingRef.current = true
+      setIsProcessing(true)
       saveRawVideo(newProj.id, blob, duration, mimeType)
         .then(() => {
           // Monta o snapshot completo (versionado) com todos os metadados.
@@ -1099,7 +1509,7 @@ export default function Gravadora() {
           transition('error')
         })
         .finally(() => {
-          isProcessingRef.current = false
+          setIsProcessing(false)
         })
     } else {
       transition('prompter')
@@ -1269,6 +1679,17 @@ export default function Gravadora() {
         width: 'auto',
       }}
     >
+      {/* CORREÇÃO 2 — Canvas compositor 1080×1920 (offscreen).
+          O MediaRecorder grava captureStream(30) deste canvas + áudio do mic.
+          Permanece oculto (hidden) — o preview visível continua sendo o DOM. */}
+      <canvas
+        ref={canvasRef}
+        width={CANVAS_W}
+        height={CANVAS_H}
+        className="hidden"
+        aria-hidden="true"
+      />
+
       {/* FASE 4.1 — Fundo atrás do canvas (preenche toda a área do canvas) */}
       <BackgroundRenderer config={backgroundConfig} />
 
@@ -1545,26 +1966,45 @@ export default function Gravadora() {
               )
             ) : lowerPanelMode === 'reaction' ? (
               /* Vídeo de reação capturado via ReactionVideoPanel. */
-              currentReaction && currentReaction.dataUrl ? (
-                <div className="absolute inset-0 flex items-center justify-center p-2">
-                  <video
-                    src={currentReaction.dataUrl}
-                    autoPlay
-                    loop
-                    muted
-                    playsInline
-                    className="max-w-full max-h-full object-contain rounded-lg shadow-xl"
-                  />
-                </div>
-              ) : (
-                <div className="text-center px-4">
-                  <Video className="w-5 h-5 text-[#9494A8]/40 mx-auto mb-1.5" />
-                  <p className="text-[10px] text-[#9494A8]/70 font-medium">Sem vídeo de reação</p>
-                  <p className="text-[9px] text-[#9494A8]/50 mt-0.5">
-                    Capture um vídeo na aba Reação
-                  </p>
-                </div>
-              )
+              <>
+                {/* CORREÇÃO 4 — Aviso de echo quando echoCancellation não é suportado. */}
+                {echoCancellationSupported === false && (
+                  <div
+                    className="absolute top-2 left-2 right-2 z-20 flex items-start gap-2 px-3 py-2 rounded-xl text-[10px] leading-relaxed pointer-events-none animate-fade-in"
+                    style={{
+                      backgroundColor: 'rgba(124, 92, 252, 0.1)',
+                      border: '1px solid #7C5CFC',
+                      color: '#9494A8',
+                    }}
+                  >
+                    <span className="shrink-0">🔊</span>
+                    <span>
+                      Cancelamento de eco não suportado neste navegador. Recomendamos usar fones de
+                      ouvido para evitar retorno durante o vídeo de reação.
+                    </span>
+                  </div>
+                )}
+                {currentReaction && currentReaction.dataUrl ? (
+                  <div className="absolute inset-0 flex items-center justify-center p-2">
+                    <video
+                      src={currentReaction.dataUrl}
+                      autoPlay
+                      loop
+                      muted
+                      playsInline
+                      className="max-w-full max-h-full object-contain rounded-lg shadow-xl"
+                    />
+                  </div>
+                ) : (
+                  <div className="text-center px-4">
+                    <Video className="w-5 h-5 text-[#9494A8]/40 mx-auto mb-1.5" />
+                    <p className="text-[10px] text-[#9494A8]/70 font-medium">Sem vídeo de reação</p>
+                    <p className="text-[9px] text-[#9494A8]/50 mt-0.5">
+                      Capture um vídeo na aba Reação
+                    </p>
+                  </div>
+                )}
+              </>
             ) : lowerPanelMode === 'board' ? (
               /* Quadro (whiteboard): reflete o conteúdo desenhado no painel. */
               whiteboard.elements.length > 0 ? (
@@ -2219,7 +2659,7 @@ export default function Gravadora() {
                     value={selectedMic}
                     onChange={(e) => {
                       setSelectedMic(e.target.value)
-                      setAudioConfig((prev) => ({ ...prev, inputDeviceId: e.target.value }))
+                      updateAudioConfig({ inputDeviceId: e.target.value })
                     }}
                     disabled={deviceSelectDisabled}
                     aria-label="Microfone de captura"
@@ -2272,19 +2712,19 @@ export default function Gravadora() {
                   label="Redução de ruído"
                   description="noiseSuppression"
                   checked={audioConfig.noiseSuppression}
-                  onChange={(v) => setAudioConfig((prev) => ({ ...prev, noiseSuppression: v }))}
+                  onChange={(v) => updateAudioConfig({ noiseSuppression: v })}
                 />
                 <AudioToggle
                   label="Ganho automático"
                   description="autoGainControl — pode elevar ruído ambiente"
                   checked={audioConfig.autoGainControl}
-                  onChange={(v) => setAudioConfig((prev) => ({ ...prev, autoGainControl: v }))}
+                  onChange={(v) => updateAudioConfig({ autoGainControl: v })}
                 />
                 <AudioToggle
                   label="Cancelamento de eco"
                   description="echoCancellation"
                   checked={audioConfig.echoCancellation}
-                  onChange={(v) => setAudioConfig((prev) => ({ ...prev, echoCancellation: v }))}
+                  onChange={(v) => updateAudioConfig({ echoCancellation: v })}
                 />
               </div>
 
@@ -2301,9 +2741,7 @@ export default function Gravadora() {
                   min={0}
                   max={200}
                   step={5}
-                  onValueChange={(v) =>
-                    setAudioConfig((prev) => ({ ...prev, manualGain: v[0] / 100 }))
-                  }
+                  onValueChange={(v) => updateAudioConfig({ manualGain: v[0] / 100 })}
                 />
                 <p className="text-[10px] text-[#9494A8]/70">
                   Aplicado em tempo real via Web Audio API (GainNode).
@@ -2578,6 +3016,50 @@ export default function Gravadora() {
               className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-white text-xs font-semibold focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
             >
               Tentar novamente
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* CORREÇÃO 3 — Dialog de bloqueio de navegação durante gravação. */}
+      <Dialog
+        open={recordingGuardBlocker.state === 'blocked'}
+        onOpenChange={(open) => {
+          if (!open && recordingGuardBlocker.state === 'blocked') {
+            recordingGuardBlocker.reset?.()
+          }
+        }}
+      >
+        <DialogContent className="max-w-md bg-[#14141C] border-white/10 text-white rounded-2xl p-6 space-y-4">
+          <DialogHeader>
+            <div className="flex items-center gap-3">
+              <span className="p-2.5 rounded-xl bg-[#7C5CFC]/20 text-[#7C5CFC] border border-[#7C5CFC]/30">
+                <Video className="w-5 h-5" />
+              </span>
+              <div>
+                <DialogTitle className="text-lg font-bold">🎬 Gravação em andamento</DialogTitle>
+                <DialogDescription className="text-xs text-[#9494A8] mt-1">
+                  Você tem uma gravação em andamento. Deseja realmente sair? A gravação será
+                  finalizada e salva automaticamente.
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          <DialogFooter className="flex gap-2 sm:justify-end">
+            <Button
+              size="sm"
+              onClick={() => recordingGuardBlocker.reset?.()}
+              className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-white text-xs font-semibold focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
+            >
+              Continuar Gravando
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={handleRecordingGuardProceed}
+              className="text-xs font-semibold focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
+            >
+              Finalizar e Sair
             </Button>
           </DialogFooter>
         </DialogContent>

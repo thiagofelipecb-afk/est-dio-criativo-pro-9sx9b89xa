@@ -14,6 +14,7 @@ import {
   TimelineState,
   RawVideoRecord,
   StageConfig,
+  AudioConfig,
 } from '@/types/studio'
 import { PARSER_VERSION, parseScript } from '@/hooks/use-script-blocks'
 
@@ -55,6 +56,20 @@ const DEFAULT_STAGE_CONFIG: StageConfig = {
   focusMode: false,
   cameraScale: 1,
   showGuides: false,
+}
+
+/**
+ * CORREÇÃO 1 — Defaults da cadeia de captação de áudio da Gravadora.
+ * Persistida em `lumen_gravadora_audio` para sobreviver ao recarregamento.
+ * Nenhum campo existente de AudioConfig foi removido; mantém inputDeviceId e
+ * manualGain (nome real do slider de ganho 0–2).
+ */
+const DEFAULT_AUDIO_CONFIG: AudioConfig = {
+  inputDeviceId: '',
+  noiseSuppression: true,
+  autoGainControl: false,
+  echoCancellation: true,
+  manualGain: 1,
 }
 
 interface StudioContextType {
@@ -134,6 +149,12 @@ interface StudioContextType {
   saveDevicePreference: (cameraId: string, micId: string) => void
   /** Lê a preferência de câmera/mic salva (ou zeros). */
   loadDevicePreference: () => { cameraId: string; micId: string }
+
+  // CORREÇÃO 1 — Cadeia de áudio da Gravadora (persistida em lumen_gravadora_audio).
+  /** Configuração de áudio: noiseSuppression, echoCancellation, autoGainControl, gain. */
+  audioConfig: AudioConfig
+  /** Atualiza (merge) a configuração de áudio e persiste com debounce 500ms. */
+  updateAudioConfig: (updates: Partial<AudioConfig>) => void
 
   // FASE 5 — Preservação, recuperação e snapshot do projeto
   /** Salva o blob do vídeo bruto em localStorage/IndexedDB por projectId. */
@@ -741,6 +762,42 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [])
 
   /* ═══════════════════════════════════════════════════════════════════════
+     CORREÇÃO 1 — Persistência da cadeia de áudio da Gravadora.
+     Chave: lumen_gravadora_audio. Debounce 500ms para não escrever a cada
+     passo do slider de ganho. Default quando não há nada salvo.
+     ═══════════════════════════════════════════════════════════════════════ */
+  const AUDIO_KEY = 'lumen_gravadora_audio'
+  const [audioConfig, setAudioConfigState] = useState<AudioConfig>(() => {
+    try {
+      const raw = localStorage.getItem(AUDIO_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<AudioConfig>
+        return { ...DEFAULT_AUDIO_CONFIG, ...parsed }
+      }
+    } catch {
+      /* noop */
+    }
+    return DEFAULT_AUDIO_CONFIG
+  })
+  const audioConfigSaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => {
+    if (audioConfigSaveTimer.current) clearTimeout(audioConfigSaveTimer.current)
+    audioConfigSaveTimer.current = setTimeout(() => {
+      try {
+        localStorage.setItem(AUDIO_KEY, JSON.stringify(audioConfig))
+      } catch {
+        /* quota — ignora */
+      }
+    }, 500)
+    return () => {
+      if (audioConfigSaveTimer.current) clearTimeout(audioConfigSaveTimer.current)
+    }
+  }, [audioConfig])
+  const updateAudioConfig = useCallback((updates: Partial<AudioConfig>) => {
+    setAudioConfigState((prev) => ({ ...prev, ...updates }))
+  }, [])
+
+  /* ═══════════════════════════════════════════════════════════════════════
      FASE 5 — Preservação do vídeo bruto + snapshot JSON do projeto.
      Usa localStorage para blobs pequenos e IndexedDB para blobs > 5MB.
      ═══════════════════════════════════════════════════════════════════════ */
@@ -1224,6 +1281,8 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setTitleConfig,
         stageConfig,
         updateStageConfig,
+        audioConfig,
+        updateAudioConfig,
         saveDevicePreference,
         loadDevicePreference,
         saveRawVideo,
