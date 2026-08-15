@@ -30,6 +30,7 @@ import {
   Tv,
   Crown,
   Quote,
+  ListChecks,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { BrandAsset, BrandProfile } from '@/types/platform'
@@ -221,6 +222,16 @@ export default function PosicionamentoDocumento() {
           >
             <Printer className="w-3.5 h-3.5" /> Salvar como PDF
           </Button>
+          {hasAssets && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate('/posicionamento/okrs')}
+              className="border-[#7C5CFC]/40 text-[#7C5CFC] hover:bg-[#7C5CFC]/10 text-xs gap-1.5 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0e0e15]"
+            >
+              <ListChecks className="w-3.5 h-3.5" /> Ver OKRs →
+            </Button>
+          )}
         </div>
       </div>
 

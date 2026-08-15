@@ -20,6 +20,8 @@ import {
   ExtensionToken,
   SupportConversation,
   ScheduleEvent,
+  OKRSet,
+  OKRStatus,
 } from '@/types/platform'
 
 interface PlatformContextType {
@@ -96,6 +98,12 @@ interface PlatformContextType {
   scheduleEvents: ScheduleEvent[]
   saveScheduleEvent: (e: ScheduleEvent) => void
   deleteScheduleEvent: (id: string) => void
+
+  // OKRs
+  okrSet: OKRSet | null
+  setOKRSet: (o: OKRSet | null) => void
+  updateKeyResult: (objectiveId: string, krId: string, current: number) => void
+  updateObjectiveStatus: (objectiveId: string, status: OKRStatus) => void
 }
 
 const EMPTY_BRAND: BrandProfile = {
@@ -213,6 +221,9 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [scheduleEvents, setScheduleEvents] = useState<ScheduleEvent[]>(() =>
     load('lumen_schedule_events', []),
   )
+  const [okrSet, setOKRSetState] = useState<OKRSet | null>(() =>
+    load<OKRSet | null>('lumen_okrs', null),
+  )
 
   // Persistência
   useEffect(() => persist('lumen_brand_profile', brandProfile), [brandProfile])
@@ -234,6 +245,7 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   useEffect(() => persist('lumen_token', token), [token])
   useEffect(() => persist('lumen_clara', claraConversation), [claraConversation])
   useEffect(() => persist('lumen_schedule_events', scheduleEvents), [scheduleEvents])
+  useEffect(() => persist('lumen_okrs', okrSet), [okrSet])
 
   // Brand OS
   const setBrandBase = useCallback((base: BrandProfile['base']) => {
@@ -432,6 +444,53 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setScheduleEvents((prev) => prev.filter((e) => e.id !== id))
   }, [])
 
+  // OKRs
+  const setOKRSet = useCallback((o: OKRSet | null) => {
+    setOKRSetState(o)
+  }, [])
+
+  const updateKeyResult = useCallback((objectiveId: string, krId: string, current: number) => {
+    setOKRSetState((prev) => {
+      if (!prev) return prev
+      const objectives = prev.objectives.map((obj) => {
+        if (obj.id !== objectiveId) return obj
+        const keyResults = obj.keyResults.map((kr) => {
+          if (kr.id !== krId) return kr
+          const clamped = Math.max(0, current)
+          const progress =
+            kr.target > 0 ? Math.min(100, Math.round((clamped / kr.target) * 100)) : 0
+          const status: OKRStatus =
+            progress >= 100 ? 'concluido' : progress > 0 ? 'em_progresso' : 'nao_iniciado'
+          return { ...kr, current: clamped, progress, status }
+        })
+        const progress =
+          keyResults.length > 0
+            ? Math.round(keyResults.reduce((s, k) => s + k.progress, 0) / keyResults.length)
+            : 0
+        const status: OKRStatus =
+          progress >= 100
+            ? 'concluido'
+            : keyResults.some((k) => k.status === 'em_risco')
+              ? 'em_risco'
+              : progress > 0
+                ? 'em_progresso'
+                : 'nao_iniciado'
+        return { ...obj, keyResults, progress, status }
+      })
+      return { ...prev, objectives, lastUpdatedAt: new Date().toISOString() }
+    })
+  }, [])
+
+  const updateObjectiveStatus = useCallback((objectiveId: string, status: OKRStatus) => {
+    setOKRSetState((prev) => {
+      if (!prev) return prev
+      const objectives = prev.objectives.map((obj) =>
+        obj.id === objectiveId ? { ...obj, status } : obj,
+      )
+      return { ...prev, objectives, lastUpdatedAt: new Date().toISOString() }
+    })
+  }, [])
+
   return (
     <PlatformContext.Provider
       value={{
@@ -487,6 +546,10 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         scheduleEvents,
         saveScheduleEvent,
         deleteScheduleEvent,
+        okrSet,
+        setOKRSet,
+        updateKeyResult,
+        updateObjectiveStatus,
       }}
     >
       {children}

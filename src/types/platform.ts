@@ -561,3 +561,37 @@ export interface ScheduleEvent {
   channel: string
   status: 'planejado' | 'aprovado' | 'publicado' | 'cancelado'
 }
+
+// ---------- OKRs (Módulo Posicionamento) ----------
+export type OKRStatus = 'nao_iniciado' | 'em_progresso' | 'concluido' | 'em_risco' | 'cancelado'
+
+export interface KeyResult {
+  id: string
+  description: string
+  target: number // valor alvo (ex: 100)
+  current: number // valor atual (ex: 45)
+  unit: string // '%', 'R$', 'unidades', 'clientes', 'horas', 'posts', 'leads'
+  status: OKRStatus
+  progress: number // 0-100 calculado
+}
+
+export interface Objective {
+  id: string
+  title: string
+  description: string
+  category: 'crescimento' | 'receita' | 'audiencia' | 'produto' | 'marca' | 'vendas'
+  responsavel: string // nome do responsável
+  prazo: string // 'Q1 2026', '6 meses', '12 meses', etc
+  keyResults: KeyResult[]
+  status: OKRStatus
+  progress: number // média dos KRs
+  createdAt: string
+}
+
+export interface OKRSet {
+  id: string
+  brandProfileVersion: number // versão do Brand OS que gerou estes OKRs
+  objectives: Objective[]
+  generatedAt: string
+  lastUpdatedAt: string
+}

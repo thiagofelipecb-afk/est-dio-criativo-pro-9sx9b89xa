@@ -32,6 +32,7 @@ import {
   CheckCircle,
   FolderKanban,
   Film,
+  ListChecks,
 } from 'lucide-react'
 import ClaraWidget from '@/components/ClaraWidget'
 import { usePlatform } from '@/context/PlatformContext'
@@ -103,6 +104,7 @@ export default function Layout() {
     { label: 'Início', path: '/', icon: Home },
     { label: 'Meus Projetos', path: '/projetos', icon: FolderKanban },
     { label: 'Posicionamento', path: '/posicionamento', icon: Compass },
+    { label: 'OKRs Estratégicos', path: '/posicionamento/okrs', icon: ListChecks },
     ...moduleItems,
     ...studioItems,
     ...transversalItems,

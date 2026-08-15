@@ -21,6 +21,7 @@ import NotFound from './pages/NotFound'
 // Plataforma de Marketing e Vendas com IA
 import Posicionamento from './pages/Posicionamento'
 import PosicionamentoDocumento from './pages/PosicionamentoDocumento'
+import OKRs from './pages/OKRs'
 import Conteudo from './pages/Conteudo'
 import Funis from './pages/Funis'
 import Ativos from './pages/Ativos'
@@ -55,6 +56,7 @@ const App = () => (
                 <Route path="/modulo-1" element={<Posicionamento />} />
                 <Route path="/posicionamento" element={<Posicionamento />} />
                 <Route path="/posicionamento/documento" element={<PosicionamentoDocumento />} />
+                <Route path="/posicionamento/okrs" element={<OKRs />} />
                 <Route path="/modulo-2" element={<Conteudo />} />
                 <Route path="/modulo-3" element={<Navigate to="/funis" replace />} />
                 <Route path="/funis" element={<Funis />} />

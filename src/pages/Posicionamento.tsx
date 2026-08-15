@@ -63,6 +63,7 @@ import {
   ResearchAnswer,
   InterviewAnswer,
 } from '@/types/platform'
+import { generateOKRs } from '@/lib/okr-generator'
 
 /* =====================================================================
    DEFINIÇÕES — Pesquisa Completa (8 grupos, 42 campos)
@@ -481,8 +482,16 @@ function useDebouncedSave(key: string, data: unknown, delay = 2000) {
    ===================================================================== */
 
 export default function Posicionamento() {
-  const { brandProfile, setBrandBase, setResearch, setInterview, setAssets, setGenerationMeta } =
-    usePlatform()
+  const {
+    brandProfile,
+    setBrandBase,
+    setResearch,
+    setInterview,
+    setAssets,
+    setGenerationMeta,
+    okrSet,
+    setOKRSet,
+  } = usePlatform()
   const { setBrandOS } = useStudio()
   const { generateBrandOS } = useAIGeneration()
   const navigate = useNavigate()
@@ -670,6 +679,18 @@ export default function Posicionamento() {
       generatedAt: new Date().toISOString(),
     })
 
+    // Gera OKRs estratégicos a partir do Brand OS recém-criado.
+    // Preserva valores atuais (current) dos KRs anteriores por descrição.
+    const newOKRSet = generateOKRs(
+      {
+        ...brandProfile,
+        assets,
+        activeVersion: res.contextVersion + 1,
+      },
+      okrSet,
+    )
+    setOKRSet(newOKRSet)
+
     setGenStatus('completed')
     setLoading(false)
     setProgress(0)
@@ -684,6 +705,13 @@ export default function Posicionamento() {
         },
       },
     )
+    toast.success(`OKRs estratégicos gerados (${newOKRSet.objectives.length} objetivos).`, {
+      description: 'Acompanhe o progresso no dashboard de OKRs.',
+      action: {
+        label: 'Ver OKRs Estratégicos →',
+        onClick: () => navigate('/posicionamento/okrs'),
+      },
+    })
   }
 
   const handleGenerateClick = () => {
