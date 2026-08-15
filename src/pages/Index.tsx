@@ -34,6 +34,7 @@ import {
 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
+import { loadDemoData } from '@/lib/demoData'
 
 export default function Index() {
   const navigate = useNavigate()
@@ -1003,9 +1004,28 @@ export default function Index() {
 
       {/* Footer info */}
       <footer className="pt-8 pb-4 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between text-xs text-[#9494A8] gap-4">
-        <div>
+        <div className="flex items-center gap-3">
           <span className="font-semibold text-white">LUMEN Studio Pro</span> • Plataforma
           Inteligente de Gravação, Edição e Distribuição
+          {!hasBrandOS && (
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  loadDemoData()
+                  toast.success('Dados de demonstração carregados!')
+                } catch {
+                  toast.error('Não foi possível carregar os dados de demonstração.')
+                }
+                // Recarrega para que os providers leiam o novo estado do localStorage
+                setTimeout(() => window.location.reload(), 400)
+              }}
+              className="text-[11px] text-[#9494A8] hover:text-[#7C5CFC] underline underline-offset-4 decoration-dotted transition-colors"
+              title="Preenche Brand OS, projetos e agendamentos de exemplo para testar a plataforma"
+            >
+              Carregar dados de demonstração
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-4">
           <a
