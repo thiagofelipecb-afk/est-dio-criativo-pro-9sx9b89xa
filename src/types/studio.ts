@@ -229,16 +229,18 @@ export interface RecordingTake {
   timeString: string
   createdAt: string
   /** Manifesto de recuperação mínimo (JSON versionado). */
-  recoveryManifest?: {
-    version: number
-    layout: StageLayout
-    cameraCover: number
-    audio: Pick<
-      AudioConfig,
-      'noiseSuppression' | 'autoGainControl' | 'echoCancellation' | 'manualGain'
-    >
-    scriptText?: string
-  }
+  recoveryManifest?: RecoveryManifest
+  /* PROMPT 69 / GAP 3 — Campos adicionais do take (aditivos). */
+  /** Resolução real do vídeo gravado. */
+  resolution?: { width: number; height: number }
+  /** MIME type real do Blob gravado (ex.: 'video/webm;codecs=vp8,opus'). */
+  mimeType?: string
+  /** Avisos detectados na captura (ex.: sem áudio, resolução < 720p). */
+  warnings?: string[]
+  /** Thumbnail (dataUrl JPEG) de um frame capturado no stopRecording. */
+  thumbnail?: string | null
+  /** Unix timestamp (ms) da gravação. */
+  timestamp?: number
 }
 
 /* ===========================================================================
@@ -293,6 +295,8 @@ export interface BlockArt {
   dataUrl: string
   /** Nome original do arquivo (opcional). */
   name?: string
+  /** PROMPT 67 / GAP 1 — ID do ativo no AssetManager (refcount), se registrado. */
+  assetId?: string
 }
 
 /** Posição configurável de um overlay no canvas (4 cantos). */
@@ -485,6 +489,8 @@ export interface BlockBRoll {
   resolution?: string
   /** PROMPT 58 — URL da página do vídeo no Pexels (para atribuição/licença). */
   licenseUrl?: string
+  /** PROMPT 67 / GAP 1 — ID do ativo no AssetManager (refcount), se registrado. */
+  assetId?: string
 }
 
 /* ===========================================================================
@@ -617,6 +623,63 @@ export interface RawVideoRecord {
   hasSnapshot: boolean
 }
 
+/* ===========================================================================
+  LUMEN Studio — Manifesto de Recuperação Completo (PROMPT 69 / GAP 3)
+  Tipos aditivos. Nenhum tipo existente foi removido ou alterado.
+  =========================================================================== */
+
+/** Versão atual do schema do manifesto de recuperação. */
+export const RECOVERY_MANIFEST_SCHEMA_VERSION = 1
+
+/** Dispositivos de captura usados na gravação (para reabertura/recuperação). */
+export interface CaptureDevice {
+  /** Label do dispositivo de vídeo (câmera). */
+  videoLabel: string
+  /** Label do dispositivo de áudio (microfone). */
+  audioLabel: string
+}
+
+/**
+ * Manifesto de recuperação versionado e completo.
+ * Inclui informações suficientes para restaurar a sessão de gravação após
+ * uma falha ou para reabrir/importar um take em outra máquina.
+ */
+export interface RecoveryManifest {
+  /** Versão do schema (começa em 1). */
+  schemaVersion: number
+  /** Layout do palco na gravação. */
+  layout: StageLayout
+  /** Enquadramento cover. */
+  cameraCover: number
+  /** Configuração de áudio. */
+  audio: Pick<
+    AudioConfig,
+    'noiseSuppression' | 'autoGainControl' | 'echoCancellation' | 'manualGain'
+  >
+  /** Texto do roteiro (teleprompter). */
+  scriptText?: string
+  /* PROMPT 69 / GAP 3 — Campos adicionais (aditivos). */
+  /** Unix timestamp (ms) de criação do manifesto. */
+  createdAt?: number
+  /** Unix timestamp (ms) da última atualização. */
+  updatedAt?: number
+  /** Dispositivos de captura usados (labels), ou null se indisponível. */
+  captureDevice?: CaptureDevice | null
+  /** Duração da gravação em milissegundos. */
+  durationMs?: number
+  /** ID do take (para pareamento vídeo + JSON na importação). */
+  takeId?: string
+  /** IDs dos blocos do roteiro presentes na gravação. */
+  blockIds?: string[]
+  /** MIME type do vídeo bruto. */
+  mimeType?: string
+  /** Resolução real do vídeo. */
+  resolution?: { width: number; height: number }
+  /** Avisos detectados na captura. */
+  warnings?: string[]
+  /** Thumbnail (dataUrl JPEG). */
+  thumbnail?: string | null
+}
 /* ===========================================================================
    LUMEN Studio — Máquina de Estados do Modo Estúdio (FASE 6)
    Tipos aditivos. Nenhum tipo existente foi removido ou alterado.

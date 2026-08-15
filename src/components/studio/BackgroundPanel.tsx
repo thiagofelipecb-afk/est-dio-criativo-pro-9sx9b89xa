@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react'
 import { ImagePlus, Trash2, Scissors, Eye, AlertCircle, Upload } from 'lucide-react'
+import { assetManager } from '@/lib/asset-manager'
 import { toast } from 'sonner'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
@@ -66,6 +67,8 @@ export function BackgroundPanel() {
     }
     try {
       const dataUrl = await fileToDataUrl(file)
+      // PROMPT 67 / GAP 1 — registra a imagem de fundo no assetManager.
+      await assetManager.addAsset(file, 'upload', { type: 'background' })
       update({ type: 'image', imageDataUrl: dataUrl, imageName: file.name })
       toast.success('Imagem de fundo carregada.')
     } catch {

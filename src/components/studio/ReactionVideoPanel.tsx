@@ -11,6 +11,7 @@ import {
   Music,
 } from 'lucide-react'
 import { useReactionVideo, fileToDataUrl } from '@/hooks/use-block-media'
+import { assetManager } from '@/lib/asset-manager'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
@@ -60,9 +61,15 @@ export function ReactionVideoPanel({
     }
     try {
       const dataUrl = await fileToDataUrl(file)
+      // PROMPT 67 / GAP 1 — registra o vídeo de reação no assetManager.
+      // Ao trocar, o ativo anterior é revogado via revokeAsset para liberar
+      // a memória do object URL.
+      if (reaction?.assetId) assetManager.revokeAsset(reaction.assetId)
+      const asset = await assetManager.addAsset(file, 'upload', { type: 'video' })
       setReaction({
         dataUrl,
         name: file.name,
+        assetId: asset.id,
         ...DEFAULT_REACTION,
       })
       toast.success('Vídeo de reação carregado.')
@@ -110,6 +117,8 @@ export function ReactionVideoPanel({
   }
 
   const remove = () => {
+    // PROMPT 67 / GAP 1 — revoga o ativo do vídeo de reação anterior.
+    if (reaction?.assetId) assetManager.revokeAsset(reaction.assetId)
     setReaction(null)
     setPlaying(false)
     toast.info('Vídeo de reação removido.')

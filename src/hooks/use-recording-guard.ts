@@ -1,6 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useBeforeUnload } from 'react-router-dom'
 
+/* PROMPT 69 / GAP 3 — Informações do take atual expostas pelo guard.
+   Permite que o dialog de bloqueio mostre o número do take e metadados. */
+export interface RecordingGuardTakeInfo {
+  /** Número do take (1-based) dentro da sessão atual. */
+  takeNumber: number
+  /** ID do take (se houver). */
+  takeId?: string
+  /** Duração parcial do take em segundos (ao vivo). */
+  durationSeconds?: number
+  /** MIME type declarado para a gravação. */
+  mimeType?: string
+}
+
 /**
  * CORREÇÃO 3 — Bloqueia navegação durante a gravação ou processamento do take.
  *
@@ -18,11 +31,15 @@ import { useBeforeUnload } from 'react-router-dom'
  * API de retorno (idêntica ao blocker do react-router v7):
  *   { state: 'blocked' | 'unblocked', proceed: () => void, reset: () => void }
  * A Gravadora renderiza um dialog quando `state === 'blocked'`.
+ *
+ * PROMPT 69 / GAP 3 — o terceiro argumento agora é um objeto `takeInfo`
+ * (opcional) com `takeNumber` e metadados do take atual, exposto no retorno
+ * para o dialog de bloqueio exibir contexto ao usuário.
  */
 export function useRecordingGuard(
   isRecording: boolean,
   isProcessing: boolean,
-  _onStopAndProceed?: () => void,
+  takeInfo?: RecordingGuardTakeInfo,
 ) {
   const shouldBlock = isRecording || isProcessing
 
@@ -128,5 +145,5 @@ export function useRecordingGuard(
     }
   }, [shouldBlock])
 
-  return { state, proceed, reset }
+  return { state, proceed, reset, takeInfo: takeInfo ?? null }
 }

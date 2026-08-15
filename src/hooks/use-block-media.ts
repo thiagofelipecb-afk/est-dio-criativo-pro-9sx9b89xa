@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { BlockArt, BlockBRoll, ReactionVideo, WhiteboardState } from '@/types/studio'
+import { assetManager } from '@/lib/asset-manager'
 
 /* ── PROMPT 53/56 (GAP 1) — Contagem reativa de blocos com B-roll ──────────
    Hook que recebe a lista de blockIds dos blocos do roteiro e retorna, de
@@ -256,4 +257,120 @@ export function fileToDataUrl(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error)
     reader.readAsDataURL(file)
   })
+}
+
+/* ===========================================================================
+   PROMPT 67 / GAP 1 — Integração com o AssetManager (gerenciador de ativos).
+   Funções aditivas que registram/removem ativos no assetManager sempre que
+   mídia é adicionada ou removida de um bloco. Mantêm o refCount correto e
+   revogam object URLs quando o ativo não é mais referenciado.
+   =========================================================================== */
+
+/**
+ * Registra/Adiciona mídia a um bloco passando pelo assetManager.
+ * - Converte o File/Blob em ativo (addAsset) incrementando o refCount.
+ * - Grava o `assetId` no registro persistido do bloco para posterior decrement.
+ * Retorna o ativo criado/reutilizado.
+ */
+export async function addMediaToBlock(
+  blockId: string,
+  file: File,
+  source: 'upload' | 'pexels' | 'canvas' | 'recording' | 'import' = 'upload',
+  meta?: { name?: string; licenseUrl?: string; author?: string; provider?: string },
+): Promise<BlockArt> {
+  const asset = await assetManager.addAsset(file, source, {
+    type: 'image',
+    author: meta?.author,
+    licenseUrl: meta?.licenseUrl,
+    provider: meta?.provider,
+  })
+  const art: BlockArt = {
+    id: 'art-' + Math.random().toString(36).slice(2, 9),
+    dataUrl: asset.dataUrl ?? '',
+    name: meta?.name ?? file.name,
+    assetId: asset.id,
+  }
+  // Persiste a arte no bloco (append).
+  const existing = readBlockArts(blockId)
+  writeBlockArts(blockId, [...existing, art])
+  window.dispatchEvent(new CustomEvent('lumen-block-media-changed'))
+  return art
+}
+
+/**
+ * Remove mídia de um bloco passando pelo assetManager (decrementa refCount).
+ * Se o refCount chegar a 0, o objectUrl é revogado automaticamente.
+ */
+export function removeMediaFromBlock(blockId: string, artId: string): void {
+  const arts = readBlockArts(blockId)
+  const target = arts.find((a) => a.id === artId)
+  if (target?.assetId) {
+    assetManager.decrementRef(target.assetId)
+  }
+  writeBlockArts(
+    blockId,
+    arts.filter((a) => a.id !== artId),
+  )
+  window.dispatchEvent(new CustomEvent('lumen-block-media-changed'))
+}
+
+/**
+ * Substitui (set) toda a mídia de um bloco passando pelo assetManager.
+ * Decrementa refs dos ativos anteriores e adiciona os novos.
+ */
+export async function setMediaForBlock(
+  blockId: string,
+  files: File[],
+  source: 'upload' | 'pexels' | 'canvas' | 'recording' | 'import' = 'upload',
+): Promise<BlockArt[]> {
+  // Decrementa refs dos ativos anteriores.
+  const previous = readBlockArts(blockId)
+  for (const art of previous) {
+    if (art.assetId) assetManager.decrementRef(art.assetId)
+  }
+  // Adiciona os novos.
+  const newArts: BlockArt[] = []
+  for (const file of files) {
+    const asset = await assetManager.addAsset(file, source, { type: 'image' })
+    newArts.push({
+      id: 'art-' + Math.random().toString(36).slice(2, 9),
+      dataUrl: asset.dataUrl ?? '',
+      name: file.name,
+      assetId: asset.id,
+    })
+  }
+  writeBlockArts(blockId, newArts)
+  window.dispatchEvent(new CustomEvent('lumen-block-media-changed'))
+  return newArts
+}
+
+/**
+ * PROMPT 67 / GAP 1 — Registra um B-roll do Pexels no assetManager.
+ * O B-roll do Pexels é uma URL remota (não um blob local), então criamos um
+ * ativo apenas para rastreamento de refCount/origem; o objectUrl é a própria
+ * URL remota. Retorna o BlockBRoll enriquecido com `assetId`.
+ */
+export async function registerBRollAsset(broll: BlockBRoll): Promise<BlockBRoll> {
+  try {
+    // Busca a miniatura como proxy para criar um blob rastreável (opcional).
+    // Como B-roll do Pexels é URL remota, registramos um ativo "vazio" apenas
+    // para fins de inventário — sem blob. Usamos addAsset com um blob mínimo.
+    const placeholderBlob = new Blob(['pexels'], { type: 'application/octet-stream' })
+    const asset = await assetManager.addAsset(placeholderBlob, 'pexels', {
+      type: 'broll',
+      provider: 'pexels',
+      author: broll.author,
+      licenseUrl: broll.licenseUrl,
+    })
+    return { ...broll, assetId: asset.id }
+  } catch {
+    return broll
+  }
+}
+
+/** Remove (decrementa) o ativo de B-roll do assetManager. */
+export function unregisterBRollAsset(broll: BlockBRoll | null): void {
+  if (broll?.assetId) {
+    assetManager.decrementRef(broll.assetId)
+  }
 }

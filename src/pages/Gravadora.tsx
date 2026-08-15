@@ -47,6 +47,9 @@ import {
   Video,
   Film,
   PenLine,
+  Save,
+  AlertTriangle,
+  Package,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -75,7 +78,14 @@ import { TitleOverlay } from '@/components/studio/TitleOverlay'
 import { useStudioMode, blockedMessage, type StudioAction } from '@/hooks/use-studio-mode'
 import { usePerformanceMonitor } from '@/hooks/use-performance-monitor'
 import { useRecordingGuard } from '@/hooks/use-recording-guard'
-import { Zap } from 'lucide-react'
+import { useDraftStore } from '@/hooks/use-draft-store'
+import { assetManager } from '@/lib/asset-manager'
+import { useMemo } from 'react'
+import {
+  RECOVERY_MANIFEST_SCHEMA_VERSION,
+  type RecoveryManifest,
+  type CaptureDevice,
+} from '@/types/studio'
 
 /* ───────────────────────────────────────────────────────────────────────────
    LUMEN Studio — Núcleo do Estúdio de Gravação (FASE 1)
@@ -306,6 +316,60 @@ export default function Gravadora() {
   // Mapa takeId → projectId (para que "Editar" abra o projeto com snapshot,
   // e não crie um projeto novo paralelo).
   const takeProjectMapRef = useRef<Record<string, string>>({})
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     PROMPT 68 / GAP 2 — Draft Store (autosave local + remoto + indicador).
+     Snapshot ao vivo montado via useMemo; o hook cuida de debounce (2s),
+     idempotência por hash, conflito e sync Supabase.
+     ═══════════════════════════════════════════════════════════════════════ */
+  const DRAFT_PROJECT_ID = 'gravadora-session'
+  const liveSnapshot = useMemo<ProjectSnapshot>(() => {
+    const artsByBlock: Record<string, BlockArt[]> = {}
+    const brollByBlock: Record<string, BlockBRoll | null> = {}
+    for (const b of scriptBlocks) {
+      artsByBlock[b.id] = readBlockArts(b.id)
+      brollByBlock[b.id] = readBlockBRoll(b.id)
+    }
+    return {
+      version: 1,
+      savedAt: new Date().toISOString(),
+      projectId: DRAFT_PROJECT_ID,
+      title: 'Sessão Gravadora',
+      blocks: scriptBlocks,
+      scriptText: teleprompterScript,
+      artsByBlock,
+      brollByBlock,
+      background: backgroundConfig,
+      titleConfig,
+      audio: audioConfig,
+      stageLayout,
+      cameraCover,
+      takes: recordedClips,
+      timeline: {
+        segments: [
+          { id: 'seg-live', start: 0, end: Math.max(1, recordedSeconds), excluded: false },
+        ],
+        inPoint: 0,
+        outPoint: Math.max(1, recordedSeconds),
+        cursor: 0,
+      },
+      rawVideoDuration: Math.max(1, recordedSeconds),
+    }
+  }, [
+    scriptBlocks,
+    teleprompterScript,
+    backgroundConfig,
+    titleConfig,
+    audioConfig,
+    stageLayout,
+    cameraCover,
+    recordedClips,
+    recordedSeconds,
+  ])
+  const draftStore = useDraftStore(DRAFT_PROJECT_ID, liveSnapshot)
+
+  // Registra IDs de ativos da sessão para revogação no cleanup.
+  const sessionAssetIdsRef = useRef<Set<string>>(new Set())
 
   /* ── FASE 6 — Máquina de Estados do Modo Estúdio ─────────────────────────
      Camada ADICIONAL de validação. Não substitui isRecording/isPaused/etc. */
@@ -1131,6 +1195,12 @@ export default function Gravadora() {
           /* noop */
         }
       }
+      /* PROMPT 67 / GAP 1 — Revoga todos os ativos da sessão atual no
+         assetManager (object URLs, liberação de memória). */
+      for (const id of sessionAssetIdsRef.current) {
+        assetManager.revokeAsset(id)
+      }
+      sessionAssetIdsRef.current.clear()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -1469,7 +1539,12 @@ export default function Gravadora() {
   }, [])
 
   // CORREÇÃO 3 — Guard de navegação interna (cliques na sidebar durante gravação).
-  const recordingGuardBlocker = useRecordingGuard(isRecording, isProcessing)
+  // PROMPT 69 / GAP 3 — inclui takeNumber e informações do take atual.
+  const recordingGuardBlocker = useRecordingGuard(isRecording, isProcessing, {
+    takeNumber: recordedClips.length + (isRecording ? 1 : 0),
+    durationSeconds: recordedSeconds,
+    mimeType: mediaRecorderRef.current?.mimeType,
+  })
   const handleRecordingGuardProceed = useCallback(() => {
     stopRecordingRef.current()
     recordingGuardBlocker.proceed?.()
@@ -1480,9 +1555,91 @@ export default function Gravadora() {
     stopRecordingRef.current = stopRecording
   }, [stopRecording])
 
+  /* PROMPT 67 / GAP 1 — Gera o thumbnail 160×284 (9:16) do primeiro frame
+     a partir do blob do vídeo gravado. Retorna dataUrl JPEG ou null. */
+  const generateTakeThumbnail = (videoUrl: string): Promise<string | null> => {
+    return new Promise((resolve) => {
+      try {
+        const video = document.createElement('video')
+        video.src = videoUrl
+        video.muted = true
+        video.playsInline = true
+        video.crossOrigin = 'anonymous'
+        const cleanup = () => {
+          video.removeAttribute('src')
+          video.load()
+        }
+        video.onloadeddata = () => {
+          video.currentTime = 0
+        }
+        video.onseeked = () => {
+          try {
+            const canvas = document.createElement('canvas')
+            canvas.width = 160
+            canvas.height = 284
+            const ctx = canvas.getContext('2d')
+            if (!ctx) {
+              cleanup()
+              resolve(null)
+              return
+            }
+            // object-cover do frame na proporção 9:16.
+            const sw = video.videoWidth || 160
+            const sh = video.videoHeight || 284
+            const srcRatio = sw / sh
+            const dstRatio = 160 / 284
+            let dw = 160
+            let dh = 284
+            if (srcRatio > dstRatio) {
+              dh = 284
+              dw = 284 * srcRatio
+            } else {
+              dw = 160
+              dh = 160 / srcRatio
+            }
+            const dx = (160 - dw) / 2
+            const dy = (284 - dh) / 2
+            ctx.drawImage(video, dx, dy, dw, dh)
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.7)
+            cleanup()
+            resolve(dataUrl)
+          } catch {
+            cleanup()
+            resolve(null)
+          }
+        }
+        video.onerror = () => {
+          cleanup()
+          resolve(null)
+        }
+      } catch {
+        resolve(null)
+      }
+    })
+  }
+
+  /* PROMPT 69 / GAP 3 — Extrai a resolução real do vídeo a partir do
+     MediaStream track settings (w/h) ou fallback do video element. */
+  const extractResolution = (): { width: number; height: number } | undefined => {
+    try {
+      const vt = stream?.getVideoTracks?.()[0]
+      const s = vt?.getSettings?.()
+      if (s && s.width && s.height) return { width: s.width, height: s.height }
+    } catch {
+      /* noop */
+    }
+    const v = videoRef.current
+    if (v && v.videoWidth > 0 && v.videoHeight > 0) {
+      return { width: v.videoWidth, height: v.videoHeight }
+    }
+    return undefined
+  }
+
   const finalizeTake = () => {
     const duration = Math.max(1, recordedSeconds)
     const timeString = formatTimer(duration)
+    const takeId = 'clip-' + Date.now()
+    const now = Date.now()
 
     let url = 'https://img.usecurling.com/p/1080/1920?q=podcaster+talking+studio+light&color=purple'
     let blob: Blob | undefined
@@ -1494,27 +1651,81 @@ export default function Gravadora() {
       chunksRef.current = []
     }
 
+    /* PROMPT 69 / GAP 3 — Extrai resolução real e monta avisos. */
+    const resolution = extractResolution()
+    const warnings: string[] = []
+    const hasAudioTrack = !!stream
+      ?.getAudioTracks?.()
+      ?.some((t) => t.enabled && t.readyState === 'live')
+    if (!hasAudioTrack) warnings.push('Áudio não disponível')
+    if (resolution && (resolution.height < 720 || resolution.width < 720)) {
+      warnings.push('Resolução abaixo de 720p')
+    }
+    if (duration < 1) warnings.push('Duração menor que 1 segundo')
+
+    /* PROMPT 67 / GAP 1 — Registra o blob da gravação no assetManager. */
+    let recordingAssetId: string | undefined
+    if (blob) {
+      assetManager
+        .addAsset(blob, 'recording', { type: 'video', duration, mimeType })
+        .then((asset) => {
+          recordingAssetId = asset.id
+          sessionAssetIdsRef.current.add(asset.id)
+        })
+        .catch(() => {})
+    }
+
+    /* PROMPT 69 / GAP 3 — Manifesto completo (schemaVersion 1). */
+    const captureDevice: CaptureDevice | null = (() => {
+      try {
+        const vt = stream?.getVideoTracks?.()[0]
+        const at = stream?.getAudioTracks?.()[0]
+        if (vt && at) return { videoLabel: vt.label || '', audioLabel: at.label || '' }
+      } catch {
+        /* noop */
+      }
+      return null
+    })()
+
+    const recoveryManifest: RecoveryManifest = {
+      schemaVersion: RECOVERY_MANIFEST_SCHEMA_VERSION,
+      createdAt: now,
+      updatedAt: now,
+      layout: stageLayout,
+      cameraCover,
+      audio: {
+        noiseSuppression: audioConfig.noiseSuppression,
+        autoGainControl: audioConfig.autoGainControl,
+        echoCancellation: audioConfig.echoCancellation,
+        manualGain: audioConfig.manualGain,
+      },
+      scriptText: teleprompterScript,
+      captureDevice,
+      durationMs: duration * 1000,
+      takeId,
+      blockIds: scriptBlocks.map((b) => b.id),
+      mimeType,
+      resolution,
+      warnings,
+      thumbnail: null,
+    }
+
     const newClip: RecordingTake = {
-      id: 'clip-' + Date.now(),
+      id: takeId,
       url,
       duration,
       timeString,
       createdAt: new Date().toISOString(),
-      recoveryManifest: {
-        version: 1,
-        layout: stageLayout,
-        cameraCover,
-        audio: {
-          noiseSuppression: audioConfig.noiseSuppression,
-          autoGainControl: audioConfig.autoGainControl,
-          echoCancellation: audioConfig.echoCancellation,
-          manualGain: audioConfig.manualGain,
-        },
-        scriptText: teleprompterScript,
-      },
+      timestamp: now,
+      mimeType,
+      resolution,
+      warnings,
+      thumbnail: null,
+      recoveryManifest,
     }
 
     setRecordedClips((prev) => [newClip, ...prev])
+    void recordingAssetId
 
     // Salva no StudioContext como projeto tipo 'reel' / aspectRatio '9:16'
     // (tipo "video" reaproveita os mesmos filtros/fluxo de Meus Projetos).
@@ -1551,11 +1762,26 @@ export default function Gravadora() {
     })
     // Vínculo takeId → projectId (reabertura sem criar projeto paralelo).
     takeProjectMapRef.current[newClip.id] = newProj.id
-    // Tenta capturar o primeiro frame como thumbnail real (assíncrono).
+    // PROMPT 69 / GAP 3 — Gera o thumbnail 160×284 (9:16) do take e atualiza
+    // o clip + projeto + manifesto. Usa a função dedicada (proporção correta).
     if (blob && blob.type.startsWith('video')) {
-      captureFirstFrame(url).then((thumbDataUrl) => {
+      generateTakeThumbnail(url).then((thumbDataUrl) => {
         if (thumbDataUrl) {
           updateProject(newProj.id, { thumbnail: thumbDataUrl })
+          // Atualiza o clip recém-criado com o thumbnail e o manifesto.
+          setRecordedClips((prev) =>
+            prev.map((c) =>
+              c.id === newClip.id
+                ? {
+                    ...c,
+                    thumbnail: thumbDataUrl,
+                    recoveryManifest: c.recoveryManifest
+                      ? { ...c.recoveryManifest, thumbnail: thumbDataUrl, updatedAt: Date.now() }
+                      : c.recoveryManifest,
+                  }
+                : c,
+            ),
+          )
         }
       })
     }
@@ -1678,6 +1904,88 @@ export default function Gravadora() {
       category: 'recording',
     })
     toast.success('Take salvo na Biblioteca de Mídias!')
+  }
+
+  /* PROMPT 69 / GAP 3 — Baixar pacote de gravação (vídeo bruto + manifesto).
+     Usa JSZip se disponível (carregamento dinâmico); caso contrário, faz o
+     download separado do vídeo + JSON. Nome: lumen-take-${n}-${date}.zip */
+  const handleDownloadPackage = async (clip: RecordingTake, takeNumber: number) => {
+    const dateStr = new Date(clip.timestamp ?? Date.now()).toISOString().slice(0, 10)
+    const baseName = `lumen-take-${takeNumber}-${dateStr}`
+    const manifest = clip.recoveryManifest
+    const manifestJson = JSON.stringify(manifest ?? {}, null, 2)
+
+    // Tenta carregar JSZip dinamicamente (sem depender de instalação fixa).
+    let JSZipCtor: any = null
+    try {
+      const mod = await (Function('m', 'return import(m)') as (s: string) => Promise<any>)('jszip')
+      JSZipCtor = mod?.default ?? mod
+    } catch {
+      try {
+        const mod = await (Function('m', 'return import(m)') as (s: string) => Promise<any>)(
+          'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js',
+        )
+        JSZipCtor = (mod?.default ?? mod) as any
+      } catch {
+        JSZipCtor = null
+      }
+    }
+
+    if (JSZipCtor) {
+      try {
+        const zip = new JSZipCtor()
+        const ext = clip.mimeType?.includes('mp4') ? 'mp4' : 'webm'
+        // Busca o blob a partir do URL (blob:).
+        let blob: Blob | null = null
+        try {
+          const res = await fetch(clip.url)
+          blob = await res.blob()
+        } catch {
+          blob = null
+        }
+        if (blob) zip.file(`${baseName}.${ext}`, blob)
+        zip.file('recovery-manifest.json', manifestJson)
+        const zipBlob = await zip.generateAsync({ type: 'blob' })
+        const zipUrl = URL.createObjectURL(zipBlob)
+        const a = document.createElement('a')
+        a.href = zipUrl
+        a.download = `${baseName}.zip`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        setTimeout(() => URL.revokeObjectURL(zipUrl), 1000)
+        toast.success('Pacote de gravação baixado.')
+        return
+      } catch (err) {
+        console.warn('[Gravadora] JSZip falhou, usando download separado:', err)
+      }
+    }
+
+    // Fallback: download separado de vídeo + JSON.
+    try {
+      const a = document.createElement('a')
+      a.href = clip.url
+      a.download = `${baseName}.webm`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    } catch {
+      /* noop */
+    }
+    try {
+      const blob = new Blob([manifestJson], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${baseName}-manifest.json`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch {
+      /* noop */
+    }
+    toast.success('Pacote baixado (vídeo + manifesto separados).')
   }
 
   const handleSendToEditor = (clip: RecordingTake) => {
@@ -1831,6 +2139,46 @@ export default function Gravadora() {
       {/* FASE 6 — Badge sutil do estado do Modo Estúdio (canto inferior esquerdo) */}
       <div className="absolute bottom-3 left-3 z-20 px-2 py-1 rounded-lg bg-black/60 text-[10px] font-semibold text-white/80 backdrop-blur-md border border-white/10 pointer-events-none">
         {label}
+      </div>
+
+      {/* PROMPT 68 / GAP 2 — Indicador de save status (canto inferior direito),
+          sobreposto ao canvas, não atrapalha o conteúdo. */}
+      <div className="absolute bottom-3 right-3 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-md border border-white/10 text-[10px] font-medium pointer-events-auto">
+        {draftStore.saveStatus === 'saving' && (
+          <>
+            <Loader2 className="w-3 h-3 text-[#7C5CFC] animate-spin" />
+            <span className="text-[#9494A8]">Salvando...</span>
+          </>
+        )}
+        {draftStore.saveStatus === 'saved' && (
+          <>
+            <Check className="w-3 h-3 text-emerald-400" />
+            <span className="text-white/80">Salvo ✓</span>
+          </>
+        )}
+        {draftStore.saveStatus === 'error' && (
+          <>
+            <AlertTriangle className="w-3 h-3 text-amber-400" />
+            <span className="text-amber-200">Erro ao salvar ⚠️</span>
+            <button
+              onClick={() => void draftStore.retrySave()}
+              className="ml-1 text-[#7C5CFC] hover:underline"
+            >
+              Tentar novamente
+            </button>
+          </>
+        )}
+        {draftStore.saveStatus === 'idle' && draftStore.pendingChanges > 0 && (
+          <>
+            <Save className="w-3 h-3 text-[#9494A8]" />
+            <span className="text-[#9494A8]">{draftStore.pendingChanges} alterações</span>
+          </>
+        )}
+        {draftStore.conflictState !== 'none' && (
+          <span className="ml-1 text-amber-300" title="Conflito de versão detectado">
+            ● {draftStore.conflictState}
+          </span>
+        )}
       </div>
 
       {/* Layout dividido: câmera em cima, parte inferior reservada */}
@@ -2582,22 +2930,33 @@ export default function Gravadora() {
                           Take #{recordedClips.length - idx}
                         </span>
                       </div>
-                      <div className="p-2 flex items-center justify-between gap-1">
-                        <Button
-                          size="sm"
-                          onClick={() => handleSendToEditor(clip)}
-                          className="h-7 text-[10px] bg-[#7C5CFC] hover:bg-[#6A48E0] text-white flex-1 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
-                        >
-                          Editar
-                        </Button>
+                      <div className="p-2 flex flex-col gap-1">
+                        <div className="flex items-center justify-between gap-1">
+                          <Button
+                            size="sm"
+                            onClick={() => handleSendToEditor(clip)}
+                            className="h-7 text-[10px] bg-[#7C5CFC] hover:bg-[#6A48E0] text-white flex-1 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
+                          >
+                            Editar
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleSaveToMediaLibrary(clip)}
+                            className="h-7 px-2 text-[10px] text-[#22D3EE] hover:bg-[#22D3EE]/10 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
+                            title="Salvar na Biblioteca"
+                          >
+                            Salvar
+                          </Button>
+                        </div>
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleSaveToMediaLibrary(clip)}
-                          className="h-7 px-2 text-[10px] text-[#22D3EE] hover:bg-[#22D3EE]/10 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
-                          title="Salvar na Biblioteca"
+                          onClick={() => handleDownloadPackage(clip, recordedClips.length - idx)}
+                          className="h-7 px-2 text-[10px] text-[#9494A8] hover:bg-white/5 hover:text-white gap-1.5 focus-visible:ring-2 focus-visible:ring-[#7C5CFC] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B10] focus-visible:outline-none"
+                          title="Baixar pacote de gravação (vídeo + manifesto)"
                         >
-                          Salvar
+                          <Package className="w-3 h-3" /> Baixar pacote
                         </Button>
                       </div>
                     </div>

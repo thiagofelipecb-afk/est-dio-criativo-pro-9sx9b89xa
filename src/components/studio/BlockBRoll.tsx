@@ -10,7 +10,7 @@ import {
   AlertCircle,
   ExternalLink,
 } from 'lucide-react'
-import { useBlockBRoll } from '@/hooks/use-block-media'
+import { useBlockBRoll, registerBRollAsset, unregisterBRollAsset } from '@/hooks/use-block-media'
 import {
   searchPexelsVideos,
   suggestBRollTerms,
@@ -171,8 +171,13 @@ export function BlockBRoll({ blockId, blockText, stopPropagation = true }: Block
     }
   }
 
-  const selectResult = (r: PexelsVideoResult) => {
-    setBRoll(pexelsResultToBRoll(r))
+  const selectResult = async (r: PexelsVideoResult) => {
+    // PROMPT 67 / GAP 1 — registra o B-roll do Pexels no assetManager.
+    const base = pexelsResultToBRoll(r)
+    const registered = await registerBRollAsset(base)
+    // Decrementa o ativo anterior, se houver.
+    if (broll?.assetId) unregisterBRollAsset(broll)
+    setBRoll(registered)
     // Notifica listeners (contador global de B-roll no ScriptPanel).
     window.dispatchEvent(new CustomEvent('lumen-block-media-changed'))
     toast.success('B-roll selecionado para este bloco.')
@@ -322,6 +327,7 @@ export function BlockBRoll({ blockId, blockText, stopPropagation = true }: Block
               <button
                 onClick={(e) => {
                   stop(e)
+                  if (broll?.assetId) unregisterBRollAsset(broll)
                   setBRoll(null)
                   window.dispatchEvent(new CustomEvent('lumen-block-media-changed'))
                   toast.info('B-roll removido do bloco.')
