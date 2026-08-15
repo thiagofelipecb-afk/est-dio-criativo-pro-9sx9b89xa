@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { Outlet, useLocation, useNavigate, Link } from 'react-router-dom'
 import { useStudio } from '@/context/StudioContext'
 import { CreateModal } from '@/components/CreateModal'
@@ -49,23 +49,36 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
 
 export default function Layout() {
-  const { projects, activeProjectId, setActiveProjectId, setIsCreateModalOpen } = useStudio()
+  const { projects, activeProjectId, setActiveProjectId, setIsCreateModalOpen, isFocusMode } =
+    useStudio()
   const { hasBrandOS } = usePlatform()
   const location = useLocation()
   const navigate = useNavigate()
 
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
-  const [isMediaLibraryOpen, setIsMediaLibraryOpen] = useState(false)
-  const [mediaModalCategory, setMediaModalCategory] = useState<'all' | 'video' | 'image' | 'audio'>(
-    'all',
-  )
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false)
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false)
+  const [isMediaLibraryOpen, setIsMediaLibraryOpen] = React.useState(false)
+  const [mediaModalCategory, setMediaModalCategory] = React.useState<
+    'all' | 'video' | 'image' | 'audio'
+  >('all')
 
   const activeProject = projects.find((p) => p.id === activeProjectId)
+
+  const isGravadoraFocus = location.pathname === '/gravadora' && isFocusMode
+
+  if (isGravadoraFocus) {
+    return (
+      <div className="flex h-screen w-screen overflow-hidden bg-[#0B0B10] text-[#F4F4F7] font-sans">
+        <main className="flex-1 overflow-hidden min-w-0 bg-[#0B0B10]">
+          <Outlet />
+        </main>
+      </div>
+    )
+  }
 
   const moduleItems = [
     {
@@ -161,7 +174,6 @@ export default function Layout() {
               className="flex items-center gap-2.5 overflow-hidden group"
               onClick={() => setIsMobileMenuOpen(false)}
             >
-              {/* Prisma Brand Icon */}
               <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-tr from-[#7C5CFC] via-[#906BFC] to-[#22D3EE] p-[1.5px] shadow-lg shadow-[#7C5CFC]/20 group-hover:shadow-[#7C5CFC]/40 transition-all">
                 <div className="flex h-full w-full items-center justify-center rounded-[6px] bg-[#0B0B10]">
                   <Sparkles className="h-4 w-4 text-[#22D3EE] animate-pulse" />
@@ -180,7 +192,6 @@ export default function Layout() {
               )}
             </Link>
 
-            {/* Collapse toggle (Desktop) */}
             <button
               onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
               className="hidden lg:flex h-6 w-6 items-center justify-center rounded-md text-[#9494A8] hover:bg-white/5 hover:text-white transition-colors"
@@ -193,7 +204,6 @@ export default function Layout() {
               )}
             </button>
 
-            {/* Close button (Mobile) */}
             <button
               onClick={() => setIsMobileMenuOpen(false)}
               className="lg:hidden flex h-7 w-7 items-center justify-center rounded-md text-[#9494A8] hover:bg-white/5 hover:text-white"
@@ -202,7 +212,6 @@ export default function Layout() {
             </button>
           </div>
 
-          {/* Nav Links */}
           <nav className="p-2 space-y-1 overflow-y-auto max-h-[calc(100vh-160px)]">
             {navItems.map((item) => {
               const isActive = location.pathname === item.path
@@ -257,7 +266,6 @@ export default function Layout() {
             })}
           </nav>
 
-          {/* Section: Bibliotecas */}
           <div className="px-3 pt-3 pb-1">
             {(!isSidebarCollapsed || isMobileMenuOpen) && (
               <div className="flex items-center gap-1 text-[10px] font-semibold tracking-wider text-[#9494A8]/70 uppercase px-2 mb-1.5">
@@ -304,7 +312,6 @@ export default function Layout() {
           </div>
         </div>
 
-        {/* Footer info & profile */}
         <div className="p-2 border-t border-white/5 bg-[#0B0B10]/40">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -372,10 +379,9 @@ export default function Layout() {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        {/* Topbar (56px) */}
+        {/* Topbar */}
         <header className="h-14 shrink-0 glass-header flex items-center justify-between px-3 sm:px-6 z-40">
           <div className="flex items-center gap-3">
-            {/* Mobile Hamburger */}
             <button
               onClick={() => setIsMobileMenuOpen(true)}
               className="lg:hidden p-2 rounded-lg bg-white/5 text-[#9494A8] hover:text-white"
@@ -383,7 +389,6 @@ export default function Layout() {
               <Menu className="h-5 w-5" />
             </button>
 
-            {/* Project Switcher Dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-[#14141C] border border-white/10 hover:border-white/20 text-left transition-all max-w-[200px] sm:max-w-xs">
@@ -443,7 +448,6 @@ export default function Layout() {
             </DropdownMenu>
           </div>
 
-          {/* Center CTA Button */}
           <div className="flex items-center">
             <Button
               onClick={() => setIsCreateModalOpen(true)}
@@ -455,7 +459,6 @@ export default function Layout() {
             </Button>
           </div>
 
-          {/* Right Tools */}
           <div className="flex items-center gap-2">
             <Tooltip delayDuration={300}>
               <TooltipTrigger asChild>
@@ -502,17 +505,12 @@ export default function Layout() {
         </main>
       </div>
 
-      {/* Global Creation Modal */}
       <CreateModal />
-
-      {/* Global Shared Media Modal */}
       <MediaLibraryModal
         open={isMediaLibraryOpen}
         onOpenChange={setIsMediaLibraryOpen}
         categoryFilter={mediaModalCategory}
       />
-
-      {/* Clara — Assistente IA global */}
       <ClaraWidget />
     </div>
   )

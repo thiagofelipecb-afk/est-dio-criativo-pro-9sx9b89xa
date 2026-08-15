@@ -1,5 +1,4 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
-import { toast } from 'sonner'
 import {
   Project,
   MediaItem,
@@ -15,8 +14,9 @@ import {
   RawVideoRecord,
   StageConfig,
   AudioConfig,
+  TeleprompterMode,
+  TeleprompterTextColor,
 } from '@/types/studio'
-import { PARSER_VERSION, parseScript } from '@/hooks/use-script-blocks'
 
 /** Defaults FASE 4 — Fundo. */
 const DEFAULT_BACKGROUND_CONFIG: BackgroundConfig = {
@@ -58,12 +58,47 @@ const DEFAULT_STAGE_CONFIG: StageConfig = {
   showGuides: false,
 }
 
-/**
- * CORREÇÃO 1 — Defaults da cadeia de captação de áudio da Gravadora.
- * Persistida em `lumen_gravadora_audio` para sobreviver ao recarregamento.
- * Nenhum campo existente de AudioConfig foi removido; mantém inputDeviceId e
- * manualGain (nome real do slider de ganho 0–2).
- */
+/** Config de Câmera/Filtros técnicos */
+export interface CameraConfig {
+  brightness: number
+  contrast: number
+  beautySmooth: number
+}
+
+const DEFAULT_CAMERA_CONFIG: CameraConfig = {
+  brightness: 100,
+  contrast: 100,
+  beautySmooth: 40,
+}
+
+/** Config do Teleprompter */
+export interface PrompterConfig {
+  fontSize: number
+  speed: number
+  color: TeleprompterTextColor
+  bgOpacity: number
+  mirror: boolean
+  mode: TeleprompterMode
+  lensOffset: number
+  countdown: 3 | 5 | 10
+  reading: boolean
+  isScrolling: boolean
+}
+
+const DEFAULT_PROMPTER_CONFIG: PrompterConfig = {
+  fontSize: 48,
+  speed: 3,
+  color: 'white',
+  bgOpacity: 50,
+  mirror: false,
+  mode: 'blocks',
+  lensOffset: 0,
+  countdown: 3,
+  reading: false,
+  isScrolling: false,
+}
+
+/** Defaults da cadeia de captação de áudio da Gravadora. */
 const DEFAULT_AUDIO_CONFIG: AudioConfig = {
   inputDeviceId: '',
   noiseSuppression: true,
@@ -113,81 +148,67 @@ interface StudioContextType {
   setTeleprompterScript: (text: string) => void
 
   // FASE 2 — Roteiro por blocos na Gravadora
-  /** Blocos do roteiro (persistidos em lumen_gravadora_blocks). */
   scriptBlocks: ScriptBlock[]
   setScriptBlocks: (blocks: ScriptBlock[]) => void
-  /** Texto bruto do roteiro na Gravadora (persistido em lumen_gravadora_script). */
   gravadoraScript: string
   setGravadoraScript: (text: string) => void
 
-  // FASE 2C/2D — Estado compartilhado da Gravadora (HUD / modo foco).
-  /** Bloco ativo do roteiro — fonte única entre Gravadora, ScriptPanel e PrompterHUD. */
+  // Estado compartilhado da Gravadora (HUD / modo foco).
   activeBlockIndex: number
   setActiveBlockIndex: (i: number) => void
-  /** Indica se a gravação está em andamento (lido pelo PrompterHUD). */
   isRecording: boolean
   setIsRecording: (b: boolean) => void
-  /** Modo foco global — quando true, o Layout oculta sidebar/topbar/Clara. */
   isFocusMode: boolean
   setIsFocusMode: (b: boolean) => void
+
+  // Câmera & Filtros
+  cameraConfig: CameraConfig
+  updateCameraConfig: (updates: Partial<CameraConfig>) => void
+
+  // Teleprompter Config & State
+  prompterConfig: PrompterConfig
+  updatePrompterConfig: (updates: Partial<PrompterConfig>) => void
 
   // AI History / suggestions
   appliedAiSuggestions: AISuggestion[]
   addAiSuggestion: (suggestion: AISuggestion) => void
   revertAiSuggestion: (id: string) => void
 
-  // Brand OS — versão resumida para consumo dos geradores do estúdio criativo
+  // Brand OS
   brandOS: BrandOSContext | null
   setBrandOS: (b: BrandOSContext | null) => void
   updateBrandOS: (updates: Partial<BrandOSContext>) => void
 
-  // FASE 4 — Fundo e Título do Modo Estúdio
-  /** Configuração de fundo da Gravadora (persistida em lumen_gravadora_fundo). */
+  // Fundo e Título
   backgroundConfig: BackgroundConfig
   setBackgroundConfig: (cfg: BackgroundConfig) => void
-  /** Configuração de título da Gravadora (persistida em lumen_gravadora_titulo). */
   titleConfig: TitleConfig
   setTitleConfig: (cfg: TitleConfig) => void
 
-  // LUMEN — Configuração do palco/canvas 9:16 (persistida em lumen_gravadora_stage).
-  /** GAP 2/3 — Configuração do palco: layout, cover, cameraScale, showGuides, etc. */
+  // Configuração do palco/canvas
   stageConfig: StageConfig
-  /** Atualiza (merge) a configuração do palco e persiste com debounce. */
   updateStageConfig: (updates: Partial<StageConfig>) => void
 
-  // FASE 2 / GAP 2 — Persistência da preferência de dispositivo (câmera/mic).
-  /** Salva (debounced 500ms) a preferência de câmera/mic. Só salva quando há permissão. */
+  // Persistência da preferência de dispositivo
   saveDevicePreference: (cameraId: string, micId: string) => void
-  /** Lê a preferência de câmera/mic salva (ou zeros). */
   loadDevicePreference: () => { cameraId: string; micId: string }
 
-  // CORREÇÃO 1 — Cadeia de áudio da Gravadora (persistida em lumen_gravadora_audio).
-  /** Configuração de áudio: noiseSuppression, echoCancellation, autoGainControl, gain. */
+  // Cadeia de áudio da Gravadora
   audioConfig: AudioConfig
-  /** Atualiza (merge) a configuração de áudio e persiste com debounce 500ms. */
   updateAudioConfig: (updates: Partial<AudioConfig>) => void
 
-  // FASE 5 — Preservação, recuperação e snapshot do projeto
-  /** Salva o blob do vídeo bruto em localStorage/IndexedDB por projectId. */
+  // Preservação, recuperação e snapshot do projeto
   saveRawVideo: (projectId: string, blob: Blob, duration: number, mimeType: string) => Promise<void>
-  /** Carrega o blob do vídeo bruto salvo (recuperação de falha). */
   loadRawVideo: (projectId: string) => Promise<Blob | null>
-  /** Remove o blob do vídeo bruto salvo. */
   clearRawVideo: (projectId: string) => Promise<void>
-  /** Salva um snapshot versionado do projeto (JSON completo). */
   saveProjectSnapshot: (snapshot: ProjectSnapshot) => void
-  /** Carrega o snapshot salvo de um projeto (ou null). */
   loadProjectSnapshot: (projectId: string) => ProjectSnapshot | null
-  /** Remove o snapshot de um projeto. */
   clearProjectSnapshot: (projectId: string) => void
-  /** Detecta gravação interrompida: blob bruto sem snapshot correspondente. */
   recoverInterruptedRecording: (projectId: string) => Promise<RawVideoRecord | null>
-  /** Estado da timeline não destrutiva por projeto (persistido no snapshot). */
   getTimelineState: (projectId: string, rawDuration: number) => TimelineState
   setTimelineState: (projectId: string, state: TimelineState) => void
 }
 
-// Versão resumida do Brand OS consumida pelos geradores do estúdio
 export interface BrandOSContext {
   brandName: string
   niche: string
@@ -227,174 +248,7 @@ const DEFAULT_PROJECTS: Project[] = [
         volume: 100,
         filter: 'cinematic',
       },
-      {
-        id: 'clip-2',
-        track: 'video',
-        name: 'Dica 1 e B-Roll',
-        startTime: 14,
-        duration: 18,
-        sourceUrl: 'https://img.usecurling.com/p/1080/1920?q=high+tech+workspace+neon&color=cyan',
-        mediaType: 'video',
-        volume: 95,
-        transitionIn: 'slide',
-        transitionDuration: 0.5,
-      },
-      {
-        id: 'clip-3',
-        track: 'video',
-        name: 'Chamada para Ação',
-        startTime: 32,
-        duration: 16,
-        sourceUrl: 'https://img.usecurling.com/p/1080/1920?q=modern+creator+setup&color=purple',
-        mediaType: 'video',
-        volume: 100,
-        transitionIn: 'zoom',
-        transitionDuration: 0.5,
-      },
-      {
-        id: 'clip-audio-1',
-        track: 'audio',
-        name: 'Cyberpunk Lo-Fi Beat',
-        startTime: 0,
-        duration: 48,
-        mediaType: 'audio',
-        volume: 35,
-        fadeIn: 1,
-        fadeOut: 2,
-        ducking: true,
-      },
-      {
-        id: 'clip-insert-1',
-        track: 'insert',
-        name: 'Sticker: 🔥 Em Alta',
-        startTime: 2,
-        duration: 6,
-        mediaType: 'sticker',
-        content: '🔥 EM ALTA',
-        x: 80,
-        y: 20,
-        scale: 1.2,
-      },
-      {
-        id: 'clip-insert-2',
-        track: 'insert',
-        name: 'Seta de Atenção',
-        startTime: 16,
-        duration: 5,
-        mediaType: 'shape',
-        content: '⚡ DICA #1',
-        x: 50,
-        y: 75,
-        scale: 1,
-      },
     ],
-    subtitles: [
-      {
-        id: 'sub-1',
-        startTime: 0.5,
-        endTime: 4.2,
-        text: 'Se você quer reter sua audiência até o final...',
-        style: {
-          fontSize: 28,
-          color: '#FFFFFF',
-          bgColor: '#7C5CFC',
-          fontFamily: 'Inter',
-          shadow: true,
-          animation: 'bounce',
-        },
-      },
-      {
-        id: 'sub-2',
-        startTime: 4.5,
-        endTime: 9.8,
-        text: 'Você precisa aplicar esses 3 cortes nos primeiros 5 segundos.',
-        style: {
-          fontSize: 28,
-          color: '#22D3EE',
-          bgColor: '#14141C',
-          fontFamily: 'Inter',
-          shadow: true,
-          animation: 'pop',
-        },
-      },
-      {
-        id: 'sub-3',
-        startTime: 10.2,
-        endTime: 16.0,
-        text: 'Olha como a transição dinâmica muda o ritmo da narração!',
-        style: {
-          fontSize: 28,
-          color: '#FFFFFF',
-          bgColor: '#7C5CFC',
-          fontFamily: 'Inter',
-          shadow: true,
-          animation: 'slide',
-        },
-      },
-      {
-        id: 'sub-4',
-        startTime: 16.5,
-        endTime: 24.0,
-        text: 'Comente "ESTÚDIO" para receber o checklist completo no direct.',
-        style: {
-          fontSize: 32,
-          color: '#FBBF24',
-          bgColor: '#14141C',
-          fontFamily: 'Inter',
-          shadow: true,
-          animation: 'bounce',
-        },
-      },
-    ],
-  },
-  {
-    id: 'proj-2',
-    title: 'Guia Completo de Iluminação para Gravação Caseira',
-    type: 'youtube',
-    createdAt: new Date(Date.now() - 3600000 * 28).toISOString(),
-    updatedAt: new Date(Date.now() - 3600000 * 8).toISOString(),
-    duration: 380,
-    thumbnail: 'https://img.usecurling.com/p/1280/720?q=youtube+studio+lighting&color=purple',
-    aspectRatio: '16:9',
-    resolution: '4K',
-    status: 'draft',
-    scriptText:
-      'Neste vídeo vamos comparar 3 setups de luz: luz natural, softbox de 50 reais e painel LED RGB.',
-    clips: [
-      {
-        id: 'c2-1',
-        track: 'video',
-        name: 'Apresentação no Estúdio',
-        startTime: 0,
-        duration: 120,
-        sourceUrl: 'https://img.usecurling.com/p/1280/720?q=man+speaking+studio+camera',
-        mediaType: 'video',
-        volume: 100,
-      },
-      {
-        id: 'c2-2',
-        track: 'video',
-        name: 'Comparativo LED vs Softbox',
-        startTime: 120,
-        duration: 180,
-        sourceUrl: 'https://img.usecurling.com/p/1280/720?q=led+lighting+setup',
-        mediaType: 'video',
-        volume: 100,
-      },
-    ],
-    subtitles: [],
-  },
-  {
-    id: 'proj-3',
-    title: 'Tendências de Inteligência Artificial para Março 2025',
-    type: 'carousel',
-    createdAt: new Date(Date.now() - 3600000 * 50).toISOString(),
-    updatedAt: new Date(Date.now() - 3600000 * 12).toISOString(),
-    duration: 0,
-    thumbnail: 'https://img.usecurling.com/p/1080/1350?q=artificial+intelligence+neon&color=cyan',
-    aspectRatio: '4:5',
-    status: 'scheduled',
-    clips: [],
     subtitles: [],
   },
 ]
@@ -411,112 +265,9 @@ const DEFAULT_MEDIA: MediaItem[] = [
     tags: ['estúdio', '4k', 'fala'],
     category: 'recording',
   },
-  {
-    id: 'media-2',
-    title: 'Neon Code B-Roll',
-    type: 'video',
-    url: 'https://img.usecurling.com/p/1080/1920?q=high+tech+workspace+neon&color=cyan',
-    duration: 18,
-    size: '31 MB',
-    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-    tags: ['tech', 'futurista', 'b-roll'],
-    category: 'b-roll',
-  },
-  {
-    id: 'media-3',
-    title: 'Modern Synthwave Track',
-    type: 'audio',
-    url: 'https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3',
-    duration: 124,
-    size: '8.4 MB',
-    createdAt: new Date(Date.now() - 86400000 * 3).toISOString(),
-    tags: ['música', 'batida', 'ritmo'],
-    category: 'music',
-  },
-  {
-    id: 'media-4',
-    title: 'Cyberpunk Ambient Glow',
-    type: 'image',
-    url: 'https://img.usecurling.com/p/1080/1080?q=futuristic+gradient+background&color=purple',
-    size: '1.8 MB',
-    createdAt: new Date(Date.now() - 86400000 * 4).toISOString(),
-    tags: ['fundo', 'degrade', 'abstrato'],
-    category: 'template',
-  },
-  {
-    id: 'media-5',
-    title: 'Microfone Podcast Pro',
-    type: 'image',
-    url: 'https://img.usecurling.com/p/800/800?q=shure+sm7b+microphone+dark',
-    size: '2.1 MB',
-    createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-    tags: ['equipamento', 'audio', 'podcast'],
-    category: 'b-roll',
-  },
 ]
 
-const DEFAULT_SCHEDULED_POSTS: ScheduledPost[] = [
-  {
-    id: 'sched-1',
-    projectId: 'proj-1',
-    title: '5 Hábitos de Criadores de Alto Impacto',
-    mediaUrl: 'https://img.usecurling.com/p/600/1066?q=content+creator+studio&color=purple',
-    mediaType: 'video',
-    platforms: ['instagram', 'tiktok'],
-    scheduledDate: new Date(Date.now() + 3600000 * 6).toISOString(),
-    caption:
-      'Você sabia que o segredo de retenção está nos primeiros 3 segundos? 🚀 Confira a análise completa!',
-    hashtags: [
-      '#criacaodeconteudo',
-      '#reelsbrasil',
-      '#marketingdigital',
-      '#lumenstudio',
-      '#videomaker',
-    ],
-    status: 'scheduled',
-    analyticsEstimate: {
-      views: 34500,
-      likes: 2100,
-      engagementRate: '6.4%',
-    },
-  },
-  {
-    id: 'sched-2',
-    projectId: 'proj-3',
-    title: 'Tendências de IA para Criadores',
-    mediaUrl: 'https://img.usecurling.com/p/1080/1350?q=artificial+intelligence+neon&color=cyan',
-    mediaType: 'carousel',
-    platforms: ['instagram'],
-    scheduledDate: new Date(Date.now() + 3600000 * 26).toISOString(),
-    caption:
-      'Arrasta para o lado e salve essas 5 ferramentas que economizam 12 horas por semana na edição 🧠💡',
-    hashtags: ['#inteligenciaartificial', '#produtividade', '#carrossel', '#conteudo'],
-    status: 'scheduled',
-    analyticsEstimate: {
-      views: 18200,
-      likes: 1450,
-      engagementRate: '8.1%',
-    },
-  },
-  {
-    id: 'sched-3',
-    projectId: 'proj-2',
-    title: 'Guia Definitivo de Iluminação RGB',
-    mediaUrl: 'https://img.usecurling.com/p/1280/720?q=youtube+studio+lighting&color=purple',
-    mediaType: 'video',
-    platforms: ['youtube'],
-    scheduledDate: new Date(Date.now() - 3600000 * 48).toISOString(),
-    caption:
-      'Como transformar seu quarto em um estúdio cinematográfico gastando pouco. Link na bio com todos os presets!',
-    hashtags: ['#youtubebrasil', '#iluminacao', '#estudioemcasa', '#setupgamer'],
-    status: 'published',
-    analyticsEstimate: {
-      views: 52400,
-      likes: 4300,
-      engagementRate: '9.2%',
-    },
-  },
-]
+const DEFAULT_SCHEDULED_POSTS: ScheduledPost[] = []
 
 const StudioContext = createContext<StudioContextType | undefined>(undefined)
 
@@ -542,133 +293,33 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const [carousels, setCarousels] = useState<CarouselProject[]>(() => {
     const saved = localStorage.getItem('lumen_carousels')
-    if (saved) return JSON.parse(saved)
-    return [
-      {
-        id: 'car-1',
-        title: '3 Segredos da Retenção Visual',
-        aspectRatio: '4:5',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        thumbnail: 'https://img.usecurling.com/p/1080/1350?q=slide+presentation+dark&color=purple',
-        slides: [
-          {
-            id: 'sl-1',
-            title: 'Como Prender a Atenção nos Primeiros 3 Segundos',
-            subtitle: 'O Segredo dos Maiores Criadores',
-            bodyText:
-              'Descubra a fórmula que gera mais de 80% de retenção e faz o algoritmo entregar seu vídeo.',
-            bgType: 'gradient',
-            bgColor: '#14141C',
-            bgGradient: 'from-violet-950 via-slate-900 to-black',
-            elements: [
-              {
-                id: 'el-1',
-                type: 'badge',
-                content: 'ESTRATÉGIA COMPLETA',
-                x: 50,
-                y: 15,
-                color: '#7C5CFC',
-              },
-              {
-                id: 'el-2',
-                type: 'arrow',
-                content: 'Arrasta para ver 👉',
-                x: 50,
-                y: 88,
-                color: '#22D3EE',
-              },
-            ],
-          },
-          {
-            id: 'sl-2',
-            title: '1. Gancho Visual de Quebra de Padrão',
-            subtitle: 'Evite começos previsíveis',
-            bodyText:
-              'Use movimento brusco, troca de ângulo ou um elemento visual inesperado no primeiro frame.',
-            bgType: 'color',
-            bgColor: '#14141C',
-            bgGradient: '',
-            elements: [
-              { id: 'el-3', type: 'step', content: 'PASSO 01', x: 20, y: 20, color: '#22D3EE' },
-            ],
-          },
-          {
-            id: 'sl-3',
-            title: '2. Legendas com Destaque por Palavra',
-            subtitle: 'Estímulo duplo (áudio + texto)',
-            bodyText:
-              'Palavras coloridas que pulam no ritmo da voz mantêm o cérebro conectado ao conteúdo.',
-            bgType: 'gradient',
-            bgColor: '#14141C',
-            bgGradient: 'from-slate-900 to-violet-950',
-            elements: [
-              { id: 'el-4', type: 'step', content: 'PASSO 02', x: 20, y: 20, color: '#7C5CFC' },
-            ],
-          },
-        ],
-      },
-    ]
+    return saved ? JSON.parse(saved) : []
   })
 
   const [staticPosts, setStaticPosts] = useState<StaticPostProject[]>(() => {
     const saved = localStorage.getItem('lumen_static_posts')
-    if (saved) return JSON.parse(saved)
-    return [
-      {
-        id: 'post-1',
-        title: 'Frase Motivacional Criador Tech',
-        aspectRatio: '1:1',
-        bgType: 'gradient',
-        bgColor: '#14141C',
-        bgGradient: 'from-violet-950 via-slate-950 to-cyan-950',
-        blurAmount: 0,
-        headline: 'A consistência vence o algoritmo todos os dias.',
-        subtitle: 'Não espere a inspiração perfeita: publique, analise e evolua.',
-        authorName: 'LUMEN Studio',
-        authorHandle: '@lumenstudio.ia',
-        authorAvatar: 'https://img.usecurling.com/ppl/medium?seed=42',
-        badgeText: 'INSIGHT DO DIA',
-        watermark: true,
-        filter: 'cinematic',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        thumbnail: 'https://img.usecurling.com/p/1080/1080?q=cyberpunk+quote+studio&color=purple',
-      },
-    ]
+    return saved ? JSON.parse(saved) : []
   })
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
 
-  // FASE 2C/2D — Estado compartilhado da Gravadora (HUD / modo foco).
-  // Fonte única de verdade para bloco ativo, estado de gravação e modo foco,
-  // compartilhada entre Gravadora, ScriptPanel e PrompterHUD. (Consolidação
-  // do Modo Estúdio: anteriormente declarados na interface mas ausentes do
-  // provider, o que quebrava o typecheck e impedia o PrompterHUD de funcionar.)
+  // Estado compartilhado da Gravadora
   const [activeBlockIndex, setActiveBlockIndex] = useState(0)
   const [isRecording, setIsRecording] = useState(false)
   const [isFocusMode, setIsFocusMode] = useState(false)
 
-  // FASE 2 — Roteiro por blocos na Gravadora (persistência própria).
   // FONTE ÚNICA DE VERDADE: `gravadoraScript` é o roteiro canônico da Gravadora.
-  // `teleprompterScript` é um alias (mesmo estado) para a página Teleprompter
-  // independente e demais consumidores, eliminando conteúdo divergente entre
-  // o painel superior e o painel inferior. Migra o conteúdo existente: se não
-  // houver roteiro salvo, semeia com o texto padrão anterior (não-demo, apenas
-  // um ponto de partida editável) para nunca deixar o campo vazio sem motivo.
   const DEFAULT_SCRIPT =
     'Bem-vindos ao LUMEN Studio! Hoje vamos gravar nosso novo vídeo com inteligência artificial.\n\nLembre-se de olhar fixamente para a lente da câmera, manter uma postura confiante e fazer pausas expressivas nos momentos-chave.\n\nO teleprompter sincroniza automaticamente com seu ritmo de fala.'
 
   const [gravadoraScript, setGravadoraScript] = useState<string>(() => {
     const saved = localStorage.getItem('lumen_gravadora_script')
-    // Migração: se existia texto no antigo `teleprompterScript` (não persistido)
-    // e nada foi salvo ainda no canônico, usa o padrão. Usuários que já salvaram
-    // roteiro mantêm seu conteúdo intacto.
     return saved ?? DEFAULT_SCRIPT
   })
-  // Alias canônico: teleprompterScript NÃO tem estado próprio.
+
   const teleprompterScript = gravadoraScript
   const setTeleprompterScript = setGravadoraScript
+
   const [scriptBlocks, setScriptBlocks] = useState<ScriptBlock[]>(() => {
     const saved = localStorage.getItem('lumen_gravadora_blocks')
     if (saved) {
@@ -684,11 +335,54 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   useEffect(() => {
     localStorage.setItem('lumen_gravadora_script', gravadoraScript)
   }, [gravadoraScript])
+
   useEffect(() => {
     localStorage.setItem('lumen_gravadora_blocks', JSON.stringify(scriptBlocks))
   }, [scriptBlocks])
 
-  // FASE 4 — Fundo & Título (persistência própria em localStorage)
+  // Camera Config (brightness, contrast, beautySmooth)
+  const [cameraConfig, setCameraConfig] = useState<CameraConfig>(() => {
+    const saved = localStorage.getItem('lumen_camera_config')
+    if (saved) {
+      try {
+        return { ...DEFAULT_CAMERA_CONFIG, ...JSON.parse(saved) }
+      } catch {
+        return DEFAULT_CAMERA_CONFIG
+      }
+    }
+    return DEFAULT_CAMERA_CONFIG
+  })
+
+  useEffect(() => {
+    localStorage.setItem('lumen_camera_config', JSON.stringify(cameraConfig))
+  }, [cameraConfig])
+
+  const updateCameraConfig = useCallback((updates: Partial<CameraConfig>) => {
+    setCameraConfig((prev) => ({ ...prev, ...updates }))
+  }, [])
+
+  // Prompter Config
+  const [prompterConfig, setPrompterConfig] = useState<PrompterConfig>(() => {
+    const saved = localStorage.getItem('lumen_prompter_hud_prefs')
+    if (saved) {
+      try {
+        return { ...DEFAULT_PROMPTER_CONFIG, ...JSON.parse(saved) }
+      } catch {
+        return DEFAULT_PROMPTER_CONFIG
+      }
+    }
+    return DEFAULT_PROMPTER_CONFIG
+  })
+
+  useEffect(() => {
+    localStorage.setItem('lumen_prompter_hud_prefs', JSON.stringify(prompterConfig))
+  }, [prompterConfig])
+
+  const updatePrompterConfig = useCallback((updates: Partial<PrompterConfig>) => {
+    setPrompterConfig((prev) => ({ ...prev, ...updates }))
+  }, [])
+
+  // Fundo & Título
   const [backgroundConfig, setBackgroundConfigState] = useState<BackgroundConfig>(() => {
     const saved = localStorage.getItem('lumen_gravadora_fundo')
     if (saved) {
@@ -700,6 +394,7 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
     return DEFAULT_BACKGROUND_CONFIG
   })
+
   const [titleConfig, setTitleConfigState] = useState<TitleConfig>(() => {
     const saved = localStorage.getItem('lumen_gravadora_titulo')
     if (saved) {
@@ -715,6 +410,7 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   useEffect(() => {
     localStorage.setItem('lumen_gravadora_fundo', JSON.stringify(backgroundConfig))
   }, [backgroundConfig])
+
   useEffect(() => {
     localStorage.setItem('lumen_gravadora_titulo', JSON.stringify(titleConfig))
   }, [titleConfig])
@@ -722,24 +418,19 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const setBackgroundConfig = (cfg: BackgroundConfig) => setBackgroundConfigState(cfg)
   const setTitleConfig = (cfg: TitleConfig) => setTitleConfigState(cfg)
 
-  /* ═══════════════════════════════════════════════════════════════════════
-     LUMEN — Configuração do palco/canvas 9:16 (lumen_gravadora_stage).
-     GAP 2 — cameraScale (enquadramento) persiste entre recarregamentos.
-     GAP 3 — showGuides (guias de zona segura) persiste entre recarregamentos.
-     Persistência com debounce (300ms) para não escrever a cada passo do slider.
-     ═══════════════════════════════════════════════════════════════════════ */
+  // Configuração do palco/canvas
   const [stageConfig, setStageConfigState] = useState<StageConfig>(() => {
     const saved = localStorage.getItem('lumen_gravadora_stage')
     if (saved) {
       try {
-        const parsed = JSON.parse(saved) as Partial<StageConfig>
-        return { ...DEFAULT_STAGE_CONFIG, ...parsed }
+        return { ...DEFAULT_STAGE_CONFIG, ...(JSON.parse(saved) as StageConfig) }
       } catch {
         return DEFAULT_STAGE_CONFIG
       }
     }
     return DEFAULT_STAGE_CONFIG
   })
+
   const stageConfigSaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => {
     if (stageConfigSaveTimer.current) clearTimeout(stageConfigSaveTimer.current)
@@ -747,24 +438,19 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       try {
         localStorage.setItem('lumen_gravadora_stage', JSON.stringify(stageConfig))
       } catch {
-        /* quota — ignora */
+        /* noop */
       }
     }, 300)
     return () => {
       if (stageConfigSaveTimer.current) clearTimeout(stageConfigSaveTimer.current)
     }
   }, [stageConfig])
+
   const updateStageConfig = useCallback((updates: Partial<StageConfig>) => {
     setStageConfigState((prev) => ({ ...prev, ...updates }))
   }, [])
 
-  /* ═══════════════════════════════════════════════════════════════════════
-     FASE 2 / GAP 2 — Persistência da preferência de dispositivo (câmera/mic).
-     Chave: lumen_gravadora_devices = { cameraId, micId }.
-     Salvamento com debounce 500ms. A preferência só deve ser salva quando
-     hasPermission === true (labels disponíveis) — essa guarda é feita no
-     consumidor (Gravadora); aqui mantemos apenas a mecânica de leitura/escrita.
-     ═══════════════════════════════════════════════════════════════════════ */
+  // Device preference
   const DEVICES_KEY = 'lumen_gravadora_devices'
   const deviceSaveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -774,7 +460,7 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       try {
         localStorage.setItem(DEVICES_KEY, JSON.stringify({ cameraId, micId }))
       } catch {
-        /* quota — ignora */
+        /* noop */
       }
     }, 500)
   }, [])
@@ -793,24 +479,20 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [])
 
-  /* ═══════════════════════════════════════════════════════════════════════
-     CORREÇÃO 1 — Persistência da cadeia de áudio da Gravadora.
-     Chave: lumen_gravadora_audio. Debounce 500ms para não escrever a cada
-     passo do slider de ganho. Default quando não há nada salvo.
-     ═══════════════════════════════════════════════════════════════════════ */
+  // Audio config
   const AUDIO_KEY = 'lumen_gravadora_audio'
   const [audioConfig, setAudioConfigState] = useState<AudioConfig>(() => {
     try {
       const raw = localStorage.getItem(AUDIO_KEY)
       if (raw) {
-        const parsed = JSON.parse(raw) as Partial<AudioConfig>
-        return { ...DEFAULT_AUDIO_CONFIG, ...parsed }
+        return { ...DEFAULT_AUDIO_CONFIG, ...JSON.parse(raw) }
       }
     } catch {
       /* noop */
     }
     return DEFAULT_AUDIO_CONFIG
   })
+
   const audioConfigSaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => {
     if (audioConfigSaveTimer.current) clearTimeout(audioConfigSaveTimer.current)
@@ -818,24 +500,21 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       try {
         localStorage.setItem(AUDIO_KEY, JSON.stringify(audioConfig))
       } catch {
-        /* quota — ignora */
+        /* noop */
       }
     }, 500)
     return () => {
       if (audioConfigSaveTimer.current) clearTimeout(audioConfigSaveTimer.current)
     }
   }, [audioConfig])
+
   const updateAudioConfig = useCallback((updates: Partial<AudioConfig>) => {
     setAudioConfigState((prev) => ({ ...prev, ...updates }))
   }, [])
 
-  /* ═══════════════════════════════════════════════════════════════════════
-     FASE 5 — Preservação do vídeo bruto + snapshot JSON do projeto.
-     Usa localStorage para blobs pequenos e IndexedDB para blobs > 5MB.
-     ═══════════════════════════════════════════════════════════════════════ */
+  // Preservação do vídeo bruto
   const rawVideoDbRef = useRef<IDBDatabase | null>(null)
 
-  /** Abre (lazy) o IndexedDB para blobs de vídeo bruto grandes. */
   const openRawVideoDb = useCallback((): Promise<IDBDatabase | null> => {
     return new Promise((resolve) => {
       if (rawVideoDbRef.current) {
@@ -875,15 +554,12 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         projectId,
         hasSnapshot: false,
       }
-      // Meta sempre em localStorage.
       try {
         localStorage.setItem(rawVideoMetaKey(projectId), JSON.stringify(record))
       } catch {
         /* noop */
       }
-      // Blob: localStorage se pequeno, IndexedDB se grande.
       if (blob.size <= 5 * 1024 * 1024) {
-        // Tenta como data URL base64.
         try {
           const reader = new FileReader()
           await new Promise<void>((resolve, reject) => {
@@ -900,10 +576,9 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           })
           return
         } catch {
-          // cai para IndexedDB
+          /* fallback IDB */
         }
       }
-      // IndexedDB fallback para blobs grandes.
       const db = await openRawVideoDb()
       if (db) {
         await new Promise<void>((resolve, reject) => {
@@ -919,18 +594,15 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const loadRawVideo = useCallback(
     async (projectId: string): Promise<Blob | null> => {
-      // Tenta localStorage primeiro (data URL).
       try {
         const dataUrl = localStorage.getItem(rawVideoKey(projectId))
         if (dataUrl) {
           const res = await fetch(dataUrl)
-          const blob = await res.blob()
-          return blob
+          return await res.blob()
         }
       } catch {
         /* noop */
       }
-      // IndexedDB.
       const db = await openRawVideoDb()
       if (db) {
         return new Promise((resolve) => {
@@ -969,7 +641,6 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const saveProjectSnapshot = useCallback((snapshot: ProjectSnapshot) => {
     try {
       localStorage.setItem(snapshotKey(snapshot.projectId), JSON.stringify(snapshot))
-      // Marca o meta do raw video como tendo snapshot.
       const metaRaw = localStorage.getItem(rawVideoMetaKey(snapshot.projectId))
       if (metaRaw) {
         const meta = JSON.parse(metaRaw) as RawVideoRecord
@@ -977,7 +648,7 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         localStorage.setItem(rawVideoMetaKey(snapshot.projectId), JSON.stringify(meta))
       }
     } catch {
-      /* quota — ignora */
+      /* noop */
     }
   }, [])
 
@@ -1006,13 +677,8 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const metaRaw = localStorage.getItem(rawVideoMetaKey(projectId))
         if (!metaRaw) return null
         const meta = JSON.parse(metaRaw) as RawVideoRecord
-        // Há blob mas não há snapshot → gravação interrompida.
         const blob = await loadRawVideo(projectId)
-        if (!blob) return null
-        if (meta.hasSnapshot) {
-          // Já tem snapshot — não é interrompida, mas pode ser reaberta.
-          return null
-        }
+        if (!blob || meta.hasSnapshot) return null
         return meta
       } catch {
         return null
@@ -1026,7 +692,6 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const raw = localStorage.getItem(timelineKey(projectId))
       if (raw) {
         const parsed = JSON.parse(raw) as TimelineState
-        // Garante consistência com a duração atual.
         if (parsed.outPoint > rawDuration) parsed.outPoint = rawDuration
         if (parsed.cursor > rawDuration) parsed.cursor = 0
         return parsed
@@ -1053,7 +718,6 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const [appliedAiSuggestions, setAppliedAiSuggestions] = useState<AISuggestion[]>([])
 
-  // Brand OS — versão resumida persistida em localStorage (lumen_brand_os)
   const [brandOS, setBrandOSState] = useState<BrandOSContext | null>(() => {
     const saved = localStorage.getItem('lumen_brand_os')
     return saved ? JSON.parse(saved) : null
@@ -1130,7 +794,6 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (activeProjectId === id) {
       setActiveProjectId(projects.find((p) => p.id !== id)?.id || null)
     }
-    // Limpa snapshot + vídeo bruto + rascunhos associados ao projeto.
     clearProjectSnapshot(id)
     clearRawVideo(id)
   }
@@ -1155,8 +818,6 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       })),
     }
     setProjects((prev) => [duplicated, ...prev])
-    // Copia o snapshot (metadados: roteiro, artes, fundo, título, timeline)
-    // SEM o blob de vídeo bruto, que é pesado e específico da sessão original.
     const originalSnapshot = loadProjectSnapshot(id)
     if (originalSnapshot) {
       const newSnapshot: ProjectSnapshot = {
@@ -1164,7 +825,6 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         projectId: duplicated.id,
         title: duplicated.title,
         savedAt: new Date().toISOString(),
-        // rawVideoUrl era um blob URL em memória — não persiste entre sessões.
         rawVideoUrl: undefined,
         rawVideoDuration: originalSnapshot.rawVideoDuration,
         takes: [],
@@ -1307,6 +967,10 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setIsRecording,
         isFocusMode,
         setIsFocusMode,
+        cameraConfig,
+        updateCameraConfig,
+        prompterConfig,
+        updatePrompterConfig,
         appliedAiSuggestions,
         addAiSuggestion,
         revertAiSuggestion,
