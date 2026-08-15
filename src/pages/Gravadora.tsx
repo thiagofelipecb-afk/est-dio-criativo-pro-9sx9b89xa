@@ -63,7 +63,7 @@ import type {
   BlockBRoll,
 } from '@/types/studio'
 import ScriptPanel from '@/components/ScriptPanel'
-import { PanelBottom, GripHorizontal, AlertTriangle, RotateCcw } from 'lucide-react'
+import { PanelBottom, GripHorizontal, RotateCcw } from 'lucide-react'
 import {
   useReactionVideo,
   useWhiteboard,
