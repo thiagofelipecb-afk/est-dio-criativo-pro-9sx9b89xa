@@ -27,7 +27,7 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { OVERLAY_PACK, SFX_PACK, CAPCUT_TRACKS_PACK, playSyntheticSFX } from '@/lib/assets-pack'
+import { getOverlayById, getSfxById, getTrackById } from '@/lib/assets-pack'
 import { supabase } from '@/lib/supabase/client'
 
 interface GeneratedClip {
@@ -42,8 +42,8 @@ interface GeneratedClip {
   hookSummary: string
   wordTimestamps: { word: string; start: number; end: number; highlight?: boolean }[]
   previewUrl: string
-  appliedOverlay?: string
-  appliedSfx?: string
+  appliedOverlay?: string[]
+  appliedSfx?: string[]
   appliedMusic?: string
   isExported?: boolean
 }
@@ -59,11 +59,6 @@ export default function AIClipper() {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [selectedDuration, setSelectedDuration] = useState('60s')
   const [customDuration, setCustomDuration] = useState('45')
-
-  // Efeitos Selecionados para Inserção Automática
-  const [autoOverlay, setAutoOverlay] = useState<string>('ov-burn-1')
-  const [autoSfx, setAutoSfx] = useState<string>('sfx-woosh-1')
-  const [autoMusic, setAutoMusic] = useState<string>('cc-1')
 
   // Pipeline de Processamento
   const [isProcessing, setIsProcessing] = useState(false)
@@ -144,9 +139,10 @@ export default function AIClipper() {
           hookSummary: 'Pergunta provocativa + revelação de bastidores de engajamento.',
           previewUrl:
             'https://img.usecurling.com/p/1080/1920?q=podcaster+talking+mic+neon&color=purple',
-          appliedOverlay: autoOverlay,
-          appliedSfx: autoSfx,
-          appliedMusic: autoMusic,
+          // IA escolheu: tom de marketing/revelação → HUD cyber + seta vermelha + woosh impactante
+          appliedOverlay: ['ov-cyber-1', 'ov-arrow-1'],
+          appliedSfx: ['sfx-woosh-1', 'sfx-cliques-2'],
+          appliedMusic: 'cc-8',
           wordTimestamps: [
             { word: 'SE', start: 0, end: 0.2 },
             { word: 'VOCÊ', start: 0.2, end: 0.4, highlight: true },
@@ -172,9 +168,10 @@ export default function AIClipper() {
           viralScore: 94,
           hookSummary: 'Quebra de objeção imediata com exemplo de bastidores.',
           previewUrl: 'https://img.usecurling.com/p/1080/1920?q=business+man+explaining+stage',
-          appliedOverlay: autoOverlay,
-          appliedSfx: autoSfx,
-          appliedMusic: autoMusic,
+          // IA escolheu: storytelling/vendas → film burn quente + bokeh + notificação
+          appliedOverlay: ['ov-burn-1', 'ov-soft-bokeh'],
+          appliedSfx: ['sfx-msg-1', 'sfx-woosh-2'],
+          appliedMusic: 'cc-5',
           wordTimestamps: [
             { word: 'NINGUÉM', start: 0, end: 0.3, highlight: true },
             { word: 'GOSTA', start: 0.3, end: 0.5 },
@@ -199,9 +196,10 @@ export default function AIClipper() {
           viralScore: 91,
           hookSummary: 'Lista rápida com alto valor percebido e ganchos dinâmicos.',
           previewUrl: 'https://img.usecurling.com/p/1080/1920?q=futuristic+interface+ai+purple',
-          appliedOverlay: autoOverlay,
-          appliedSfx: autoSfx,
-          appliedMusic: autoMusic,
+          // IA escolheu: tech/IA → circuito neon + glitch retro + cliques + teclado
+          appliedOverlay: ['ov-cyber-2', 'ov-retro-2'],
+          appliedSfx: ['sfx-cliques-1', 'sfx-teclado-1'],
+          appliedMusic: 'cc-3',
           wordTimestamps: [
             { word: 'ESSAS', start: 0, end: 0.2 },
             { word: 'TRÊS', start: 0.2, end: 0.4, highlight: true },
@@ -289,7 +287,9 @@ export default function AIClipper() {
           </h1>
           <p className="text-xs sm:text-sm text-[#9494A8] mt-1 max-w-2xl">
             Transforme podcasts e vídeos longos do YouTube em cortes verticais virais (9:16) com
-            legendas dinâmicas Alex Hormozi, transições, SFX e trilhas CapCut automatizadas.
+            legendas dinâmicas Alex Hormozi. A IA analisa cada trecho e escolhe automaticamente os
+            melhores overlays, SFX e trilhas CapCut — combinando efeitos diferentes por clipe de
+            acordo com o tom e o conteúdo de cada momento.
           </p>
         </div>
         {clips.length > 0 && (
@@ -401,61 +401,6 @@ export default function AIClipper() {
           </div>
         </div>
 
-        {/* Presets Automáticos de Efeitos Integrados */}
-        <div className="pt-2 border-t border-white/5 space-y-3">
-          <label className="text-xs text-[#9494A8] block">
-            Efeitos e Ativos Profissionais Automáticos
-          </label>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <span className="text-[11px] text-[#9494A8] block mb-1">Overlay de Transição</span>
-              <select
-                value={autoOverlay}
-                onChange={(e) => setAutoOverlay(e.target.value)}
-                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-              >
-                {OVERLAY_PACK.map((ov) => (
-                  <option key={ov.id} value={ov.id}>
-                    {ov.category}: {ov.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <span className="text-[11px] text-[#9494A8] block mb-1">SFX para Cortes</span>
-              <select
-                value={autoSfx}
-                onChange={(e) => {
-                  setAutoSfx(e.target.value)
-                  const found = SFX_PACK.find((s) => s.id === e.target.value)
-                  if (found) playSyntheticSFX(found.category)
-                }}
-                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-              >
-                {SFX_PACK.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.category}: {s.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <span className="text-[11px] text-[#9494A8] block mb-1">Trilha CapCut (Ducking)</span>
-              <select
-                value={autoMusic}
-                onChange={(e) => setAutoMusic(e.target.value)}
-                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-              >
-                {CAPCUT_TRACKS_PACK.map((cc) => (
-                  <option key={cc.id} value={cc.id}>
-                    {cc.title} ({cc.genre})
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-
         {/* Botão de Disparo */}
         <Button
           onClick={handleStartClipping}
@@ -545,10 +490,41 @@ export default function AIClipper() {
                     className="absolute inset-0 w-full h-full object-cover opacity-85"
                   />
 
-                  {/* Badge de Efeitos Ativos no Player */}
-                  <div className="relative z-10 self-start bg-black/60 backdrop-blur-md border border-white/10 rounded-lg px-2 py-1 text-[9px] text-white flex flex-col gap-0.5">
-                    <span className="text-[#22D3EE] font-bold">✨ Overlay: Screen/Add</span>
-                    <span className="text-[#7C5CFC] font-bold">🎵 Ducking CapCut: -18dB</span>
+                  {/* Badge de Efeitos Escolhidos pela IA */}
+                  <div className="relative z-10 self-start bg-black/60 backdrop-blur-md border border-white/10 rounded-lg px-2 py-1 text-[9px] text-white flex flex-col gap-0.5 max-w-[150px]">
+                    <span className="text-[#22D3EE] font-extrabold uppercase tracking-wide">
+                      ✨ Overlays IA
+                    </span>
+                    {(activeClip.appliedOverlay ?? []).map((oid) => {
+                      const ov = getOverlayById(oid)
+                      return (
+                        <span key={oid} className="text-white/90 truncate">
+                          • {ov ? `${ov.category}: ${ov.name}` : oid}
+                        </span>
+                      )
+                    })}
+                    <span className="text-[#FBBF24] font-extrabold uppercase tracking-wide mt-0.5">
+                      🔊 SFX IA
+                    </span>
+                    {(activeClip.appliedSfx ?? []).map((sid) => {
+                      const sfx = getSfxById(sid)
+                      return (
+                        <span key={sid} className="text-white/90 truncate">
+                          • {sfx ? `${sfx.category}: ${sfx.name}` : sid}
+                        </span>
+                      )
+                    })}
+                    {(() => {
+                      const track = activeClip.appliedMusic
+                        ? getTrackById(activeClip.appliedMusic)
+                        : undefined
+                      return (
+                        <span className="text-[#7C5CFC] font-extrabold uppercase tracking-wide mt-0.5 truncate">
+                          🎵 {track ? `${track.title} (${track.genre})` : activeClip.appliedMusic}
+                        </span>
+                      )
+                    })()}
+                    <span className="text-[#9494A8] mt-0.5">Ducking CapCut: -18dB</span>
                   </div>
 
                   {/* Legenda Dinâmica Estilo Alex Hormozi */}

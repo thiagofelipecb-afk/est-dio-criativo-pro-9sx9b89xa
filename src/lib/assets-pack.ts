@@ -36,6 +36,19 @@ export interface CapCutTrackAsset {
 // ---------------------------------------------------------------------------
 // Pack de Overlays (25 efeitos)
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Helpers de busca por ID (resolução de nomes em previews/IA)
+// ---------------------------------------------------------------------------
+export function getOverlayById(id: string): OverlayAsset | undefined {
+  return OVERLAY_PACK.find((o) => o.id === id)
+}
+export function getSfxById(id: string): SFXAsset | undefined {
+  return SFX_PACK.find((s) => s.id === id)
+}
+export function getTrackById(id: string): CapCutTrackAsset | undefined {
+  return CAPCUT_TRACKS_PACK.find((t) => t.id === id)
+}
+
 export const OVERLAY_PACK: OverlayAsset[] = [
   // Glitter (4)
   {
