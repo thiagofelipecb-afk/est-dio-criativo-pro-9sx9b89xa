@@ -558,3 +558,21 @@ export interface RawVideoRecord {
   /** Flag: snapshot correspondente já foi salvo (take finalizado com sucesso). */
   hasSnapshot: boolean
 }
+
+/* ===========================================================================
+   LUMEN Studio — Máquina de Estados do Modo Estúdio (FASE 6)
+   Tipos aditivos. Nenhum tipo existente foi removido ou alterado.
+   =========================================================================== */
+
+/**
+ * Estado do Modo Estúdio. Camada de validação ADICIONAL sobre a lógica
+ * existente da Gravadora — não substitui isRecording/isPaused/etc.
+ */
+export type StudioMode =
+  | 'prepare' // Câmera não iniciada, configurando
+  | 'prompter' // Câmera ativa, pronto para gravar, teleprompter disponível
+  | 'recording' // Gravando ativamente
+  | 'paused' // Gravação pausada
+  | 'processing' // Salvando vídeo bruto + snapshot após parar
+  | 'recovering' // Gravação interrompida detectada, banner de recuperação
+  | 'error' // Permissão negada ou dispositivo desconectado

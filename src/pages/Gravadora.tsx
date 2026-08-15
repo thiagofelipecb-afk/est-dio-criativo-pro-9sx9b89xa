@@ -62,6 +62,7 @@ import {
 } from '@/hooks/use-block-media'
 import { BackgroundRenderer } from '@/components/studio/BackgroundRenderer'
 import { TitleOverlay } from '@/components/studio/TitleOverlay'
+import { useStudioMode, blockedMessage, type StudioAction } from '@/hooks/use-studio-mode'
 
 /* ───────────────────────────────────────────────────────────────────────────
    LUMEN Studio — Núcleo do Estúdio de Gravação (FASE 1)
@@ -105,6 +106,32 @@ export default function Gravadora() {
   // Mapa takeId → projectId (para que "Editar" abra o projeto com snapshot,
   // e não crie um projeto novo paralelo).
   const takeProjectMapRef = useRef<Record<string, string>>({})
+
+  /* ── FASE 6 — Máquina de Estados do Modo Estúdio ─────────────────────────
+     Camada ADICIONAL de validação. Não substitui isRecording/isPaused/etc. */
+  const { mode, transition, allowedActions, label } = useStudioMode()
+
+  /** Guarda de ação: retorna false e exibe toast.warning se bloqueada. */
+  const guard = useCallback(
+    (action: StudioAction): boolean => {
+      if (allowedActions.has(action)) return true
+      toast.warning(blockedMessage(mode, action) ?? 'Ação não permitida neste estado.')
+      return false
+    },
+    [allowedActions, mode],
+  )
+
+  // Botões/controles desativados conforme o estado do Modo Estúdio.
+  // Botão Gravar/Parar (toggle): habilitado em PROMPTER (gravar), RECORDING e
+  // PAUSED (parar); desativado nos demais.
+  const recBtnDisabled = mode !== 'prompter' && mode !== 'recording' && mode !== 'paused'
+  // Pausar/Retomar: só faz sentido durante gravação ativa/pausada.
+  const pauseBtnDisabled = mode === 'processing' || mode === 'error'
+  // Ativar Câmera: desativado quando a câmera já está ativa ou ocupada.
+  const cameraBtnDisabled =
+    mode === 'prompter' || mode === 'recording' || mode === 'paused' || mode === 'processing'
+  // Selects de câmera/mic: desativados durante gravação/processamento.
+  const deviceSelectDisabled = mode === 'recording' || mode === 'paused' || mode === 'processing'
 
   /* ── Video / Device state ──────────────────────────────────────────────── */
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -331,6 +358,7 @@ export default function Gravadora() {
       }
 
       const userStream = await navigator.mediaDevices.getUserMedia(constraints)
+      transition('prompter')
       setStream(userStream)
       setHasPermission(true)
       setPermissionErrorModal(false)
@@ -353,6 +381,7 @@ export default function Gravadora() {
       setAudioDevices(devices.filter((d) => d.kind === 'audioinput'))
     } catch (err: any) {
       console.warn('[Gravadora] Erro ao acessar webcam:', err?.name || err, err?.message || '')
+      transition('error')
       setHasPermission(false)
       setPermissionErrorModal(true)
     }
@@ -368,11 +397,12 @@ export default function Gravadora() {
       }
       setIsPaused(true)
       setIsPromptScrolling(false)
+      transition('error')
       toast.warning('Dispositivo desconectado durante a gravação. Pausando por segurança.')
     } else {
       toast.warning('Dispositivo de câmera/microfone desconectado.')
     }
-  }, [])
+  }, [transition])
 
   /* Reinicia a câmera quando a cadeia de áudio (toggles) muda — só se já
      tivermos permissão, para não pedir getUserMedia sem gesto do usuário. */
@@ -577,22 +607,32 @@ export default function Gravadora() {
     if (found) {
       setInterruptedProjectId(found.projectId)
       setInterruptedMeta(found.meta)
+      transition('recovering')
     }
-  }, [])
+  }, [transition])
 
   const handleRecoverRecording = async () => {
     if (!interruptedProjectId) return
-    const blob = await loadRawVideo(interruptedProjectId)
-    if (!blob) {
-      toast.error('Não foi possível recuperar o vídeo bruto.')
+    try {
+      const blob = await loadRawVideo(interruptedProjectId)
+      if (!blob) {
+        toast.error('Não foi possível recuperar o vídeo bruto.')
+        setInterruptedProjectId(null)
+        transition('prompter')
+        return
+      }
+      const url = URL.createObjectURL(blob)
+      setRecoveredBlobUrl(url)
+      setRecoveredDuration(interruptedMeta?.duration || 0)
+      toast.success('Gravação recuperada! Você pode editá-la no editor.')
       setInterruptedProjectId(null)
-      return
+      transition('processing')
+    } catch (err) {
+      console.warn('[Gravadora] Falha ao recuperar gravação:', err)
+      toast.error('Falha ao recuperar a gravação.')
+      setInterruptedProjectId(null)
+      transition('prompter')
     }
-    const url = URL.createObjectURL(blob)
-    setRecoveredBlobUrl(url)
-    setRecoveredDuration(interruptedMeta?.duration || 0)
-    toast.success('Gravação recuperada! Você pode editá-la no editor.')
-    setInterruptedProjectId(null)
   }
 
   const handleDiscardInterrupted = async () => {
@@ -602,6 +642,7 @@ export default function Gravadora() {
     }
     setInterruptedProjectId(null)
     setInterruptedMeta(null)
+    transition('prompter')
   }
 
   const handleSendRecoveredToEditor = () => {
@@ -663,8 +704,10 @@ export default function Gravadora() {
      ═══════════════════════════════════════════════════════════════════════ */
   const handleToggleRecord = () => {
     if (!isRecording) {
+      if (!guard('startRecording')) return
       startRecording()
     } else {
+      if (!guard('stopRecording')) return
       stopRecording()
     }
   }
@@ -701,6 +744,7 @@ export default function Gravadora() {
         setIsRecording(true)
         setIsPaused(false)
         setIsPromptScrolling(true)
+        transition('recording')
         toast.info('Gravação iniciada! Roteiro rolando.')
         return
       } catch (err) {
@@ -712,10 +756,12 @@ export default function Gravadora() {
     setIsRecording(true)
     setIsPaused(false)
     setIsPromptScrolling(true)
+    transition('recording')
     toast.info('Gravação (simulada) iniciada! Roteiro rolando.')
   }
 
   const stopRecording = () => {
+    transition('processing')
     setIsRecording(false)
     setIsPaused(false)
     setIsPromptScrolling(false)
@@ -861,12 +907,18 @@ export default function Gravadora() {
           void reaction
           saveProjectSnapshot(snapshot)
         })
+        .then(() => {
+          transition('prompter')
+        })
         .catch((err) => {
           console.warn('[Gravadora] Falha ao salvar vídeo bruto/snapshot:', err)
+          transition('error')
         })
         .finally(() => {
           isProcessingRef.current = false
         })
+    } else {
+      transition('prompter')
     }
 
     toast.success(`Take gravado com sucesso (${timeString})! Salvo em Meus Projetos.`)
@@ -875,6 +927,7 @@ export default function Gravadora() {
 
   const handlePauseResume = () => {
     if (isPaused) {
+      if (!guard('resumeRecording')) return
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
         try {
           mediaRecorderRef.current.resume()
@@ -884,7 +937,9 @@ export default function Gravadora() {
       }
       setIsPaused(false)
       setIsPromptScrolling(true)
+      transition('recording')
     } else {
+      if (!guard('pauseRecording')) return
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
         try {
           mediaRecorderRef.current.pause()
@@ -894,6 +949,7 @@ export default function Gravadora() {
       }
       setIsPaused(true)
       setIsPromptScrolling(false)
+      transition('paused')
     }
   }
 
@@ -1028,6 +1084,11 @@ export default function Gravadora() {
         {CANVAS_W}×{CANVAS_H} · 9:16
       </div>
 
+      {/* FASE 6 — Badge sutil do estado do Modo Estúdio (canto inferior esquerdo) */}
+      <div className="absolute bottom-3 left-3 z-20 px-2 py-1 rounded-lg bg-black/60 text-[10px] font-semibold text-white/80 backdrop-blur-md border border-white/10 pointer-events-none">
+        {label}
+      </div>
+
       {/* Layout dividido: câmera em cima, parte inferior reservada */}
       <div className="absolute inset-0 flex flex-col">
         {/* Área da câmera */}
@@ -1080,7 +1141,10 @@ export default function Gravadora() {
                 </div>
                 <Button
                   size="sm"
-                  onClick={startCamera}
+                  onClick={() => {
+                    if (guard('startCamera')) startCamera()
+                  }}
+                  disabled={cameraBtnDisabled}
                   className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs"
                 >
                   Solicitar Acesso à Webcam
@@ -1105,7 +1169,10 @@ export default function Gravadora() {
                 </div>
                 <Button
                   size="sm"
-                  onClick={startCamera}
+                  onClick={() => {
+                    if (guard('startCamera')) startCamera()
+                  }}
+                  disabled={cameraBtnDisabled}
                   className="bg-gradient-to-r from-[#7C5CFC] to-[#6A48E0] hover:from-[#6A48E0] hover:to-[#5835D8] text-white font-bold text-xs px-5 py-2 rounded-xl gap-2"
                 >
                   <Camera className="w-4 h-4" /> Ativar Câmera
@@ -1290,11 +1357,12 @@ export default function Gravadora() {
 
           <button
             onClick={handleToggleRecord}
+            disabled={recBtnDisabled}
             className={`relative flex items-center justify-center rounded-full transition-all duration-200 ${
               isRecording
                 ? 'w-12 h-12 bg-red-600 hover:bg-red-700 shadow-xl shadow-red-500/50 scale-105'
                 : 'w-12 h-12 bg-red-500 hover:bg-red-600 shadow-lg shadow-red-500/30'
-            }`}
+            } ${recBtnDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
           >
             {isRecording ? (
               <Square className="w-5 h-5 text-white fill-current" />
@@ -1306,7 +1374,8 @@ export default function Gravadora() {
           {isRecording && (
             <button
               onClick={handlePauseResume}
-              className="p-1.5 rounded-lg text-white hover:bg-white/10"
+              disabled={pauseBtnDisabled}
+              className="p-1.5 rounded-lg text-white hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
               title={isPaused ? 'Retomar Gravação' : 'Pausar Gravação'}
             >
               {isPaused ? (
@@ -1335,11 +1404,12 @@ export default function Gravadora() {
           <div className="flex items-center gap-2">
             <button
               onClick={handleToggleRecord}
+              disabled={recBtnDisabled}
               className={`relative flex items-center justify-center rounded-full transition-all duration-200 ${
                 isRecording
                   ? 'w-12 h-12 bg-red-600 hover:bg-red-700 shadow-xl shadow-red-500/50 scale-105'
                   : 'w-12 h-12 bg-red-500 hover:bg-red-600 shadow-lg shadow-red-500/30'
-              }`}
+              } ${recBtnDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
               title="Gravar"
             >
               {isRecording ? (
@@ -1765,7 +1835,8 @@ export default function Gravadora() {
                   <select
                     value={selectedCamera}
                     onChange={(e) => setSelectedCamera(e.target.value)}
-                    className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
+                    disabled={deviceSelectDisabled}
+                    className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC] disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <option value="">Webcam Padrão / Câmera Integrada</option>
                     {videoDevices.map((d) => (
@@ -1786,7 +1857,8 @@ export default function Gravadora() {
                       setSelectedMic(e.target.value)
                       setAudioConfig((prev) => ({ ...prev, inputDeviceId: e.target.value }))
                     }}
-                    className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
+                    disabled={deviceSelectDisabled}
+                    className="w-full bg-[#1C1C27] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC] disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <option value="">Microfone Padrão do Sistema</option>
                     {audioDevices.map((d) => (
@@ -2109,7 +2181,10 @@ export default function Gravadora() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setPermissionErrorModal(false)}
+              onClick={() => {
+                transition('prepare')
+                setPermissionErrorModal(false)
+              }}
               className="text-xs text-[#9494A8] hover:text-white"
             >
               Usar prévia simulada
@@ -2117,6 +2192,8 @@ export default function Gravadora() {
             <Button
               size="sm"
               onClick={() => {
+                if (!guard('retryCamera')) return
+                transition('prepare')
                 setPermissionErrorModal(false)
                 startCamera()
               }}
