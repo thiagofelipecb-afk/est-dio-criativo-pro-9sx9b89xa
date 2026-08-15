@@ -43,6 +43,10 @@ import {
   RefreshCw,
   Loader2,
   Check,
+  Image as ImageIcon,
+  Video,
+  Film,
+  PenLine,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -59,6 +63,7 @@ import ScriptPanel from '@/components/ScriptPanel'
 import { PanelBottom, GripHorizontal, AlertTriangle, RotateCcw } from 'lucide-react'
 import {
   useReactionVideo,
+  useWhiteboard,
   readBlockArts,
   readBlockBRoll,
   readReactionVideo,
@@ -97,6 +102,8 @@ export default function Gravadora() {
     setBackgroundConfig,
     titleConfig,
     setTitleConfig,
+    stageConfig,
+    updateStageConfig,
     saveRawVideo,
     loadRawVideo,
     clearRawVideo,
@@ -156,14 +163,47 @@ export default function Gravadora() {
   const timerRef = useRef<any>(null)
   const [recordedClips, setRecordedClips] = useState<RecordingTake[]>([])
 
-  /* ── Stage config (canvas 9:16) ────────────────────────────────────────── */
-  const [stageLayout, setStageLayout] = useState<StageLayout>('split')
-  const [lowerPanelMode, setLowerPanelMode] = useState<LowerPanelMode>('none')
-  const [cameraCover, setCameraCover] = useState(1) // 0–1, passo 0.01, padrão 1
+  /* ── Stage config (canvas 9:16) ──────────────────────────────────────────
+     GAP 2/3 — inicializados a partir do `stageConfig` persistido em
+     localStorage (lumen_gravadora_stage). Alterações são gravadas via
+     `updateStageConfig` com debounce no contexto. */
+  const [stageLayout, setStageLayout] = useState<StageLayout>(stageConfig.layout ?? 'split')
+  const [lowerPanelMode, setLowerPanelMode] = useState<LowerPanelMode>(
+    stageConfig.lowerPanelMode ?? 'none',
+  )
+  /* GAP 2 — cameraCover é o "enquadramento" do slider (0–1, padrão 1).
+     Inicializado a partir do stageConfig persistido em localStorage e
+     sincronizado de volta (debounced) via updateStageConfig. */
+  const [cameraCover, setCameraCover] = useState(stageConfig.cameraCover ?? 1)
   const [showGrid, setShowGrid] = useState(true) // grade de terços (legado)
-  const [showSafeGuides, setShowSafeGuides] = useState(true) // guias Botões/Legenda
-  const [previewHidden, setPreviewHidden] = useState(false)
-  const [focusMode, setFocusMode] = useState(false)
+  // GAP 3 — showSafeGuides persiste (padrão OFF, mas respeita o salvo).
+  const [showSafeGuides, setShowSafeGuides] = useState<boolean>(stageConfig.showGuides ?? false)
+  const [previewHidden, setPreviewHidden] = useState(stageConfig.previewHidden ?? false)
+  const [focusMode, setFocusMode] = useState(stageConfig.focusMode ?? false)
+
+  // Sincroniza mudanças locais → contexto (persistência debounced).
+  // Layout/preview/foco/painel inferior são preferências de UI instantâneas,
+  // mas também persistimos para reabertura consistente.
+  useEffect(() => {
+    updateStageConfig({ layout: stageLayout })
+  }, [stageLayout, updateStageConfig])
+  useEffect(() => {
+    updateStageConfig({ lowerPanelMode })
+  }, [lowerPanelMode, updateStageConfig])
+  // GAP 2 — cameraCover (enquadramento) persiste entre recarregamentos.
+  useEffect(() => {
+    updateStageConfig({ cameraCover })
+  }, [cameraCover, updateStageConfig])
+  useEffect(() => {
+    updateStageConfig({ previewHidden })
+  }, [previewHidden, updateStageConfig])
+  useEffect(() => {
+    updateStageConfig({ focusMode })
+  }, [focusMode, updateStageConfig])
+  // GAP 3 — showGuides (guias de zona segura)
+  useEffect(() => {
+    updateStageConfig({ showGuides: showSafeGuides })
+  }, [showSafeGuides, updateStageConfig])
 
   /* ── Audio config + Web Audio pipeline ─────────────────────────────────── */
   const [audioConfig, setAudioConfig] = useState<AudioConfig>(DEFAULT_AUDIO)
@@ -232,6 +272,11 @@ export default function Gravadora() {
   const currentBlockId = scriptBlockIds[activeBlockIndex]
   const currentArts = currentBlockId ? readBlockArts(currentBlockId) : []
   const currentBRoll = currentBlockId ? readBlockBRoll(currentBlockId) : null
+
+  /* GAP 1 — Estado do quadro (whiteboard) para a parte inferior do canvas.
+     Lido do mesmo localStorage que o WhiteboardPanel edita, para que o
+     conteúdo inferior reflita exatamente o que o usuário desenhou. */
+  const { whiteboard } = useWhiteboard()
 
   /* ═══════════════════════════════════════════════════════════════════════
      Web Audio: configura o AudioContext, GainNode e AnalyserNode sobre o
@@ -1089,8 +1134,9 @@ export default function Gravadora() {
     bgMode === 'blur' ? bgBlurAmount / 6 : 0
   }px) saturate(${100 + beautySmooth / 2}%)`
 
-  // cover: o vídeo é object-cover naturalmente; cameraCover escala o conteúdo
-  // de 1 (100%, preenche) até um zoom extra proporcional ao slider.
+  // GAP 2 — cameraCover (enquadramento, persistido). O vídeo é object-cover
+  // naturalmente; cameraCover escala o conteúdo de 1 (100%, preenche) até um
+  // zoom extra proporcional ao slider. Persiste em lumen_gravadora_stage.
   const cameraScale = 1 + cameraCover // cover 1 → escala 2; cover 0 → escala 1
   // Proporção da área de câmera conforme o layout
   const cameraAreaFlex = stageLayout === 'full' ? '1' : '1.3' // câmera maior no split
@@ -1334,35 +1380,109 @@ export default function Gravadora() {
           </div>
         </div>
 
-        {/* Parte inferior reservada (split) */}
+        {/* GAP 1 — Parte inferior do canvas (split) com conteúdo real.
+            Renderiza a mídia selecionada via lowerPanelMode (Artes, Reação,
+            Quadro ou B-roll). A troca NÃO reinicia câmera/roteiro/título:
+            é uma composição de preview apenas, sem efeitos colaterais.
+            Estados vazios usam design LUMEN (ícone + texto em cinza). */}
         {stageLayout === 'split' && (
           <div
             style={{ flex: '0.7' }}
-            className="relative bg-[#0B0B10] border-t border-white/10 flex items-center justify-center"
+            className="relative bg-[#0B0B10] border-t border-white/10 flex items-center justify-center overflow-hidden"
           >
             {lowerPanelMode === 'none' ? (
               <div className="text-center px-4">
-                <p className="text-[10px] text-[#9494A8]/70 uppercase tracking-wider">
-                  Parte inferior reservada
-                </p>
-                <p className="text-[10px] text-[#9494A8]/50 mt-0.5">
-                  Artes · Reação · Quadro · B-roll (FASE 3)
+                <PanelBottom className="w-5 h-5 text-[#9494A8]/40 mx-auto mb-1.5" />
+                <p className="text-[10px] text-[#9494A8]/70 font-medium">Parte inferior livre</p>
+                <p className="text-[9px] text-[#9494A8]/50 mt-0.5">
+                  Selecione Artes, Reação, Quadro ou B-roll abaixo
                 </p>
               </div>
-            ) : (
-              <div className="text-center px-4">
-                <p className="text-[10px] text-[#22D3EE] uppercase tracking-wider font-semibold">
-                  {lowerPanelMode === 'arts'
-                    ? 'Artes'
-                    : lowerPanelMode === 'reaction'
-                      ? 'Vídeo de reação'
-                      : lowerPanelMode === 'board'
-                        ? 'Quadro'
-                        : 'B-roll'}
-                </p>
-                <p className="text-[10px] text-[#9494A8]/50 mt-0.5">Disponível na FASE 3</p>
-              </div>
-            )}
+            ) : lowerPanelMode === 'arts' ? (
+              /* Artes do bloco atual (sincronizadas quando syncArts ligado). */
+              syncArts && currentArts.length > 0 ? (
+                <div className="absolute inset-0 flex items-center justify-center p-2">
+                  <img
+                    key={currentArts[0].id}
+                    src={currentArts[0].dataUrl}
+                    alt={currentArts[0].name ?? 'arte do bloco'}
+                    className="max-w-full max-h-full object-contain rounded-lg shadow-xl"
+                  />
+                </div>
+              ) : (
+                <div className="text-center px-4">
+                  <ImageIcon className="w-5 h-5 text-[#9494A8]/40 mx-auto mb-1.5" />
+                  <p className="text-[10px] text-[#9494A8]/70 font-medium">
+                    {syncArts ? 'Nenhuma arte neste bloco' : 'Sincronização de artes desligada'}
+                  </p>
+                  <p className="text-[9px] text-[#9494A8]/50 mt-0.5">
+                    Adicione artes ao bloco no painel Roteiro
+                  </p>
+                </div>
+              )
+            ) : lowerPanelMode === 'reaction' ? (
+              /* Vídeo de reação capturado via ReactionVideoPanel. */
+              currentReaction && currentReaction.dataUrl ? (
+                <div className="absolute inset-0 flex items-center justify-center p-2">
+                  <video
+                    src={currentReaction.dataUrl}
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    className="max-w-full max-h-full object-contain rounded-lg shadow-xl"
+                  />
+                </div>
+              ) : (
+                <div className="text-center px-4">
+                  <Video className="w-5 h-5 text-[#9494A8]/40 mx-auto mb-1.5" />
+                  <p className="text-[10px] text-[#9494A8]/70 font-medium">Sem vídeo de reação</p>
+                  <p className="text-[9px] text-[#9494A8]/50 mt-0.5">
+                    Capture um vídeo na aba Reação
+                  </p>
+                </div>
+              )
+            ) : lowerPanelMode === 'board' ? (
+              /* Quadro (whiteboard): reflete o conteúdo desenhado no painel. */
+              whiteboard.elements.length > 0 ? (
+                <div className="absolute inset-0 flex items-center justify-center p-2">
+                  <WhiteboardPreview elements={whiteboard.elements} />
+                </div>
+              ) : (
+                <div className="text-center px-4">
+                  <PenLine className="w-5 h-5 text-[#9494A8]/40 mx-auto mb-1.5" />
+                  <p className="text-[10px] text-[#9494A8]/70 font-medium">Quadro vazio</p>
+                  <p className="text-[9px] text-[#9494A8]/50 mt-0.5">
+                    Desenhe no quadro na aba Quadro
+                  </p>
+                </div>
+              )
+            ) : lowerPanelMode === 'broll' ? (
+              /* B-roll do bloco atual (vídeo de apoio, loop mudo). */
+              currentBRoll && currentBRoll.url ? (
+                <div className="absolute inset-0 flex items-center justify-center p-2">
+                  <video
+                    key={currentBRoll.pexelsId}
+                    src={currentBRoll.url}
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    className="max-w-full max-h-full object-cover rounded-lg shadow-xl"
+                  />
+                </div>
+              ) : (
+                <div className="text-center px-4">
+                  <Film className="w-5 h-5 text-[#9494A8]/40 mx-auto mb-1.5" />
+                  <p className="text-[10px] text-[#9494A8]/70 font-medium">
+                    Sem B-roll neste bloco
+                  </p>
+                  <p className="text-[9px] text-[#9494A8]/50 mt-0.5">
+                    Escolha um B-roll no painel Roteiro
+                  </p>
+                </div>
+              )
+            ) : null}
           </div>
         )}
       </div>
@@ -2439,3 +2559,142 @@ const ReactionOverlay = React.forwardRef<
     </div>
   )
 })
+
+/* ── GAP 1 — Preview compacto do quadro (whiteboard) na parte inferior ─────
+   Renderiza os elementos do WhiteboardState como SVG no espaço lógico
+   1080×1920, espelhando o que o usuário desenhou no WhiteboardPanel.
+   Não depende de funções internas do componente Whiteboard (que não são
+   exportadas) — é uma renderização fiel somente-leitura para composição. */
+function WhiteboardPreview({
+  elements,
+}: {
+  elements: import('@/types/studio').WhiteboardElement[]
+}) {
+  return (
+    <svg
+      viewBox="0 0 1080 1920"
+      preserveAspectRatio="xMidYMid meet"
+      className="w-full h-full"
+      style={{ maxHeight: '100%' }}
+    >
+      <rect x={0} y={0} width={1080} height={1920} fill="#0F0F15" />
+      {elements
+        .filter((el) => el.visible !== false)
+        .map((el) => {
+          const sw = el.strokeWidth || 4
+          const stroke = el.color || '#FFFFFF'
+          switch (el.type) {
+            case 'rectangle':
+              return (
+                <rect
+                  key={el.id}
+                  x={el.x}
+                  y={el.y}
+                  width={el.width}
+                  height={el.height}
+                  fill="none"
+                  stroke={stroke}
+                  strokeWidth={sw}
+                />
+              )
+            case 'ellipse':
+              return (
+                <ellipse
+                  key={el.id}
+                  cx={el.x + el.width / 2}
+                  cy={el.y + el.height / 2}
+                  rx={Math.abs(el.width / 2)}
+                  ry={Math.abs(el.height / 2)}
+                  fill="none"
+                  stroke={stroke}
+                  strokeWidth={sw}
+                />
+              )
+            case 'line':
+              return (
+                <line
+                  key={el.id}
+                  x1={el.x}
+                  y1={el.y}
+                  x2={el.x + el.width}
+                  y2={el.y + el.height}
+                  stroke={stroke}
+                  strokeWidth={sw}
+                  strokeLinecap="round"
+                />
+              )
+            case 'arrow': {
+              const x2 = el.x + el.width
+              const y2 = el.y + el.height
+              const ang = Math.atan2(el.height, el.width)
+              const head = Math.min(28, Math.hypot(el.width, el.height) / 3)
+              return (
+                <g key={el.id}>
+                  <line
+                    x1={el.x}
+                    y1={el.y}
+                    x2={x2}
+                    y2={y2}
+                    stroke={stroke}
+                    strokeWidth={sw}
+                    strokeLinecap="round"
+                  />
+                  <polygon
+                    points={`${x2},${y2} ${x2 - head * Math.cos(ang - Math.PI / 6)},${
+                      y2 - head * Math.sin(ang - Math.PI / 6)
+                    } ${x2 - head * Math.cos(ang + Math.PI / 6)},${
+                      y2 - head * Math.sin(ang + Math.PI / 6)
+                    }`}
+                    fill={stroke}
+                  />
+                </g>
+              )
+            }
+            case 'brush': {
+              const pts = el.points ?? []
+              if (pts.length === 0) return null
+              const d = `M ${el.x} ${el.y} ` + pts.map((p) => `l ${p.x} ${p.y}`).join(' ')
+              return (
+                <path
+                  key={el.id}
+                  d={d}
+                  fill="none"
+                  stroke={stroke}
+                  strokeWidth={sw}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )
+            }
+            case 'text':
+              return (
+                <text
+                  key={el.id}
+                  x={el.x}
+                  y={el.y}
+                  fill={stroke}
+                  fontSize={Math.max(20, sw * 6)}
+                  fontFamily="Montserrat, sans-serif"
+                >
+                  {el.text}
+                </text>
+              )
+            case 'image':
+              return el.dataUrl ? (
+                <image
+                  key={el.id}
+                  href={el.dataUrl}
+                  x={el.x}
+                  y={el.y}
+                  width={el.width}
+                  height={el.height}
+                  preserveAspectRatio="none"
+                />
+              ) : null
+            default:
+              return null
+          }
+        })}
+    </svg>
+  )
+}

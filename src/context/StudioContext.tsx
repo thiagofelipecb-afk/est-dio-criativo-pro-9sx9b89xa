@@ -13,6 +13,7 @@ import {
   ProjectSnapshot,
   TimelineState,
   RawVideoRecord,
+  StageConfig,
 } from '@/types/studio'
 import { PARSER_VERSION, parseScript } from '@/hooks/use-script-blocks'
 
@@ -42,6 +43,18 @@ const DEFAULT_TITLE_CONFIG: TitleConfig = {
   normalizedY: 0.5,
   duration: 'full',
   durationSeconds: 5,
+}
+
+/** Defaults LUMEN — Palco/canvas 1080×1920 (persistido em lumen_gravadora_stage). */
+const DEFAULT_STAGE_CONFIG: StageConfig = {
+  layout: 'split',
+  lowerPanelMode: 'none',
+  cameraCover: 1,
+  guides: { enabled: true, buttons: true, caption: true },
+  previewHidden: false,
+  focusMode: false,
+  cameraScale: 1,
+  showGuides: false,
 }
 
 interface StudioContextType {
@@ -109,6 +122,12 @@ interface StudioContextType {
   /** Configuração de título da Gravadora (persistida em lumen_gravadora_titulo). */
   titleConfig: TitleConfig
   setTitleConfig: (cfg: TitleConfig) => void
+
+  // LUMEN — Configuração do palco/canvas 9:16 (persistida em lumen_gravadora_stage).
+  /** GAP 2/3 — Configuração do palco: layout, cover, cameraScale, showGuides, etc. */
+  stageConfig: StageConfig
+  /** Atualiza (merge) a configuração do palco e persiste com debounce. */
+  updateStageConfig: (updates: Partial<StageConfig>) => void
 
   // FASE 5 — Preservação, recuperação e snapshot do projeto
   /** Salva o blob do vídeo bruto em localStorage/IndexedDB por projectId. */
@@ -645,6 +664,42 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const setTitleConfig = (cfg: TitleConfig) => setTitleConfigState(cfg)
 
   /* ═══════════════════════════════════════════════════════════════════════
+     LUMEN — Configuração do palco/canvas 9:16 (lumen_gravadora_stage).
+     GAP 2 — cameraScale (enquadramento) persiste entre recarregamentos.
+     GAP 3 — showGuides (guias de zona segura) persiste entre recarregamentos.
+     Persistência com debounce (300ms) para não escrever a cada passo do slider.
+     ═══════════════════════════════════════════════════════════════════════ */
+  const [stageConfig, setStageConfigState] = useState<StageConfig>(() => {
+    const saved = localStorage.getItem('lumen_gravadora_stage')
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as Partial<StageConfig>
+        return { ...DEFAULT_STAGE_CONFIG, ...parsed }
+      } catch {
+        return DEFAULT_STAGE_CONFIG
+      }
+    }
+    return DEFAULT_STAGE_CONFIG
+  })
+  const stageConfigSaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => {
+    if (stageConfigSaveTimer.current) clearTimeout(stageConfigSaveTimer.current)
+    stageConfigSaveTimer.current = setTimeout(() => {
+      try {
+        localStorage.setItem('lumen_gravadora_stage', JSON.stringify(stageConfig))
+      } catch {
+        /* quota — ignora */
+      }
+    }, 300)
+    return () => {
+      if (stageConfigSaveTimer.current) clearTimeout(stageConfigSaveTimer.current)
+    }
+  }, [stageConfig])
+  const updateStageConfig = useCallback((updates: Partial<StageConfig>) => {
+    setStageConfigState((prev) => ({ ...prev, ...updates }))
+  }, [])
+
+  /* ═══════════════════════════════════════════════════════════════════════
      FASE 5 — Preservação do vídeo bruto + snapshot JSON do projeto.
      Usa localStorage para blobs pequenos e IndexedDB para blobs > 5MB.
      ═══════════════════════════════════════════════════════════════════════ */
@@ -1126,6 +1181,8 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setBackgroundConfig,
         titleConfig,
         setTitleConfig,
+        stageConfig,
+        updateStageConfig,
         saveRawVideo,
         loadRawVideo,
         clearRawVideo,

@@ -186,6 +186,19 @@ export interface StageConfig {
   guides: SafeGuides
   previewHidden: boolean
   focusMode: boolean
+  /**
+   * GAP 2 — Enquadramento (cover) da câmera. 0 a 1, passo 0.01, padrão 1.
+   * Persistido em `lumen_gravadora_stage` para sobreviver ao recarregamento.
+   * Não altera a resolução final do canvas (1080×1920); controla apenas o
+   * zoom/escala aplicado ao preview da câmera.
+   */
+  cameraScale?: number
+  /**
+   * GAP 3 — Toggle das guias de zona segura (Botões 85% + Legenda 92%).
+   * Persistido em `lumen_gravadora_stage`. A exportação nunca inclui as guias
+   * (camada `pointer-events-none`).
+   */
+  showGuides?: boolean
 }
 
 /** Cadeia de captação de áudio. */
