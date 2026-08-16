@@ -23,6 +23,8 @@ import {
   Loader2,
   AlertCircle,
   Lock,
+  Plus,
+  Scissors,
 } from 'lucide-react'
 import type { StageLayout } from '@/types/studio'
 import { useStudio } from '@/context/StudioContext'
@@ -31,15 +33,15 @@ import { ScriptPanel } from '@/components/ScriptPanel'
 import { BackgroundPanel } from '@/components/studio/BackgroundPanel'
 import { TitlePanel } from '@/components/studio/TitlePanel'
 import PrompterHUD from '@/components/studio/PrompterHUD'
-import BackgroundRenderer from '@/components/studio/BackgroundRenderer'
-import TitleOverlay from '@/components/studio/TitleOverlay'
+import { StudioStage, type StudioStageHandle } from '@/components/studio/StudioStage'
+import { DEFAULT_CAMERA_CROP, type CameraCrop, type SplitMediaLayer } from '@/lib/studio-compositor'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { MediaLibraryModal } from '@/components/MediaLibraryModal'
 import { MediaPanel } from '@/components/studio/MediaPanel'
-import { BlockArtStageOverlay } from '@/components/studio/BlockArtStageOverlay'
+import { parseScript } from '@/hooks/use-script-blocks'
 import {
   ReactionStageOverlay,
   type ReactionStageOverlayHandle,
@@ -134,6 +136,41 @@ export default function Gravadora() {
   const reactionOverlayRef = useRef<ReactionStageOverlayHandle | null>(null)
   // AudioContext de mixagem criado durante a gravação (para liberar depois).
   const mixAudioCtxRef = useRef<AudioContext | null>(null)
+
+  // === Compositor único (canvas) ===
+  // StudioStage renderiza TODA a composição (fundo, câmera, split, arte,
+  // reação, título) no MESMO canvas. A gravação usa canvas.captureStream() —
+  // preview e arquivo gravado são idênticos.
+  const stageRef = useRef<StudioStageHandle | null>(null)
+  // Enquadramento digital (zoom + pan + espelhamento). Persistido por projeto.
+  const [cameraCrop, setCameraCrop] = useState<CameraCrop>(() => {
+    try {
+      const saved = localStorage.getItem('lumen_gravadora_camera_crop')
+      if (saved) return { ...DEFAULT_CAMERA_CROP, ...JSON.parse(saved) }
+    } catch {
+      /* noop */
+    }
+    return DEFAULT_CAMERA_CROP
+  })
+  useEffect(() => {
+    localStorage.setItem('lumen_gravadora_camera_crop', JSON.stringify(cameraCrop))
+  }, [cameraCrop])
+
+  // Elemento <video> oculto que recebe o stream da webcam. O StudioStage lê
+  // dele para desenhar no canvas.
+  const hiddenVideoRef = useRef<HTMLVideoElement | null>(null)
+
+  // Elemento de mídia carregado para a tela dividida (imagem ou vídeo).
+  const [splitMediaEl, setSplitMediaEl] = useState<HTMLImageElement | HTMLVideoElement | null>(null)
+
+  // Capacidades reais do dispositivo de câmera (getCapabilities/getSettings).
+  const [cameraCapabilities, setCameraCapabilities] = useState<{
+    maxWidth: number
+    maxHeight: number
+    maxFrameRate: number
+    zoom: { min: number; max: number; step: number } | null
+    supportedResolutions: string[]
+  } | null>(null)
 
   // Medidor de Áudio
   const [micLevel, setMicLevel] = useState(0)
@@ -231,8 +268,44 @@ export default function Gravadora() {
       streamRef.current = mediaStream
       setStream(mediaStream)
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream
+      // Conecta o stream ao <video> oculto que alimenta o compositor canvas.
+      if (hiddenVideoRef.current) {
+        hiddenVideoRef.current.srcObject = mediaStream
+        hiddenVideoRef.current.play().catch(() => {})
+      }
+
+      // Detecta capacidades reais da câmera (getCapabilities/getSettings).
+      try {
+        const track = mediaStream.getVideoTracks()[0]
+        if (track) {
+          const caps = (track as any).getCapabilities?.() ?? {}
+          const settings = track.getSettings?.() ?? {}
+          const maxW = Math.max(caps.width?.max || 0, settings.width || 0, 1280)
+          const maxH = Math.max(caps.height?.max || 0, settings.height || 0, 720)
+          const maxFps = Math.max(caps.frameRate?.max || 0, settings.frameRate || 0, 30)
+          const zoom =
+            caps.zoom && typeof caps.zoom.max === 'number'
+              ? {
+                  min: caps.zoom.min ?? 100,
+                  max: caps.zoom.max,
+                  step: caps.zoom.step ?? 10,
+                }
+              : null
+          const supported: string[] = []
+          if (maxH >= 720) supported.push('720p')
+          if (maxH >= 1080) supported.push('1080p')
+          if (maxH >= 1440) supported.push('1440p')
+          if (maxH >= 2160) supported.push('4K')
+          setCameraCapabilities({
+            maxWidth: maxW,
+            maxHeight: maxH,
+            maxFrameRate: maxFps,
+            zoom,
+            supportedResolutions: supported,
+          })
+        }
+      } catch {
+        /* getCapabilities pode não existir — ignoramos silenciosamente */
       }
 
       setupAudioAnalyser(mediaStream)

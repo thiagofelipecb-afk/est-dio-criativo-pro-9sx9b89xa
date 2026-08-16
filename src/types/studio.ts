@@ -825,3 +825,18 @@ export type StudioMode =
   | 'processing' // Salvando vídeo bruto + snapshot após parar
   | 'recovering' // Gravação interrompida detectada, banner de recuperação
   | 'error' // Permissão negada ou dispositivo desconectado
+
+/* ===========================================================================
+   LUMEN Studio — Compositor Único (Refatoração 2025)
+   Tipo estrutural para os campos de câmera usados pelo compositor canvas.
+   Permite que `drawComposition` aceite tanto a `CameraConfig` do
+   StudioContext quanto a `BeautyConfig`/`CameraConfig` do ProjectSnapshot,
+   sem acoplar o compositor ao React.
+   ========================================================================== */
+
+/** Mínimo que o compositor precisa da configuração de câmera. */
+export interface CameraConfigLike {
+  brightness: number
+  contrast: number
+  beautySmooth: number
+}
