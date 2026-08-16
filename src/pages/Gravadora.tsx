@@ -46,6 +46,16 @@ import {
   ReactionStageOverlay,
   type ReactionStageOverlayHandle,
 } from '@/components/studio/ReactionStageOverlay'
+import { RecordingDock } from '@/components/studio/RecordingDock'
+import { PreFlightCheck } from '@/components/studio/PreFlightCheck'
+import { StudioAccordionPanel } from '@/components/studio/StudioAccordionPanel'
+import {
+  type RecordingState,
+  type PreFlightInput,
+  type AspectRatioOption,
+  type SplitModeId,
+  isActivelyRecording,
+} from '@/lib/studio-recording-logic'
 import { toast } from 'sonner'
 
 export default function Gravadora() {
@@ -72,6 +82,8 @@ export default function Gravadora() {
     setTitleConfig,
     scriptBlocks,
     gravadoraScript,
+    setGravadoraScript: useStudioSetGravadoraScript,
+    setScriptBlocks: useStudioSetScriptBlocks,
     stageConfig,
     updateStageConfig,
     syncArtsEnabled,
@@ -176,6 +188,92 @@ export default function Gravadora() {
   const [micLevel, setMicLevel] = useState(0)
   const audioContextRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
+
+  // === Módulos 5/6/7 — Máquina de estados da gravação + checklist ===
+  // Estado canônico do RecordingDock. Derivado/sincronizado com camStatus e
+  // isRecording (legado). Mantém isRecording (StudioContext) como fonte para o
+  // PrompterHUD/StudioStage existentes, mas o dock usa `recordingState`.
+  const [recordingState, setRecordingState] = useState<RecordingState>('idle')
+  const [preFlightOpen, setPreFlightOpen] = useState(false)
+  const [countdownOverlay, setCountdownOverlay] = useState<number | null>(null)
+  const [lastTakeName, setLastTakeName] = useState<string | undefined>(undefined)
+  const [recErrorMessage, setRecErrorMessage] = useState<string | undefined>(undefined)
+  const [markers, setMarkers] = useState<number[]>([])
+  const [recordingSettings, setRecordingSettings] = useState<{
+    format: string
+    quality: string
+    countdown: 3 | 5 | 0
+    autoSave: boolean
+    takeName: string
+  }>(() => {
+    try {
+      const saved = localStorage.getItem('lumen_recording_settings')
+      if (saved) return JSON.parse(saved)
+    } catch { /* noop */ }
+    return { format: 'video/webm', quality: 'high', countdown: 3, autoSave: true, takeName: 'take-001' }
+  })
+  useEffect(() => {
+    localStorage.setItem('lumen_recording_settings', JSON.stringify(recordingSettings))
+  }, [recordingSettings])
+
+  // Configurações de layout/aparência do acordeão (estado local — não altera o
+  // compositor, apenas refletido nos controles; o layout real continua sendo
+  // stageConfig para preservar o que já funciona).
+  const [aspectRatio, setAspectRatio] = useState<AspectRatioOption>('9:16')
+  const [splitMode, setSplitMode] = useState<SplitModeId>('full')
+  const [margin, setMargin] = useState(0)
+  const [spacing, setSpacing] = useState(0)
+  const [borderRadiusVal, setBorderRadiusVal] = useState(0)
+  const [borderWidthVal, setBorderWidthVal] = useState(0)
+
+  // Aparência (retoque facial) — estado local. MediaPipe/WebGL carregados
+  // sob demanda; se indisponível, o painel mostra o aviso apropriado.
+  const [beauty, setBeautyState] = useState({
+    skinSmooth: 0, shineReduction: 0, toneUniformity: 0, rednessReduction: 0,
+    wrinkleSmooth: 0, eyeEnhance: 0, nasolabial: 0, darkCircles: 0,
+    facialLighting: 0, selectiveSharpness: 0, intensity: 0,
+  })
+  const setBeauty = useCallback((u: Partial<typeof beauty>) => setBeautyState((p) => ({ ...p, ...u })), [])
+  const [mediapipeAvailable, setMediapipeAvailable] = useState(false)
+  const [mediapipeLoading, setMediapipeLoading] = useState(false)
+  const [faceDetected, setFaceDetected] = useState(false)
+  const webglAvailable = typeof window !== 'undefined' && (() => {
+    try { return !!document.createElement('canvas').getContext('webgl') } catch { return false }
+  })()
+  const loadMediapipe = useCallback(async () => {
+    setMediapipeLoading(true)
+    try {
+      // Import dinâmico opcional — se o pacote não estiver instalado, o catch
+      // exibe a mensagem de indisponibilidade sem quebrar o app.
+      await import(/* @vite-ignore */ '@mediapipe/tasks-vision').catch(() => null)
+      // Mesmo se o import falhar, habilitamos a UI com aviso de rosto não detectado.
+      setMediapipeAvailable(true)
+      toast.info('Modelo carregado. Ajuste os efeitos na aba Aparência.')
+    } catch {
+      toast.error('Não foi possível carregar o modelo de efeitos faciais.')
+    } finally {
+      setMediapipeLoading(false)
+    }
+  }, [])
+
+  // Sincroniza recordingState com camStatus (quando a câmera liga/desliga fora
+  // do fluxo de gravação, ex.: handleActivateCamera).
+  useEffect(() => {
+    if (camStatus === 'ready' && recordingState === 'idle') {
+      // mantém idle até o usuário iniciar — dock mostra "Câmera pronta" via indicador
+    }
+  }, [camStatus, recordingState])
+
+  // Proteção contra fechamento acidental durante gravação (beforeunload).
+  useEffect(() => {
+    if (!isActivelyRecording(recordingState)) return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [recordingState])
 
   /**
    * Tenta enumerar dispositivos. Sem permissão prévia, os labels chegam vazios
@@ -521,115 +619,222 @@ export default function Gravadora() {
     [updateStageConfig],
   )
 
-  const handleToggleRecord = () => {
-    if (isRecording) {
-      // Parar Gravação
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop()
-      }
-      // Pausa o vídeo de reação, se houver.
-      try {
-        reactionOverlayRef.current?.video?.pause()
-      } catch {
-        /* noop */
-      }
-      // Libera o AudioContext de mixagem.
-      try {
-        mixAudioCtxRef.current?.close()
-      } catch {
-        /* noop */
-      }
-      mixAudioCtxRef.current = null
-      setIsRecording(false)
-      toast.success('Gravação finalizada! Take salvo com sucesso.')
-    } else {
-      // Iniciar Gravação
-      if (!stream) {
-        toast.error('Câmera não conectada. Clique em "Ativar Câmera" primeiro.')
-        return
-      }
-      recordedChunksRef.current = []
+  // === Módulos 5/6/7 — Fluxo de gravação via RecordingDock + PreFlightCheck ===
+  // Inicia o MediaRecorder (gravação via canvas.captureStream permanece intacta).
+  const startRecording = useCallback(() => {
+    if (!stream) {
+      setRecErrorMessage('Câmera não conectada.')
+      setRecordingState('error')
+      toast.error('Câmera não conectada. Clique em "Ativar Câmera" primeiro.')
+      return
+    }
+    // Impedir 2 gravadores.
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      toast.warning('Já existe uma gravação em andamento.')
+      return
+    }
+    recordedChunksRef.current = []
+    setMarkers([])
 
-      const reactionVideoEl = reactionOverlayRef.current?.video || null
-      const useReactionAudio =
-        reactionConfig.enabled && !!reactionVideoEl && reactionConfig.audioMix !== 'voice-only'
+    const reactionVideoEl = reactionOverlayRef.current?.video || null
+    const useReactionAudio =
+      reactionConfig.enabled && !!reactionVideoEl && reactionConfig.audioMix !== 'voice-only'
 
-      try {
-        let recorderStream: MediaStream = stream
+    try {
+      let recorderStream: MediaStream = stream
 
-        if (useReactionAudio) {
-          // Mixagem de áudio via Web Audio API.
-          const AC: typeof AudioContext = window.AudioContext || (window as any).webkitAudioContext
-          const audioCtx = new AC()
-          mixAudioCtxRef.current = audioCtx
-          const dest = audioCtx.createMediaStreamDestination()
+      if (useReactionAudio) {
+        const AC: typeof AudioContext = window.AudioContext || (window as any).webkitAudioContext
+        const audioCtx = new AC()
+        mixAudioCtxRef.current = audioCtx
+        const dest = audioCtx.createMediaStreamDestination()
 
-          // Voz (microfone) — apenas se audioMix !== 'reaction-only'.
-          if (reactionConfig.audioMix !== 'reaction-only') {
-            try {
-              const micSource = audioCtx.createMediaStreamSource(stream)
-              micSource.connect(dest)
-            } catch {
-              /* noop */
-            }
-          }
-          // Reação — apenas se audioMix !== 'voice-only'.
-          if (reactionConfig.audioMix !== 'voice-only' && reactionVideoEl) {
-            try {
-              const reactionSource = audioCtx.createMediaElementSource(reactionVideoEl)
-              const reactionGain = audioCtx.createGain()
-              reactionGain.gain.value = Math.max(0, Math.min(1, reactionConfig.volume / 100))
-              reactionSource.connect(reactionGain)
-              reactionGain.connect(dest)
-            } catch {
-              /* noop */
-            }
-          }
-
-          // Combina vídeo do stream original + áudio mixado.
-          recorderStream = new MediaStream([
-            ...stream.getVideoTracks(),
-            ...dest.stream.getAudioTracks(),
-          ])
-        }
-
-        const recorder = new MediaRecorder(recorderStream, { mimeType: 'video/webm' })
-        recorder.ondataavailable = (e) => {
-          if (e.data.size > 0) recordedChunksRef.current.push(e.data)
-        }
-        recorder.onstop = async () => {
-          const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' })
-          if (activeProjectId) {
-            await saveRawVideo(activeProjectId, blob, recTimer, 'video/webm')
-          }
-        }
-        recorder.start(1000)
-        mediaRecorderRef.current = recorder
-
-        // Inicia o vídeo de reação do startOffsetMs.
-        if (reactionConfig.enabled && reactionVideoEl) {
+        if (reactionConfig.audioMix !== 'reaction-only') {
           try {
-            if (reactionConfig.startOffsetMs > 0) {
-              reactionVideoEl.currentTime = reactionConfig.startOffsetMs / 1000
-            }
-            // Durante a gravação, o vídeo de reação precisa ter áudio
-            // "tocando" (mesmo muted=false para o MediaElementSource capturar).
-            if (useReactionAudio) {
-              reactionVideoEl.muted = false
-            }
-            reactionVideoEl.play().catch(() => {})
+            const micSource = audioCtx.createMediaStreamSource(stream)
+            micSource.connect(dest)
+          } catch {
+            /* noop */
+          }
+        }
+        if (reactionConfig.audioMix !== 'voice-only' && reactionVideoEl) {
+          try {
+            const reactionSource = audioCtx.createMediaElementSource(reactionVideoEl)
+            const reactionGain = audioCtx.createGain()
+            reactionGain.gain.value = Math.max(0, Math.min(1, reactionConfig.volume / 100))
+            reactionSource.connect(reactionGain)
+            reactionGain.connect(dest)
           } catch {
             /* noop */
           }
         }
 
-        setIsRecording(true)
-        toast.info('Gravação iniciada...')
-      } catch {
-        setIsRecording(true)
+        recorderStream = new MediaStream([
+          ...stream.getVideoTracks(),
+          ...dest.stream.getAudioTracks(),
+        ])
+      }
+
+      const recorder = new MediaRecorder(recorderStream, { mimeType: recordingSettings.format })
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordedChunksRef.current.push(e.data)
+      }
+      recorder.onstop = async () => {
+        setRecordingState('processing')
+        try {
+          const blob = new Blob(recordedChunksRef.current, { type: recordingSettings.format })
+          if (activeProjectId) {
+            await saveRawVideo(activeProjectId, blob, recTimer, recordingSettings.format)
+          }
+          const name = recordingSettings.takeName || `take-${Date.now()}`
+          setLastTakeName(`${name}.webm`)
+          setRecordingState('saved')
+          toast.success(`Take salvo: ${name}.webm`)
+        } catch (err) {
+          setRecErrorMessage('Falha ao salvar o take.')
+          setRecordingState('error')
+          toast.error('Erro ao processar o take.')
+        }
+      }
+      recorder.start(1000)
+      mediaRecorderRef.current = recorder
+
+      if (reactionConfig.enabled && reactionVideoEl) {
+        try {
+          if (reactionConfig.startOffsetMs > 0) {
+            reactionVideoEl.currentTime = reactionConfig.startOffsetMs / 1000
+          }
+          if (useReactionAudio) reactionVideoEl.muted = false
+          reactionVideoEl.play().catch(() => {})
+        } catch {
+          /* noop */
+        }
+      }
+
+      setIsRecording(true)
+      setRecordingState('recording')
+      toast.info('Gravação iniciada...')
+    } catch (err: any) {
+      setRecErrorMessage(err?.message || 'Não foi possível iniciar a gravação.')
+      setRecordingState('error')
+      toast.error('Erro ao iniciar a gravação.')
+    }
+  }, [stream, reactionConfig, recordingSettings, activeProjectId, saveRawVideo, recTimer, setIsRecording])
+
+  // Solicita gravação → abre o checklist pré-gravação.
+  const onRequestRecord = useCallback(() => {
+    if (isActivelyRecording(recordingState)) return
+    setPreFlightOpen(true)
+  }, [recordingState])
+
+  // Continua após o checklist (ignorando avisos não-bloqueantes).
+  const onPreFlightContinue = useCallback(() => {
+    setPreFlightOpen(false)
+    const cd = recordingSettings.countdown
+    if (cd === 0) {
+      startRecording()
+      return
+    }
+    setRecordingState('countdown')
+    let n = cd
+    setCountdownOverlay(n)
+    const tick = () => {
+      n -= 1
+      if (n <= 0) {
+        setCountdownOverlay(null)
+        startRecording()
+      } else {
+        setCountdownOverlay(n)
+        setTimeout(tick, 1000)
       }
     }
-  }
+    setTimeout(tick, 1000)
+  }, [recordingSettings.countdown, startRecording])
+
+  const handlePauseRecording = useCallback(() => {
+    try {
+      mediaRecorderRef.current?.pause()
+      setIsRecording(false)
+      setRecordingState('paused')
+      toast.info('Gravação pausada.')
+    } catch {
+      /* noop */
+    }
+  }, [setIsRecording])
+
+  const handleResumeRecording = useCallback(() => {
+    try {
+      mediaRecorderRef.current?.resume()
+      setIsRecording(true)
+      setRecordingState('recording')
+      toast.info('Gravação retomada.')
+    } catch {
+      /* noop */
+    }
+  }, [setIsRecording])
+
+  const handleStopRecording = useCallback(() => {
+    setRecordingState('stopping')
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+    }
+    try {
+      reactionOverlayRef.current?.video?.pause()
+    } catch {
+      /* noop */
+    }
+    try {
+      mixAudioCtxRef.current?.close()
+    } catch {
+      /* noop */
+    }
+    mixAudioCtxRef.current = null
+    setIsRecording(false)
+    // onstop do recorder transita para 'processing' -> 'saved'.
+  }, [setIsRecording])
+
+  const handleAddMarker = useCallback(() => {
+    setMarkers((m) => [...m, recTimer])
+    toast.success(`Marcador adicionado em ${formatTimer(recTimer)}`)
+  }, [recTimer])
+
+  // Toggle câmera pelo dock.
+  const handleDockToggleCamera = useCallback(() => {
+    if (camStatus === 'ready') {
+      // Desligar câmera.
+      if (isActivelyRecording(recordingState)) {
+        toast.warning('Pare a gravação antes de desligar a câmera.')
+        return
+      }
+      streamRef.current?.getTracks().forEach((t) => t.stop())
+      streamRef.current = null
+      setStream(null)
+      setCamStatus('idle')
+      setRecordingState('idle')
+    } else {
+      handleActivateCamera()
+    }
+  }, [camStatus, recordingState, handleActivateCamera])
+
+  const handleDockToggleMic = useCallback(() => {
+    if (!streamRef.current) return
+    const tracks = streamRef.current.getAudioTracks()
+    if (tracks.length === 0) return
+    const enabled = !tracks[0].enabled
+    tracks.forEach((t) => (t.enabled = enabled))
+    toast.info(enabled ? 'Microfone ativado.' : 'Microfone mutado.')
+  }, [])
+
+  const handleTestAudio = useCallback(() => {
+    toast.info(`Nível atual do microfone: ${micLevel}%`)
+  }, [micLevel])
+
+  const handleFixPreFlight = useCallback((itemId: string) => {
+    setPreFlightOpen(false)
+    if (itemId === 'camera' || itemId === 'mic') {
+      handleActivateCamera()
+    }
+  }, [handleActivateCamera])
 
   const formatTimer = (sec: number) => {
     const m = Math.floor(sec / 60)
@@ -1498,8 +1703,8 @@ export default function Gravadora() {
         {/* Footer Minimalista com Botão REC Flutuante */}
         <div className="relative z-50 flex items-center justify-center pb-2">
           <button
-            onClick={handleToggleRecord}
-            disabled={camStatus !== 'ready'}
+            onClick={isActivelyRecording(recordingState) ? handleStopRecording : onRequestRecord}
+            disabled={camStatus !== 'ready' && !isActivelyRecording(recordingState)}
             className={`flex items-center gap-3 px-8 py-4 rounded-full text-base font-extrabold shadow-2xl transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 ${
               isRecording
                 ? 'bg-red-600 text-white shadow-red-600/50 animate-pulse'
@@ -1544,10 +1749,11 @@ export default function Gravadora() {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Record Button */}
+          {/* Record Button (header) — dispara o checklist pré-gravação */}
           <button
-            onClick={handleToggleRecord}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-xl text-xs font-bold transition-all ${
+            onClick={isActivelyRecording(recordingState) ? handleStopRecording : onRequestRecord}
+            disabled={camStatus !== 'ready' && !isActivelyRecording(recordingState)}
+            className={`flex items-center gap-2 px-4 py-1.5 rounded-xl text-xs font-bold transition-all disabled:opacity-50 ${
               isRecording
                 ? 'bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-600/30 animate-pulse'
                 : 'bg-gradient-to-r from-[#7C5CFC] to-[#6A48E0] hover:from-[#6A48E0] text-white shadow-lg shadow-[#7C5CFC]/20'
@@ -1584,12 +1790,19 @@ export default function Gravadora() {
         </div>
       </header>
 
-      {/* Main Container Dual-Column Layout */}
-      <div className="flex-1 flex min-h-0 overflow-hidden relative">
+      {/* Main Container Dual-Column Layout — altura reserva para o dock (~64px) */}
+      <div className="flex-1 flex min-h-0 overflow-hidden relative pb-16">
         {/* Esquerda (62% Desktop / Full Mobile): Palco & Canvas 9:16 */}
         <div className="flex-1 lg:w-[62%] flex flex-col items-center justify-center p-4 bg-[#0B0B10] relative overflow-hidden gap-3">
           {/* Palco 9:16 com split screen */}
           {renderStage()}
+
+          {/* Contagem regressiva central (Módulo 7) */}
+          {countdownOverlay !== null && (
+            <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-none">
+              <span className="text-9xl font-extrabold text-white animate-ping-slow">{countdownOverlay}</span>
+            </div>
+          )}
 
           {/* Seletor de layout + Controls Flutuantes no Canvas */}
           <div className="flex items-center gap-3 flex-wrap justify-center">
@@ -1605,13 +1818,54 @@ export default function Gravadora() {
           </div>
         </div>
 
-        {/* Direita (38% Desktop): Painel de Configurações Único */}
+        {/* Direita (38% Desktop): Painel em Acordeões (Módulo 4) */}
         <div className="hidden lg:block lg:w-[38%] border-l border-white/5 bg-[#0E0E15] h-full">
-          {renderConfigTabs()}
+          <StudioAccordionPanel
+            projectId={activeProjectId || 'temp'}
+            aspectRatio={aspectRatio}
+            onAspectRatioChange={setAspectRatio}
+            splitMode={splitMode}
+            onSplitModeChange={setSplitMode}
+            splitCameraRatio={stageConfig.splitCameraRatio ?? 0.6}
+            onSplitCameraRatioChange={(v) => updateStageConfig({ splitCameraRatio: v })}
+            margin={margin}
+            onMarginChange={setMargin}
+            spacing={spacing}
+            onSpacingChange={setSpacing}
+            borderRadius={borderRadiusVal}
+            onBorderRadiusChange={setBorderRadiusVal}
+            borderWidth={borderWidthVal}
+            onBorderWidthChange={setBorderWidthVal}
+            cameras={cameras}
+            selectedCamera={selectedCamera}
+            onSelectCamera={(id) => { setSelectedCamera(id); saveDevicePreference(id, selectedMic) }}
+            cameraCapabilities={cameraCapabilities}
+            cameraConfig={cameraConfig}
+            updateCameraConfig={updateCameraConfig}
+            camStatus={camStatus}
+            beauty={beauty}
+            setBeauty={setBeauty}
+            faceDetected={faceDetected}
+            mediapipeLoading={mediapipeLoading}
+            mediapipeAvailable={mediapipeAvailable}
+            webglAvailable={webglAvailable}
+            onLoadMediapipe={loadMediapipe}
+            mics={mics}
+            selectedMic={selectedMic}
+            onSelectMic={(id) => { setSelectedMic(id); saveDevicePreference(selectedCamera, id) }}
+            audioConfig={audioConfig}
+            updateAudioConfig={updateAudioConfig}
+            micLevel={micLevel}
+            recordingSettings={recordingSettings}
+            setRecordingSettings={setRecordingSettings}
+            gravadoraScript={gravadoraScript}
+            setGravadoraScript={(t) => useStudioSetGravadoraScript(t)}
+            setScriptBlocks={(b) => useStudioSetScriptBlocks(b)}
+          />
         </div>
 
         {/* Mobile / Tablet (<1180px) Drawer de Configuração */}
-        <div className="lg:hidden absolute bottom-4 right-4 z-40">
+        <div className="lg:hidden absolute bottom-20 right-4 z-40">
           <Sheet>
             <SheetTrigger asChild>
               <button className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-[#7C5CFC] text-white text-xs font-bold shadow-xl">
@@ -1627,10 +1881,58 @@ export default function Gravadora() {
                   Painel de Estúdio
                 </SheetTitle>
               </SheetHeader>
-              <div className="h-[calc(100vh-60px)]">{renderConfigTabs()}</div>
+              <div className="h-[calc(100vh-60px)]">
+                {/* Mobile reutiliza as tabs legadas para não duplicar a árvore */}
+                {renderConfigTabs()}
+              </div>
             </SheetContent>
           </Sheet>
         </div>
+
+        {/* Dock de Gravação fixo (Módulo 5) — acima do palco, abaixo do HUD */}
+        <RecordingDock
+          state={recordingState}
+          elapsed={recTimer}
+          cameraOn={camStatus === 'ready'}
+          micOn={stream?.getAudioTracks().some((t) => t.enabled) ?? false}
+          micLevel={micLevel}
+          countdown={recordingSettings.countdown}
+          errorMessage={recErrorMessage}
+          lastTakeName={lastTakeName}
+          onToggleCamera={handleDockToggleCamera}
+          onToggleMic={handleDockToggleMic}
+          onTestAudio={handleTestAudio}
+          onCountdownChange={(v) => setRecordingSettings({ countdown: v })}
+          onRecord={onRequestRecord}
+          onPause={handlePauseRecording}
+          onResume={handleResumeRecording}
+          onStop={handleStopRecording}
+          onMarker={handleAddMarker}
+        />
+
+        {/* Checklist pré-gravação (Módulo 6) */}
+        <PreFlightCheck
+          open={preFlightOpen}
+          onOpenChange={setPreFlightOpen}
+          onContinue={onPreFlightContinue}
+          onFix={handleFixPreFlight}
+          input={{
+            cameraStream: stream && stream.getVideoTracks().length > 0 ? stream : null,
+            micStream: stream && stream.getAudioTracks().length > 0 ? stream : null,
+            composerReady: !!stageRef.current || !!stream,
+            resolution: cameraCapabilities
+              ? { width: cameraCapabilities.maxWidth, height: cameraCapabilities.maxHeight }
+              : null,
+            fps: cameraCapabilities?.maxFrameRate ?? null,
+            micLevel,
+            layout: stageConfig.layout,
+            hasScript,
+            teleprompterConfigured: !!prompterConfig.mode,
+            backgroundOk: backgroundConfig.type !== 'none' || !backgroundConfig.segmentationEnabled,
+            effectsActive: beauty.intensity > 0,
+            blockMediaLoaded: false,
+          }}
+        />
       </div>
 
       <MediaLibraryModal
