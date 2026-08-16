@@ -1,13 +1,21 @@
 /* =============================================================================
    LUMEN Studio — PreFlightCheck (Módulo 6)
    Modal/overlay rápido exibido antes de iniciar a gravação. Avalia câmera,
-   microfone, compositor, layout, roteiro, teleprompter, fundo, efeitos e
-   mídia do bloco. Só BLOQUEIA por: câmera sem stream, microfone sem stream,
-   compositor indisponível. Itens não-bloqueantes podem ser ignorados com
-   "Iniciar mesmo assim".
+   microfone, compositor, layout, roteiro, teleprompter, fundo, efeitos,
+   mídia do bloco e espaço de armazenamento. Só BLOQUEIA por: câmera sem
+   stream, microfone sem stream, compositor indisponível. Itens não-bloqueantes
+   podem ser ignorados com "Ignorar e gravar assim mesmo".
+
+   Refinamentos:
+   - Verificação sequencial (um item por vez, ~200ms entre cada) com estado
+     `pending` transitório.
+   - Estimativa de armazenamento via navigator.storage.estimate() (avisa se
+     < 500MB).
+   - Botão "Ignorar e gravar assim mesmo" quando há avisos mas não bloqueios.
+   - Botão "Iniciar gravação" habilitado apenas sem bloqueios.
    ========================================================================== */
 
-import React from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -47,6 +55,67 @@ const STATUS_LABEL: Record<PreFlightItem['status'], string> = {
   pending: 'Verificando',
 }
 
+/** Avaliação completa, incluindo o item de armazenamento (assíncrono). */
+function usePreFlightItems(input: PreFlightInput, open: boolean) {
+  const baseItems = useMemo(() => evaluatePreFlight(input), [input])
+  const [storageItem, setStorageItem] = useState<PreFlightItem>({
+    id: 'storage',
+    label: 'Espaço de armazenamento',
+    status: 'pending',
+  })
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    setStorageItem({ id: 'storage', label: 'Espaço de armazenamento', status: 'pending' })
+    ;(async () => {
+      try {
+        if (navigator.storage?.estimate) {
+          const est = await navigator.storage.estimate()
+          const freeMb = est.quota ? (est.quota - (est.usage ?? 0)) / (1024 * 1024) : Infinity
+          if (cancelled) return
+          if (freeMb < 500) {
+            setStorageItem({
+              id: 'storage',
+              label: 'Espaço de armazenamento',
+              status: 'warning',
+              detail: `${Math.round(freeMb)}MB livres (recomendado ≥ 500MB)`,
+            })
+          } else {
+            setStorageItem({
+              id: 'storage',
+              label: 'Espaço de armazenamento',
+              status: 'ok',
+              detail: `${Math.round(freeMb)}MB livres`,
+            })
+          }
+        } else {
+          if (cancelled) return
+          setStorageItem({
+            id: 'storage',
+            label: 'Espaço de armazenamento',
+            status: 'ok',
+            detail: 'estimativa indisponível',
+          })
+        }
+      } catch {
+        if (cancelled) return
+        setStorageItem({
+          id: 'storage',
+          label: 'Espaço de armazenamento',
+          status: 'ok',
+          detail: 'estimativa indisponível',
+        })
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+
+  return useMemo(() => [...baseItems, storageItem], [baseItems, storageItem])
+}
+
 export function PreFlightCheck({
   open,
   onOpenChange,
@@ -54,9 +123,43 @@ export function PreFlightCheck({
   onContinue,
   onFix,
 }: PreFlightCheckProps) {
-  const items = evaluatePreFlight(input)
+  const allItems = usePreFlightItems(input, open)
+
+  // Verificação sequencial: mostra os itens um por vez (200ms entre cada).
+  // Até o item N ser "revelado", ele fica como `pending`.
+  const [revealedCount, setRevealedCount] = useState(0)
+  useEffect(() => {
+    if (!open) {
+      setRevealedCount(0)
+      return
+    }
+    setRevealedCount(0)
+    const total = allItems.length
+    let i = 0
+    const tick = () => {
+      i += 1
+      setRevealedCount(i)
+      if (i < total) {
+        setTimeout(tick, 200)
+      }
+    }
+    const t = setTimeout(tick, 200)
+    return () => clearTimeout(t)
+  }, [open, allItems.length])
+
+  const items = useMemo(
+    () =>
+      allItems.map((it, idx) =>
+        idx >= revealedCount && it.status !== 'pending'
+          ? { ...it, status: 'pending' as const }
+          : it,
+      ),
+    [allItems, revealedCount],
+  )
+
   const counts = countByStatus(items)
   const blocked = hasBlockingItems(items)
+  const hasWarnings = counts.warning > 0
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -87,6 +190,11 @@ export function PreFlightCheck({
               {counts.block} bloqueios
             </span>
           )}
+          {counts.pending > 0 && (
+            <span className="px-2 py-0.5 rounded-full bg-white/5 text-[#9494A8] border border-white/10 font-bold">
+              {counts.pending} verificando
+            </span>
+          )}
         </div>
 
         {/* Lista de itens */}
@@ -94,7 +202,7 @@ export function PreFlightCheck({
           {items.map((item) => (
             <div
               key={item.id}
-              className={`flex items-start gap-2 rounded-lg border p-2 ${
+              className={`flex items-start gap-2 rounded-lg border p-2 transition-colors ${
                 item.status === 'block'
                   ? 'border-red-500/30 bg-red-500/5'
                   : item.status === 'warning'
@@ -142,17 +250,29 @@ export function PreFlightCheck({
           >
             Cancelar
           </button>
+          {/* Botão "Ignorar e gravar assim mesmo" — só quando há avisos, sem bloqueios. */}
+          {!blocked && hasWarnings && (
+            <button
+              onClick={onContinue}
+              className="px-3 py-2 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[11px] font-bold hover:bg-amber-500/25 transition-all"
+              title="Ignorar avisos e iniciar gravação"
+            >
+              Ignorar e gravar assim mesmo
+            </button>
+          )}
           <button
             onClick={onContinue}
             disabled={blocked}
             className={`px-4 py-2 rounded-lg text-[11px] font-bold transition-all ${
               blocked
                 ? 'bg-red-500/20 text-red-300 border border-red-500/30 cursor-not-allowed'
-                : 'bg-gradient-to-r from-[#7C5CFC] to-[#22D3EE] text-white hover:scale-105'
+                : hasWarnings
+                  ? 'bg-[#1C1C27] border border-white/10 text-white hover:border-[#7C5CFC]/50'
+                  : 'bg-gradient-to-r from-[#7C5CFC] to-[#22D3EE] text-white hover:scale-105'
             }`}
             title={blocked ? 'Resolva os bloqueios antes de iniciar' : 'Iniciar gravação'}
           >
-            {blocked ? 'Resolver bloqueios' : 'Iniciar mesmo assim'}
+            {blocked ? 'Resolver bloqueios' : 'Iniciar gravação'}
           </button>
         </DialogFooter>
       </DialogContent>

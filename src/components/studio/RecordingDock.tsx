@@ -4,9 +4,19 @@
    máquina de estados `RecordingState`. Não grava por si só — recebe callbacks
    do pai (Gravadora) que detém o stream/MediaRecorder. Assim a lógica de
    gravação via canvas.captureStream() permanece intacta.
+
+   Refinamentos:
+   - Botão GRAVAR 1.5x maior que os demais, cor primária LUMEN (roxo). Vira
+     vermelho pulsante com borda animada em `recording`. Em `countdown` mostra
+     "3... 2... 1...".
+   - Reiniciar take (ícone reset) visível em `saved` ou `error`, com confirmação.
+   - Timer MM:SS em fonte mono, pisca a cada segundo durante `recording`.
+   - Atalhos: R (gravar, só em camera-ready), Espaço (pausa/continua),
+     Esc (finaliza). Registrados pela Gravadora.
+   - Estados desabilitados com opacidade reduzida + cursor-not-allowed.
    ========================================================================== */
 
-import React from 'react'
+import React, { useState } from 'react'
 import {
   Camera,
   CameraOff,
@@ -22,7 +32,16 @@ import {
   AlertTriangle,
   CheckCircle2,
   Loader2,
+  RotateCcw,
 } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import {
   type RecordingState,
   recordingStateLabel,
@@ -43,6 +62,8 @@ export interface RecordingDockProps {
   micLevel: number
   /** Contagem regressiva selecionada: 3, 5 ou 0 (desligado). */
   countdown: 3 | 5 | 0
+  /** Valor atual exibido na contagem regressiva (3,2,1) ou null. */
+  countdownValue?: number | null
   /** Mensagem de erro (quando state === 'error'). */
   errorMessage?: string
   /** Nome do último take salvo (para toast/confirmação). */
@@ -57,6 +78,8 @@ export interface RecordingDockProps {
   onResume: () => void
   onStop: () => void
   onMarker: () => void
+  /** Reiniciar/descartar o take atual (visível em saved/error). */
+  onResetTake?: () => void
 }
 
 const COLOR_MAP: Record<string, { dot: string; text: string; bg: string }> = {
@@ -83,6 +106,7 @@ export function RecordingDock(props: RecordingDockProps) {
     micOn,
     micLevel,
     countdown,
+    countdownValue,
     errorMessage,
     lastTakeName,
     onToggleCamera,
@@ -94,7 +118,10 @@ export function RecordingDock(props: RecordingDockProps) {
     onResume,
     onStop,
     onMarker,
+    onResetTake,
   } = props
+
+  const [confirmReset, setConfirmReset] = useState(false)
 
   const enabled = dockButtonsEnabled(state)
   const colorKey = recordingStateColor(state)
@@ -102,10 +129,15 @@ export function RecordingDock(props: RecordingDockProps) {
   const isRec = state === 'recording'
   const isPaused = state === 'paused'
   const isProcessing = state === 'processing' || state === 'stopping'
+  const isCountdown = state === 'countdown'
+  const isSavedOrError = state === 'saved' || state === 'error'
+
+  // Timer pisca a cada segundo durante recording (segundo par/ímpar).
+  const blinkOn = isRec ? elapsed % 2 === 0 : true
 
   return (
-    <div className="absolute bottom-0 inset-x-0 z-40 h-16 px-3 flex items-center gap-2 bg-[#0B0B10]/80 backdrop-blur-md border-t border-white/10">
-      {/* Câmera toggle */}
+    <div className="absolute bottom-0 inset-x-0 z-50 h-16 px-3 sm:px-4 flex items-center gap-2 bg-black/70 backdrop-blur-xl border-t border-white/5">
+      {/* 1. Câmera toggle */}
       <DockIconButton
         label={cameraOn ? 'Desligar câmera' : 'Ligar câmera'}
         active={cameraOn}
@@ -116,7 +148,7 @@ export function RecordingDock(props: RecordingDockProps) {
         icon={cameraOn ? <Camera className="w-4 h-4" /> : <CameraOff className="w-4 h-4" />}
       />
 
-      {/* Mic toggle */}
+      {/* 2. Mic toggle */}
       <DockIconButton
         label={micOn ? 'Desligar microfone' : 'Ligar microfone'}
         active={micOn}
@@ -127,11 +159,12 @@ export function RecordingDock(props: RecordingDockProps) {
         icon={micOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
       />
 
-      {/* Testar áudio */}
+      {/* 3. Testar áudio */}
       <button
         onClick={onTestAudio}
         disabled={!enabled.test}
         title="Testar áudio"
+        aria-label="Testar áudio"
         className="flex items-center gap-1.5 px-2.5 h-9 rounded-lg bg-[#1C1C27] border border-white/10 text-[#9494A8] hover:text-white hover:border-[#7C5CFC]/50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
       >
         <Activity className="w-4 h-4" />
@@ -148,7 +181,10 @@ export function RecordingDock(props: RecordingDockProps) {
         </span>
       </button>
 
-      {/* Contagem */}
+      {/* 4. Separador */}
+      <span className="hidden sm:block w-px h-7 bg-white/10 mx-0.5" />
+
+      {/* 5. Contagem regressiva */}
       <div className="flex items-center bg-[#1C1C27] border border-white/10 rounded-lg h-9 overflow-hidden">
         {(
           [
@@ -171,74 +207,99 @@ export function RecordingDock(props: RecordingDockProps) {
         ))}
       </div>
 
-      {/* Botão GRAVAR / Retomar */}
+      {/* 6. GRAVAR / Retomar — 1.5x maior */}
       {isPaused ? (
         <button
           onClick={onResume}
           disabled={!enabled.record}
-          className="flex items-center gap-2 px-5 h-10 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg transition-all disabled:opacity-40"
-          title="Retomar gravação"
+          className="flex items-center gap-2 px-5 h-12 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold shadow-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Continuar gravação"
         >
-          <Play className="w-4 h-4 fill-current" /> Retomar
+          <Play className="w-4 h-4 fill-current" /> Continuar
         </button>
       ) : (
         <button
           onClick={onRecord}
-          disabled={!enabled.record}
-          className={`flex items-center gap-2 px-5 h-10 rounded-xl text-white text-xs font-extrabold shadow-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+          disabled={!enabled.record && !isCountdown}
+          className={`relative flex items-center gap-2 px-6 h-12 rounded-xl text-white text-sm font-extrabold shadow-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
             isRec
-              ? 'bg-red-600 hover:bg-red-500 animate-pulse'
-              : 'bg-gradient-to-r from-red-600 to-red-500 hover:scale-105'
+              ? 'bg-red-600 hover:bg-red-500 animate-rec-pulse ring-2 ring-red-400/60 ring-offset-2 ring-offset-black/70'
+              : isCountdown
+                ? 'bg-violet-600 cursor-wait'
+                : 'bg-gradient-to-r from-[#7C5CFC] to-[#6A48E0] hover:scale-105'
           }`}
-          title={isRec ? 'Gravando...' : 'Gravar take'}
+          title={isRec ? 'Gravando...' : isCountdown ? 'Contagem regressiva...' : 'Gravar take (R)'}
         >
           <Circle className="w-4 h-4 fill-current" />
-          {isRec ? 'GRAVANDO' : 'GRAVAR'}
+          {isCountdown
+            ? `${countdownValue ?? '...'}`
+            : isRec
+              ? 'GRAVANDO'
+              : state === 'saved'
+                ? 'NOVO TAKE'
+                : 'GRAVAR'}
         </button>
       )}
 
-      {/* Pausar (só durante gravação) */}
+      {/* 7. Pausar (só durante gravação) */}
       {isRec && (
         <button
           onClick={onPause}
           disabled={!enabled.pause}
           className="flex items-center gap-1.5 px-3 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[11px] font-bold hover:bg-amber-500/30 transition-all"
-          title="Pausar gravação"
+          title="Pausar gravação (Espaço)"
         >
           <Pause className="w-4 h-4" /> Pausar
         </button>
       )}
 
-      {/* Parar (durante gravação ou pausa) */}
+      {/* 8. Finalizar (durante gravação ou pausa) */}
       {(isRec || isPaused) && (
         <button
           onClick={onStop}
           disabled={!enabled.stop}
           className="flex items-center gap-1.5 px-3 h-10 rounded-xl bg-[#1C1C27] border border-white/10 text-white text-[11px] font-bold hover:border-red-500/50 hover:text-red-300 transition-all"
-          title="Parar e encerrar"
+          title="Finalizar gravação (Esc)"
         >
-          <Square className="w-4 h-4 fill-current" /> Parar
+          <Square className="w-4 h-4 fill-current" /> Finalizar
         </button>
       )}
 
-      {/* Marcador (durante gravação) */}
+      {/* 9. Reiniciar take (visível em saved/error) */}
+      {isSavedOrError && onResetTake && (
+        <button
+          onClick={() => setConfirmReset(true)}
+          className="flex items-center gap-1.5 px-3 h-10 rounded-xl bg-[#1C1C27] border border-white/10 text-[#9494A8] text-[11px] font-bold hover:border-amber-500/50 hover:text-amber-300 transition-all"
+          title="Reiniciar take"
+        >
+          <RotateCcw className="w-4 h-4" /> Reiniciar
+        </button>
+      )}
+
+      {/* 10. Marcador (durante gravação) */}
       {isRec && (
         <button
           onClick={onMarker}
           disabled={!enabled.marker}
           className="flex items-center gap-1.5 px-2.5 h-9 rounded-lg bg-[#1C1C27] border border-white/10 text-[#22D3EE] text-[10px] font-bold hover:border-[#22D3EE]/50 transition-all"
-          title="Adicionar marcador"
+          title="Adicionar marcador de tempo"
         >
           <Flag className="w-3.5 h-3.5" /> Marcador
         </button>
       )}
 
-      {/* Timer */}
+      {/* 11. Timer — fonte mono, pisca durante recording */}
       <div className="flex items-center gap-1.5 ml-auto px-3 h-9 rounded-lg bg-[#0B0B10] border border-white/10">
         <Timer className={`w-3.5 h-3.5 ${isRec ? 'text-red-400' : 'text-[#9494A8]'}`} />
         <span
-          className={`text-sm font-mono font-bold tabular-nums ${
-            isRec ? 'text-red-400' : isPaused ? 'text-amber-400' : 'text-white/80'
+          className={`text-sm font-mono font-bold tabular-nums transition-opacity ${
+            isRec
+              ? blinkOn
+                ? 'text-red-400 opacity-100'
+                : 'text-red-400 opacity-50'
+              : isPaused
+                ? 'text-amber-400'
+                : 'text-white/80'
           }`}
         >
           {formatTimer(elapsed)}
@@ -276,6 +337,38 @@ export function RecordingDock(props: RecordingDockProps) {
           {lastTakeName}
         </span>
       )}
+
+      {/* Confirmação de reinício de take */}
+      <Dialog open={confirmReset} onOpenChange={setConfirmReset}>
+        <DialogContent className="bg-[#0E0E15] border-white/10 text-white max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-bold flex items-center gap-2">
+              <RotateCcw className="w-4 h-4 text-amber-400" /> Descartar este take?
+            </DialogTitle>
+            <DialogDescription className="text-[11px] text-[#9494A8]">
+              O take atual será descartado e o estúdio voltará ao estado parado. Esta ação não pode
+              ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <button
+              onClick={() => setConfirmReset(false)}
+              className="px-3 py-2 rounded-lg bg-[#1C1C27] border border-white/10 text-[11px] font-semibold text-[#9494A8] hover:text-white transition-all"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={() => {
+                setConfirmReset(false)
+                onResetTake?.()
+              }}
+              className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[11px] font-bold transition-all"
+            >
+              Descartar take
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import type { RecordingState } from '@/lib/studio-recording-logic'
 import {
   Project,
   MediaItem,
@@ -219,6 +220,12 @@ interface StudioContextType {
   setIsRecording: (b: boolean) => void
   isFocusMode: boolean
   setIsFocusMode: (b: boolean) => void
+  // Máquina de estados de gravação (Módulo 5) — leitura compartilhada por todos
+  // os componentes do estúdio. A mutação continua concentrada no hook
+  // useRecordingStateMachine dentro da Gravadora; aqui expomos apenas o estado
+  // para que RecordingDock/PreFlightCheck/PrompterHUD possam ler sem prop-drill.
+  recordingState: RecordingState
+  setRecordingState: (s: RecordingState) => void
 
   // Câmera & Filtros
   cameraConfig: CameraConfig
@@ -364,6 +371,10 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [activeBlockIndex, setActiveBlockIndex] = useState(0)
   const [isRecording, setIsRecording] = useState(false)
   const [isFocusMode, setIsFocusMode] = useState(false)
+
+  // Máquina de estados de gravação — fonte de verdade compartilhada. A
+  // Gravadora sincroniza este estado com o hook useRecordingStateMachine.
+  const [recordingState, setRecordingState] = useState<RecordingState>('idle')
 
   // FONTE ÚNICA DE VERDADE: `gravadoraScript` é o roteiro canônico da Gravadora.
   const DEFAULT_SCRIPT =
@@ -1184,6 +1195,8 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setIsRecording,
         isFocusMode,
         setIsFocusMode,
+        recordingState,
+        setRecordingState,
         cameraConfig,
         updateCameraConfig,
         prompterConfig,

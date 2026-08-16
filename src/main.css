@@ -319,6 +319,50 @@
     animation: border-beam 4s ease infinite;
   }
 
+  /* Contagem regressiva da gravação: número entra em escala e faz fade. */
+  @keyframes countdown-pop {
+    0% {
+      opacity: 0;
+      transform: scale(2.4);
+    }
+    20% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    80% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(0.6);
+    }
+  }
+
+  .animate-countdown-pop {
+    animation: countdown-pop 1s ease-in-out forwards;
+  }
+
+  /* Bolinha vermelha final da contagem (REC). */
+  @keyframes rec-dot-flash {
+    0% {
+      opacity: 0;
+      transform: scale(0.4);
+    }
+    40% {
+      opacity: 1;
+      transform: scale(1.2);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  .animate-rec-dot-flash {
+    animation: rec-dot-flash 0.5s ease-out forwards;
+  }
+
   /* Custom glassmorphism classes */
   .glass-panel {
     background: rgba(20, 20, 28, 0.75);

@@ -52,13 +52,14 @@ import { PreFlightCheck } from '@/components/studio/PreFlightCheck'
 import { StudioAccordionPanel } from '@/components/studio/StudioAccordionPanel'
 import { EmptyScriptCard } from '@/components/studio/EmptyScriptCard'
 import { SplitPreviewDialog } from '@/components/studio/SplitPreviewDialog'
+import { CountdownOverlay } from '@/components/studio/CountdownOverlay'
 import {
-  type RecordingState,
   type PreFlightInput,
   type AspectRatioOption,
   type SplitModeId,
   isActivelyRecording,
 } from '@/lib/studio-recording-logic'
+import { useRecordingStateMachine } from '@/hooks/use-recording-state-machine'
 import { singleBlockFromText, type SplitPresetId } from '@/lib/script-split'
 import { toast } from 'sonner'
 
@@ -72,6 +73,7 @@ export default function Gravadora() {
     setIsRecording,
     isFocusMode,
     setIsFocusMode,
+    setRecordingState: setContextRecordingState,
     cameraConfig,
     updateCameraConfig,
     prompterConfig,
@@ -197,15 +199,21 @@ export default function Gravadora() {
   const analyserRef = useRef<AnalyserNode | null>(null)
 
   // === Módulos 5/6/7 — Máquina de estados da gravação + checklist ===
-  // Estado canônico do RecordingDock. Derivado/sincronizado com camStatus e
-  // isRecording (legado). Mantém isRecording (StudioContext) como fonte para o
-  // PrompterHUD/StudioStage existentes, mas o dock usa `recordingState`.
-  const [recordingState, setRecordingState] = useState<RecordingState>('idle')
+  // Hook canônico da máquina de estados. Toda mutação de `recordingState`
+  // passa por aqui (transições validadas). O StudioContext espelha o estado
+  // para leitura compartilhada por outros componentes do estúdio.
+  const rsm = useRecordingStateMachine()
+  const recordingState = rsm.state
+  useEffect(() => {
+    setContextRecordingState(recordingState)
+  }, [recordingState, setContextRecordingState])
+
   const [preFlightOpen, setPreFlightOpen] = useState(false)
   const [countdownOverlay, setCountdownOverlay] = useState<number | null>(null)
-  const [lastTakeName, setLastTakeName] = useState<string | undefined>(undefined)
-  const [recErrorMessage, setRecErrorMessage] = useState<string | undefined>(undefined)
   const [markers, setMarkers] = useState<number[]>([])
+  // Refs do scheduler de contagem para permitir cancelamento (Esc).
+  const countdownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const countdownCancelledRef = useRef(false)
   const [recordingSettings, setRecordingSettings] = useState<{
     format: string
     quality: string
@@ -312,23 +320,27 @@ export default function Gravadora() {
   }, [])
 
   // Sincroniza recordingState com camStatus (quando a câmera liga/desliga fora
-  // do fluxo de gravação, ex.: handleActivateCamera).
+  // do fluxo de gravação, ex.: handleActivateCamera). O beforeunload e a
+  // validação de transições agora vivem no hook useRecordingStateMachine.
   useEffect(() => {
-    if (camStatus === 'ready' && recordingState === 'idle') {
-      // mantém idle até o usuário iniciar — dock mostra "Câmera pronta" via indicador
+    if (camStatus === 'requesting' && recordingState === 'idle') {
+      rsm.transition('requesting-permissions')
+    } else if (camStatus === 'ready' && recordingState === 'requesting-permissions') {
+      rsm.transition('camera-ready')
+    } else if (camStatus === 'denied' && recordingState === 'requesting-permissions') {
+      rsm.setErrorMessage(
+        'Permissão de câmera negada. Autorize o acesso nas configurações do navegador.',
+      )
+      rsm.forceState('error')
+    } else if (camStatus === 'error' && recordingState === 'requesting-permissions') {
+      rsm.setErrorMessage(camError || 'Dispositivo de câmera ocupado ou indisponível.')
+      rsm.forceState('error')
+    } else if (camStatus === 'idle' && recordingState === 'camera-ready') {
+      // Câmera desligada manualmente → volta a idle.
+      rsm.transition('idle')
     }
-  }, [camStatus, recordingState])
-
-  // Proteção contra fechamento acidental durante gravação (beforeunload).
-  useEffect(() => {
-    if (!isActivelyRecording(recordingState)) return
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault()
-      e.returnValue = ''
-    }
-    window.addEventListener('beforeunload', handler)
-    return () => window.removeEventListener('beforeunload', handler)
-  }, [recordingState])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [camStatus])
 
   /**
    * Tenta enumerar dispositivos. Sem permissão prévia, os labels chegam vazios
@@ -851,18 +863,29 @@ export default function Gravadora() {
   // Inicia o MediaRecorder (gravação via canvas.captureStream permanece intacta).
   const startRecording = useCallback(() => {
     if (!stream) {
-      setRecErrorMessage('Câmera não conectada.')
-      setRecordingState('error')
+      rsm.setErrorMessage('Câmera não conectada.')
+      rsm.forceState('error')
       toast.error('Câmera não conectada. Clique em "Ativar Câmera" primeiro.')
       return
     }
-    // Impedir 2 gravadores.
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+    // Guarda: não permitir gravar sem stream válido de câmera.
+    if (stream.getVideoTracks().length === 0) {
+      rsm.setErrorMessage('Stream de câmera inválido.')
+      rsm.forceState('error')
+      toast.error('Stream de câmera inválido. Reinicie a câmera.')
+      return
+    }
+    // Guarda: não permitir dois gravadores simultâneos.
+    if (
+      rsm.recorderActive ||
+      (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive')
+    ) {
       toast.warning('Já existe uma gravação em andamento.')
       return
     }
     recordedChunksRef.current = []
     setMarkers([])
+    rsm.setRecorderActive(true)
 
     const reactionVideoEl = reactionOverlayRef.current?.video || null
     const useReactionAudio =
@@ -875,8 +898,9 @@ export default function Gravadora() {
       // adicionadas ao stream do canvas.
       const canvasStream = stageRef.current?.captureStream(30)
       if (!canvasStream) {
-        setRecErrorMessage('Compositor indisponível.')
-        setRecordingState('error')
+        rsm.setErrorMessage('Compositor indisponível.')
+        rsm.forceState('error')
+        rsm.setRecorderActive(false)
         toast.error('Erro ao iniciar o compositor de vídeo.')
         return
       }
@@ -927,20 +951,34 @@ export default function Gravadora() {
         if (e.data.size > 0) recordedChunksRef.current.push(e.data)
       }
       recorder.onstop = async () => {
-        setRecordingState('processing')
+        rsm.forceState('processing')
         try {
           const blob = new Blob(recordedChunksRef.current, { type: recordingSettings.format })
           if (activeProjectId) {
             await saveRawVideo(activeProjectId, blob, recTimer, recordingSettings.format)
           }
           const name = recordingSettings.takeName || `take-${Date.now()}`
-          setLastTakeName(`${name}.webm`)
-          setRecordingState('saved')
+          rsm.setLastTakeName(`${name}.webm`)
+          rsm.forceState('saved')
           toast.success(`Take salvo: ${name}.webm`)
         } catch (err) {
-          setRecErrorMessage('Falha ao salvar o take.')
-          setRecordingState('error')
+          // Em caso de erro, tenta salvar take parcial (chunks coletados até então).
+          try {
+            if (recordedChunksRef.current.length > 0 && activeProjectId) {
+              const partialBlob = new Blob(recordedChunksRef.current, {
+                type: recordingSettings.format,
+              })
+              await saveRawVideo(activeProjectId, partialBlob, recTimer, recordingSettings.format)
+              toast.warning('Take parcial salvo devido a erro.')
+            }
+          } catch {
+            /* noop — melhor esforço */
+          }
+          rsm.setErrorMessage('Falha ao salvar o take.')
+          rsm.forceState('error')
           toast.error('Erro ao processar o take.')
+        } finally {
+          rsm.setRecorderActive(false)
         }
       }
       recorder.start(1000)
@@ -959,11 +997,12 @@ export default function Gravadora() {
       }
 
       setIsRecording(true)
-      setRecordingState('recording')
+      rsm.forceState('recording')
       toast.info('Gravação iniciada...')
     } catch (err: any) {
-      setRecErrorMessage(err?.message || 'Não foi possível iniciar a gravação.')
-      setRecordingState('error')
+      rsm.setErrorMessage(err?.message || 'Não foi possível iniciar a gravação.')
+      rsm.forceState('error')
+      rsm.setRecorderActive(false)
       toast.error('Erro ao iniciar a gravação.')
     }
   }, [
@@ -974,6 +1013,7 @@ export default function Gravadora() {
     saveRawVideo,
     recTimer,
     setIsRecording,
+    rsm,
   ])
 
   // Solicita gravação → abre o checklist pré-gravação.
@@ -982,7 +1022,8 @@ export default function Gravadora() {
     setPreFlightOpen(true)
   }, [recordingState])
 
-  // Continua após o checklist (ignorando avisos não-bloqueantes).
+  // Continua após o checklist (ignorando avisos não-bloqueantes). Inicia a
+  // contagem regressiva visual (com beep) e ao final chama startRecording.
   const onPreFlightContinue = useCallback(() => {
     setPreFlightOpen(false)
     const cd = recordingSettings.countdown
@@ -990,46 +1031,67 @@ export default function Gravadora() {
       startRecording()
       return
     }
-    setRecordingState('countdown')
+    // countdown: transição validada camera-ready → countdown.
+    if (!rsm.transition('countdown')) return
+    countdownCancelledRef.current = false
     let n = cd
     setCountdownOverlay(n)
+    playBeep()
     const tick = () => {
+      if (countdownCancelledRef.current) return
       n -= 1
       if (n <= 0) {
-        setCountdownOverlay(null)
-        startRecording()
+        // Último frame: bolinha vermelha de REC por 500ms antes de gravar.
+        setCountdownOverlay(0)
+        playBeep(1000)
+        countdownTimerRef.current = setTimeout(() => {
+          setCountdownOverlay(null)
+          startRecording()
+        }, 500)
       } else {
         setCountdownOverlay(n)
-        setTimeout(tick, 1000)
+        playBeep()
+        countdownTimerRef.current = setTimeout(tick, 1000)
       }
     }
-    setTimeout(tick, 1000)
-  }, [recordingSettings.countdown, startRecording])
+    countdownTimerRef.current = setTimeout(tick, 1000)
+  }, [recordingSettings.countdown, startRecording, rsm])
+
+  // Cancela a contagem regressiva (Esc) e volta para camera-ready.
+  const cancelCountdown = useCallback(() => {
+    countdownCancelledRef.current = true
+    if (countdownTimerRef.current) {
+      clearTimeout(countdownTimerRef.current)
+      countdownTimerRef.current = null
+    }
+    setCountdownOverlay(null)
+    rsm.transition('camera-ready')
+  }, [rsm])
 
   const handlePauseRecording = useCallback(() => {
     try {
       mediaRecorderRef.current?.pause()
       setIsRecording(false)
-      setRecordingState('paused')
+      rsm.transition('paused')
       toast.info('Gravação pausada.')
     } catch {
       /* noop */
     }
-  }, [setIsRecording])
+  }, [setIsRecording, rsm])
 
   const handleResumeRecording = useCallback(() => {
     try {
       mediaRecorderRef.current?.resume()
       setIsRecording(true)
-      setRecordingState('recording')
+      rsm.transition('recording')
       toast.info('Gravação retomada.')
     } catch {
       /* noop */
     }
-  }, [setIsRecording])
+  }, [setIsRecording, rsm])
 
   const handleStopRecording = useCallback(() => {
-    setRecordingState('stopping')
+    rsm.transition('stopping')
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop()
     }
@@ -1046,7 +1108,21 @@ export default function Gravadora() {
     mixAudioCtxRef.current = null
     setIsRecording(false)
     // onstop do recorder transita para 'processing' -> 'saved'.
-  }, [setIsRecording])
+  }, [rsm, setIsRecording])
+
+  // Reiniciar/descartar o take atual: volta para idle (ou camera-ready se a
+  // câmera ainda estiver ligada). Limpa marcadores e chunks.
+  const handleResetTake = useCallback(() => {
+    rsm.reset()
+    setMarkers([])
+    recordedChunksRef.current = []
+    setIsRecording(false)
+    // Se a câmera continua ligada, reflete camera-ready.
+    if (camStatus === 'ready') {
+      rsm.forceState('camera-ready')
+    }
+    toast.info('Take descartado. Pronto para novo take.')
+  }, [rsm, setIsRecording, camStatus])
 
   const handleAddMarker = useCallback(() => {
     setMarkers((m) => [...m, recTimer])
@@ -1065,11 +1141,11 @@ export default function Gravadora() {
       streamRef.current = null
       setStream(null)
       setCamStatus('idle')
-      setRecordingState('idle')
+      rsm.forceState('idle')
     } else {
       handleActivateCamera()
     }
-  }, [camStatus, recordingState, handleActivateCamera])
+  }, [camStatus, recordingState, handleActivateCamera, rsm])
 
   const handleDockToggleMic = useCallback(() => {
     if (!streamRef.current) return
@@ -1078,6 +1154,29 @@ export default function Gravadora() {
     const enabled = !tracks[0].enabled
     tracks.forEach((t) => (t.enabled = enabled))
     toast.info(enabled ? 'Microfone ativado.' : 'Microfone mutado.')
+  }, [])
+
+  // Beep da contagem regressiva (Web Audio oscillator, 800Hz/1000Hz, 100ms).
+  const playBeep = useCallback((freq = 800) => {
+    try {
+      const AC: typeof AudioContext = window.AudioContext || (window as any).webkitAudioContext
+      const ctx = audioContextRef.current ?? new AC()
+      audioContextRef.current = ctx
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {})
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'sine'
+      osc.frequency.value = freq
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.01)
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.1)
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.start()
+      osc.stop(ctx.currentTime + 0.12)
+    } catch {
+      /* noop — áudio é melhor esforço */
+    }
   }, [])
 
   const handleTestAudio = useCallback(() => {
@@ -1093,6 +1192,62 @@ export default function Gravadora() {
     },
     [handleActivateCamera],
   )
+
+  // Dismiss do erro (error → idle).
+  const handleDismissError = useCallback(() => {
+    rsm.dismissError()
+    if (camStatus === 'ready') rsm.forceState('camera-ready')
+  }, [rsm, camStatus])
+
+  // Atalhos de teclado da gravação: R (gravar), Espaço (pausa/continua),
+  // Esc (finaliza ou cancela contagem). Não disparam durante digitação.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName
+      const editing =
+        tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable
+      if (editing) return
+
+      // Esc: finaliza gravação OU cancela contagem regressiva.
+      if (e.key === 'Escape') {
+        if (recordingState === 'countdown') {
+          e.preventDefault()
+          cancelCountdown()
+        } else if (recordingState === 'recording' || recordingState === 'paused') {
+          e.preventDefault()
+          handleStopRecording()
+        }
+        return
+      }
+      // Espaço: pausa/continua (só durante gravação).
+      if (e.code === 'Space') {
+        if (recordingState === 'recording') {
+          e.preventDefault()
+          handlePauseRecording()
+        } else if (recordingState === 'paused') {
+          e.preventDefault()
+          handleResumeRecording()
+        }
+        return
+      }
+      // R: inicia gravação (só em camera-ready).
+      if (e.key === 'r' || e.key === 'R') {
+        if (recordingState === 'camera-ready') {
+          e.preventDefault()
+          onRequestRecord()
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [
+    recordingState,
+    cancelCountdown,
+    handleStopRecording,
+    handlePauseRecording,
+    handleResumeRecording,
+    onRequestRecord,
+  ])
 
   const formatTimer = (sec: number) => {
     const m = Math.floor(sec / 60)
@@ -1990,14 +2145,9 @@ export default function Gravadora() {
           {/* Palco 9:16 com split screen */}
           {renderStage()}
 
-          {/* Contagem regressiva central (Módulo 7) */}
-          {countdownOverlay !== null && (
-            <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-none">
-              <span className="text-9xl font-extrabold text-white animate-ping-slow">
-                {countdownOverlay}
-              </span>
-            </div>
-          )}
+          {/* Contagem regressiva central (Módulo 7) — overlay fullscreen com
+              animação scale+fade e bolinha vermelha de REC no último frame. */}
+          <CountdownOverlay value={countdownOverlay} onCancel={cancelCountdown} />
 
           {/* Seletor de layout + Controls Flutuantes no Canvas */}
           <div className="flex items-center gap-3 flex-wrap justify-center">
@@ -2098,8 +2248,9 @@ export default function Gravadora() {
           micOn={stream?.getAudioTracks().some((t) => t.enabled) ?? false}
           micLevel={micLevel}
           countdown={recordingSettings.countdown}
-          errorMessage={recErrorMessage}
-          lastTakeName={lastTakeName}
+          errorMessage={rsm.errorMessage}
+          lastTakeName={rsm.lastTakeName}
+          countdownValue={countdownOverlay}
           onToggleCamera={handleDockToggleCamera}
           onToggleMic={handleDockToggleMic}
           onTestAudio={handleTestAudio}
@@ -2109,6 +2260,7 @@ export default function Gravadora() {
           onResume={handleResumeRecording}
           onStop={handleStopRecording}
           onMarker={handleAddMarker}
+          onResetTake={handleResetTake}
         />
 
         {/* Checklist pré-gravação (Módulo 6) */}
