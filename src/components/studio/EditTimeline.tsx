@@ -11,6 +11,7 @@ import {
   SkipForward,
   Flag,
   Square,
+  RotateCcw,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { TimelineState, TimelineSegment } from '@/types/studio'
@@ -48,6 +49,12 @@ interface EditTimelineProps {
   onSeek: (time: number) => void
   /** Indicador de alterações não salvas (para antes de sair). */
   markDirty?: () => void
+  /** Handlers externos opcionais (quando o pai centraliza o histórico). */
+  onUndo?: () => void
+  onRedo?: () => void
+  onSplit?: () => void
+  onDeleteSegment?: () => void
+  onRestoreExcluded?: () => void
 }
 
 const HISTORY_LIMIT = 50
@@ -76,6 +83,11 @@ export default function EditTimeline({
   onTogglePlay,
   onSeek,
   markDirty,
+  onUndo,
+  onRedo,
+  onSplit,
+  onDeleteSegment,
+  onRestoreExcluded,
 }: EditTimelineProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -410,7 +422,7 @@ export default function EditTimeline({
           <Button
             variant="ghost"
             size="sm"
-            onClick={handleSplit}
+            onClick={onSplit ?? handleSplit}
             className="h-7 px-2.5 text-xs text-white hover:bg-white/10 gap-1.5"
             title="Dividir no cursor (S)"
           >
@@ -419,18 +431,41 @@ export default function EditTimeline({
           <Button
             variant="ghost"
             size="sm"
-            onClick={handleDeleteSegmentAtCursor}
+            onClick={onDeleteSegment ?? handleDeleteSegmentAtCursor}
             className="h-7 px-2 text-xs text-red-400 hover:bg-red-500/10 gap-1"
             title="Excluir segmento (Delete)"
           >
             <Trash2 className="w-3.5 h-3.5" /> Excluir
           </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={
+              onRestoreExcluded ??
+              (() => {
+                const hasExcluded = state.segments.some((s) => s.excluded)
+                if (!hasExcluded) {
+                  toast.info('Não há segmentos excluídos para restaurar.')
+                  return
+                }
+                commit({
+                  ...state,
+                  segments: state.segments.map((s) => ({ ...s, excluded: false })),
+                })
+                toast.success('Trecho excluído restaurado.')
+              })
+            }
+            className="h-7 px-2 text-xs text-emerald-400 hover:bg-emerald-500/10 gap-1"
+            title="Restaurar trecho excluído"
+          >
+            <RotateCcw className="w-3.5 h-3.5" /> Restaurar
+          </Button>
           <div className="w-px h-5 bg-white/10 mx-1" />
           <Button
             variant="ghost"
             size="sm"
-            onClick={handleUndo}
-            disabled={undoStack.current.length === 0}
+            onClick={onUndo ?? handleUndo}
+            disabled={undoStack.current.length === 0 && !onUndo}
             className="h-7 px-2 text-xs text-[#9494A8] hover:text-white disabled:opacity-30"
             title="Desfazer (Ctrl+Z)"
           >
@@ -439,8 +474,8 @@ export default function EditTimeline({
           <Button
             variant="ghost"
             size="sm"
-            onClick={handleRedo}
-            disabled={redoStack.current.length === 0}
+            onClick={onRedo ?? handleRedo}
+            disabled={redoStack.current.length === 0 && !onRedo}
             className="h-7 px-2 text-xs text-[#9494A8] hover:text-white disabled:opacity-30"
             title="Refazer (Ctrl+Shift+Z)"
           >
