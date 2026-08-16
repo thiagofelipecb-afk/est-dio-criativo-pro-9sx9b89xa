@@ -269,20 +269,13 @@ export default function Gravadora() {
         return false
       }
     })()
+  // MediaPipe (@mediapipe/tasks-vision) não está instalado neste projeto.
+  // O import dinâmico abaixo quebrava o build (Rolldown não resolvia o pacote).
+  // Placeholder permanente: a UI de aparência/beleza exibe a mensagem de
+  // indisponibilidade sem tentar carregar nenhum pacote externo.
   const loadMediapipe = useCallback(async () => {
-    setMediapipeLoading(true)
-    try {
-      // Import dinâmico opcional — se o pacote não estiver instalado, o catch
-      // exibe a mensagem de indisponibilidade sem quebrar o app.
-      await import(/* @vite-ignore */ '@mediapipe/tasks-vision').catch(() => null)
-      // Mesmo se o import falhar, habilitamos a UI com aviso de rosto não detectado.
-      setMediapipeAvailable(true)
-      toast.info('Modelo carregado. Ajuste os efeitos na aba Aparência.')
-    } catch {
-      toast.error('Não foi possível carregar o modelo de efeitos faciais.')
-    } finally {
-      setMediapipeLoading(false)
-    }
+    setMediapipeAvailable(false)
+    setMediapipeLoading(false)
   }, [])
 
   // Sincroniza recordingState com camStatus (quando a câmera liga/desliga fora
@@ -1934,10 +1927,10 @@ export default function Gravadora() {
             updateAudioConfig={updateAudioConfig}
             micLevel={micLevel}
             recordingSettings={recordingSettings}
-            setRecordingSettings={setRecordingSettings}
+            setRecordingSettings={(u) => setRecordingSettings((p) => ({ ...p, ...u }))}
             gravadoraScript={gravadoraScript}
-            setGravadoraScript={(t) => useStudioSetGravadoraScript(t)}
-            setScriptBlocks={(b) => useStudioSetScriptBlocks(b)}
+            setGravadoraScript={useStudioSetGravadoraScript}
+            setScriptBlocks={useStudioSetScriptBlocks}
           />
         </div>
 
@@ -1979,7 +1972,7 @@ export default function Gravadora() {
           onToggleCamera={handleDockToggleCamera}
           onToggleMic={handleDockToggleMic}
           onTestAudio={handleTestAudio}
-          onCountdownChange={(v) => setRecordingSettings({ countdown: v })}
+          onCountdownChange={(v) => setRecordingSettings((p) => ({ ...p, countdown: v }))}
           onRecord={onRequestRecord}
           onPause={handlePauseRecording}
           onResume={handleResumeRecording}
