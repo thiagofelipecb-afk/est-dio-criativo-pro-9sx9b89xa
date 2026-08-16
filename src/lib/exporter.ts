@@ -10,8 +10,10 @@ import type {
   BackgroundConfig,
   BlockArt,
   BlockBRoll,
+  BlockMediaAssignment,
   ExportProgress,
   ExportResult,
+  MediaAsset,
   ReactionVideo,
   ScriptBlock,
   StageLayout,
@@ -95,6 +97,10 @@ export interface ExportOptions {
   effects?: EffectsState | null
   /** Estado de áudio do editor (fade in/out, ducking, volume). */
   editorAudio?: EditorAudioState | null
+  /** PROMPT 3 — Atribuições de mídia por bloco (BlockMediaAssignment). */
+  blockAssignments?: BlockMediaAssignment[]
+  /** PROMPT 3 — Assets canônicos da biblioteca (para resolver assetId → URL). */
+  mediaAssets?: MediaAsset[]
 }
 
 /** Detecta o melhor MIME type suportado pelo navegador. */
@@ -792,13 +798,61 @@ function drawTitle(
 /** Identifica o bloco ativo em um determinado tempo do vídeo bruto. */
 function findActiveBlock(blocks: ScriptBlock[], rawTime: number): ScriptBlock | null {
   if (blocks.length === 0) return null
-  // Acumula duração estimada para localizar o bloco ativo.
-  let acc = 0
-  for (const b of blocks) {
-    acc += b.estimatedSeconds || 1
-    if (rawTime <= acc) return b
+  // PROMPT 3 — Quando os blocos não têm timing por bloco, estima
+  // totalVideoDuration / numberOfBlocks para mapear currentTime → blockIndex.
+  const totalEst = blocks.reduce((acc, b) => acc + (b.estimatedSeconds || 1), 0)
+  const perBlock = totalEst / blocks.length
+  const idx = Math.min(blocks.length - 1, Math.max(0, Math.floor(rawTime / perBlock)))
+  return blocks[idx]
+}
+
+/** PROMPT 3 — Desenha uma atribuição de mídia (BlockMediaAssignment) no canvas. */
+function drawBlockMediaAssignment(
+  ctx: CanvasRenderingContext2D,
+  assignment: BlockMediaAssignment,
+  img: HTMLImageElement,
+  w: number,
+  h: number,
+  rect?: { x: number; y: number; w: number; h: number },
+): void {
+  const target = rect ?? { x: 0, y: 0, w, h }
+  // Fundo configurável da atribuição.
+  ctx.save()
+  ctx.fillStyle = assignment.backgroundColor || '#000000'
+  ctx.fillRect(target.x, target.y, target.w, target.h)
+  ctx.restore()
+
+  const iw = img.naturalWidth || img.width
+  const ih = img.naturalHeight || img.height
+  if (!iw || !ih) return
+
+  const scale = assignment.scale
+  let dw: number
+  let dh: number
+  if (assignment.fit === 'cover') {
+    const s = Math.max(target.w / iw, target.h / ih) * scale
+    dw = iw * s
+    dh = ih * s
+  } else if (assignment.fit === 'fill') {
+    dw = target.w * scale
+    dh = target.h * scale
+  } else {
+    // contain
+    const s = Math.min(target.w / iw, target.h / ih) * scale
+    dw = iw * s
+    dh = ih * s
   }
-  return blocks[blocks.length - 1]
+  const cx = target.x + target.w * assignment.positionX
+  const cy = target.y + target.h * assignment.positionY
+  const dx = cx - dw / 2
+  const dy = cy - dh / 2
+  ctx.save()
+  // Recorta ao retângulo alvo para não vazar em layouts divididos.
+  ctx.beginPath()
+  ctx.rect(target.x, target.y, target.w, target.h)
+  ctx.clip()
+  ctx.drawImage(img, dx, dy, dw, dh)
+  ctx.restore()
 }
 
 /* ===========================================================================
@@ -957,6 +1011,8 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
     adjustments,
     effects,
     editorAudio,
+    blockAssignments,
+    mediaAssets,
   } = opts
   const splitRects = computeSplitRects(stageLayout, splitCameraRatio, EXPORT_W, EXPORT_H)
 
@@ -1048,6 +1104,22 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
       cachedSplitImage = await loadImageElement(splitMediaUrl)
     } catch {
       cachedSplitImage = null
+    }
+  }
+
+  // PROMPT 3 — Pré-carrega as imagens das atribuições de mídia por bloco.
+  const cachedAssignmentImages = new Map<string, HTMLImageElement>()
+  if (blockAssignments && mediaAssets) {
+    for (const a of blockAssignments) {
+      if (cachedAssignmentImages.has(a.assetId)) continue
+      const asset = mediaAssets.find((m) => m.id === a.assetId)
+      const url = asset?.publicUrl || asset?.thumbnailUrl
+      if (!url) continue
+      try {
+        cachedAssignmentImages.set(a.assetId, await loadImageElement(url))
+      } catch {
+        /* ignora */
+      }
     }
   }
 
@@ -1349,6 +1421,23 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
         drawArts(ctx, arts, EXPORT_W, EXPORT_H, cachedArts)
         const broll = brollByBlock[activeBlock.id] || null
         drawBRoll(ctx, broll, EXPORT_W, EXPORT_H, cachedBrollImages.get(activeBlock.id) || null)
+
+        // PROMPT 3 — Desenha as atribuições de mídia (BlockMediaAssignment) do bloco ativo.
+        if (blockAssignments && blockAssignments.length > 0) {
+          const blockAssigns = blockAssignments
+            .filter((a) => a.blockId === activeBlock.id && a.enabled)
+            .sort((a, b) => a.order - b.order)
+          for (const a of blockAssigns) {
+            const img = cachedAssignmentImages.get(a.assetId)
+            if (!img) continue
+            // Posiciona conforme o layout: full = overlay total; split = área complementar.
+            if (splitRects) {
+              drawBlockMediaAssignment(ctx, a, img, EXPORT_W, EXPORT_H, splitRects.media)
+            } else {
+              drawBlockMediaAssignment(ctx, a, img, EXPORT_W, EXPORT_H)
+            }
+          }
+        }
       }
       drawReaction(ctx, reaction, EXPORT_W, EXPORT_H)
       drawTitle(ctx, title, EXPORT_W, EXPORT_H, resultTime)

@@ -17,6 +17,7 @@ import {
   AudioConfig,
   TeleprompterMode,
   TeleprompterTextColor,
+  BlockMediaAssignment,
 } from '@/types/studio'
 import {
   loadAssets,
@@ -224,6 +225,18 @@ interface StudioContextType {
   recoverInterruptedRecording: (projectId: string) => Promise<RawVideoRecord | null>
   getTimelineState: (projectId: string, rawDuration: number) => TimelineState
   setTimelineState: (projectId: string, state: TimelineState) => void
+
+  // PROMPT 3 — Atribuição de mídia por bloco (artes sincronizadas com o teleprompter)
+  blockAssignments: BlockMediaAssignment[]
+  addBlockAssignment: (a: Omit<BlockMediaAssignment, 'id' | 'createdAt'>) => BlockMediaAssignment
+  updateBlockAssignment: (id: string, updates: Partial<BlockMediaAssignment>) => void
+  deleteBlockAssignment: (id: string) => void
+  getAssignmentsForBlock: (blockId: string) => BlockMediaAssignment[]
+  getAssignmentsForCurrentBlock: () => BlockMediaAssignment[]
+  syncArtsEnabled: boolean
+  setSyncArtsEnabled: (v: boolean) => void
+  artBlockIndex: number
+  setArtBlockIndex: (i: number) => void
 }
 
 export interface BrandOSContext {
@@ -961,6 +974,97 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const updateBrandOS = (updates: Partial<BrandOSContext>) =>
     setBrandOSState((prev) => (prev ? { ...prev, ...updates } : prev))
 
+  // PROMPT 3 — Atribuição de mídia por bloco (persistida em lumen_block_assignments).
+  const [blockAssignments, setBlockAssignments] = useState<BlockMediaAssignment[]>(() => {
+    try {
+      const raw = localStorage.getItem('lumen_block_assignments')
+      return raw ? (JSON.parse(raw) as BlockMediaAssignment[]) : []
+    } catch {
+      return []
+    }
+  })
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('lumen_block_assignments', JSON.stringify(blockAssignments))
+    } catch {
+      /* noop */
+    }
+  }, [blockAssignments])
+
+  // syncArtsEnabled: quando true, o palco segue o activeBlockIndex do teleprompter.
+  const [syncArtsEnabled, setSyncArtsEnabledState] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('lumen_sync_arts_enabled') === 'true'
+    } catch {
+      return false
+    }
+  })
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('lumen_sync_arts_enabled', String(syncArtsEnabled))
+    } catch {
+      /* noop */
+    }
+  }, [syncArtsEnabled])
+
+  // artBlockIndex: bloco atualmente selecionado no painel Artes. Quando
+  // syncArtsEnabled é true, acompanha activeBlockIndex automaticamente.
+  const [artBlockIndex, setArtBlockIndex] = useState(0)
+
+  // Mantém artBlockIndex sincronizado com o teleprompter quando sync está ligado.
+  useEffect(() => {
+    if (syncArtsEnabled) setArtBlockIndex(activeBlockIndex)
+  }, [syncArtsEnabled, activeBlockIndex])
+
+  const setSyncArtsEnabled = useCallback(
+    (v: boolean) => {
+      setSyncArtsEnabledState(v)
+      if (v) setArtBlockIndex(activeBlockIndex)
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [activeBlockIndex],
+  )
+
+  const addBlockAssignment = useCallback(
+    (a: Omit<BlockMediaAssignment, 'id' | 'createdAt'>): BlockMediaAssignment => {
+      const rec: BlockMediaAssignment = {
+        ...a,
+        id: 'bma-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+        createdAt: new Date().toISOString(),
+      }
+      setBlockAssignments((prev) => [...prev, rec])
+      return rec
+    },
+    [],
+  )
+
+  const updateBlockAssignment = useCallback(
+    (id: string, updates: Partial<BlockMediaAssignment>) => {
+      setBlockAssignments((prev) => prev.map((a) => (a.id === id ? { ...a, ...updates } : a)))
+    },
+    [],
+  )
+
+  const deleteBlockAssignment = useCallback((id: string) => {
+    setBlockAssignments((prev) => prev.filter((a) => a.id !== id))
+  }, [])
+
+  const getAssignmentsForBlock = useCallback(
+    (blockId: string): BlockMediaAssignment[] =>
+      blockAssignments
+        .filter((a) => a.blockId === blockId && a.enabled)
+        .sort((a, b) => a.order - b.order),
+    [blockAssignments],
+  )
+
+  const getAssignmentsForCurrentBlock = useCallback((): BlockMediaAssignment[] => {
+    const block = scriptBlocks[artBlockIndex]
+    return block ? getAssignmentsForBlock(block.id) : []
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockAssignments, scriptBlocks, artBlockIndex, getAssignmentsForBlock])
+
   return (
     <StudioContext.Provider
       value={{
@@ -1033,6 +1137,16 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         recoverInterruptedRecording,
         getTimelineState,
         setTimelineState,
+        blockAssignments,
+        addBlockAssignment,
+        updateBlockAssignment,
+        deleteBlockAssignment,
+        getAssignmentsForBlock,
+        getAssignmentsForCurrentBlock,
+        syncArtsEnabled,
+        setSyncArtsEnabled,
+        artBlockIndex,
+        setArtBlockIndex,
       }}
     >
       {children}

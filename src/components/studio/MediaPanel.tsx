@@ -1,227 +1,520 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { Slider } from '@/components/ui/slider'
 import { Button } from '@/components/ui/button'
-import { Upload, Search, Trash2, Plus, Film, Image as ImageIcon } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import {
+  Upload,
+  Trash2,
+  Film,
+  Image as ImageIcon,
+  Copy,
+  ChevronUp,
+  ChevronDown,
+  X,
+  Layers,
+  Check,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { useStudio } from '@/context/StudioContext'
 import { useMediaAssets } from '@/hooks/useMediaAssets'
-import {
-  EditorMediaItem,
-  editorKey,
-  loadEditorState,
-  saveEditorState,
-} from '@/components/studio/editor-types'
+import type { BlockMediaAssignment } from '@/types/studio'
+
+/* ===========================================================================
+   PROMPT 3 — MediaPanel com sub-tabs (Artes / Reação / Quadro / B-roll)
+   A sub-tab "Artes" implementa atribuição de mídia por bloco sincronizada
+   com o teleprompter (lumen_block_assignments).
+   =========================================================================== */
+
+type SubTab = 'artes' | 'reacao' | 'quadro' | 'broll'
 
 interface MediaPanelProps {
   projectId: string
 }
 
 export function MediaPanel({ projectId }: MediaPanelProps) {
-  const { scriptBlocks } = useStudio()
-  // PROMPT 2 — B-roll agora vem da fonte canônica (lumen_media_assets), a
-  // mesma usada por /midias, /biblioteca e Gravadora.
-  const { assets: mediaAssets, addFromFile } = useMediaAssets()
-  const storageKey = editorKey(projectId, 'media')
-
-  const [items, setItems] = useState<EditorMediaItem[]>(() =>
-    loadEditorState<EditorMediaItem[]>(projectId, 'media', []),
-  )
-  const [search, setSearch] = useState('')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [brollByBlock, setBrollByBlock] = useState<Record<string, string>>(() =>
-    loadEditorState<Record<string, string>>(projectId, 'broll_by_block', {}),
-  )
-  const fileRef = useRef<HTMLInputElement | null>(null)
-
-  const persist = useCallback(
-    (next: EditorMediaItem[]) => {
-      setItems(next)
-      saveEditorState(projectId, 'media', next)
-    },
-    [projectId],
-  )
-
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || [])
-    if (files.length === 0) return
-    const newItems: EditorMediaItem[] = []
-    for (const file of files) {
-      try {
-        // PROMPT 2 — pipeline canônico: valida MIME/ext/tamanho, extrai
-        // duração/dimensões/thumbnail e salva em lumen_media_assets.
-        const asset = await addFromFile(file, { projectId, source: 'upload' })
-        const isVideo = asset.type === 'video'
-        newItems.push({
-          id: asset.id,
-          name: asset.name,
-          type: isVideo ? 'video' : 'image',
-          url: asset.publicUrl || '',
-          duration: asset.durationMs ? asset.durationMs / 1000 : undefined,
-          scale: 1,
-          x: 0.5,
-          y: 0.5,
-          opacity: 100,
-          timelineDuration: asset.durationMs ? asset.durationMs / 1000 : 5,
-          z: 1,
-        })
-      } catch (err: any) {
-        toast.error(`${file.name}: ${err?.message || 'falha ao importar'}`)
-      }
-    }
-    persist([...items, ...newItems])
-    if (newItems.length > 0) toast.success(`${newItems.length} mídia(s) importada(s).`)
-    e.target.value = ''
-  }
-
-  const handleAddToTimeline = (item: EditorMediaItem) => {
-    toast.success(`"${item.name}" adicionada à timeline.`)
-    // Dispara evento para o editor capturar (opcional — overlay visual).
-    window.dispatchEvent(new CustomEvent('lumen-editor-add-media', { detail: { item, projectId } }))
-  }
-
-  const handleRemove = (id: string) => {
-    persist(items.filter((i) => i.id !== id))
-    if (selectedId === id) setSelectedId(null)
-  }
-
-  const selected = useMemo(
-    () => items.find((i) => i.id === selectedId) || null,
-    [items, selectedId],
-  )
-
-  const updateSelected = (patch: Partial<EditorMediaItem>) => {
-    if (!selected) return
-    persist(items.map((i) => (i.id === selected.id ? { ...i, ...patch } : i)))
-  }
-
-  const filtered = useMemo(() => {
-    if (!search.trim()) return items
-    return items.filter((i) => i.name.toLowerCase().includes(search.toLowerCase()))
-  }, [items, search])
-
-  const setBlockMedia = (blockId: string, mediaId: string) => {
-    const next = { ...brollByBlock, [blockId]: mediaId }
-    setBrollByBlock(next)
-    saveEditorState(projectId, 'broll_by_block', next)
-  }
+  const [subTab, setSubTab] = useState<SubTab>('artes')
 
   return (
     <div className="space-y-3">
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*,video/*"
-        multiple
-        onChange={handleUpload}
-        className="hidden"
-      />
-      <Button
-        size="sm"
-        onClick={() => fileRef.current?.click()}
-        className="w-full h-8 text-[11px] bg-[#7C5CFC] hover:bg-[#6A48E0] gap-1"
-      >
-        <Upload className="w-3.5 h-3.5" /> Importar imagem/vídeo
-      </Button>
-
-      <div className="relative">
-        <Search className="w-3 h-3 text-[#9494A8] absolute left-2 top-1/2 -translate-y-1/2" />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar mídias..."
-          className="w-full bg-[#1C1C27] border border-white/10 rounded-lg pl-7 pr-2 py-1.5 text-[10px] text-white focus:outline-none"
-        />
+      {/* Sub-tabs */}
+      <div className="grid grid-cols-4 gap-1 bg-[#1C1C27] p-1 rounded-xl">
+        {(
+          [
+            { id: 'artes', label: 'Artes' },
+            { id: 'reacao', label: 'Reação' },
+            { id: 'quadro', label: 'Quadro' },
+            { id: 'broll', label: 'B-roll' },
+          ] as { id: SubTab; label: string }[]
+        ).map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setSubTab(t.id)}
+            className={`py-1.5 text-[10px] font-semibold rounded-lg transition-all ${
+              subTab === t.id
+                ? 'bg-[#7C5CFC] text-white'
+                : 'text-[#9494A8] hover:text-white hover:bg-white/5'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      {/* Biblioteca do projeto (itens importados neste editor) */}
-      <div className="space-y-2">
-        <h4 className="text-xs font-bold text-white">Biblioteca ({filtered.length})</h4>
-        {filtered.length === 0 ? (
-          <p className="text-[11px] text-[#9494A8]">Nenhuma mídia importada. Use o botão acima.</p>
-        ) : (
-          <div className="grid grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1">
-            {filtered.map((item) => (
-              <div
-                key={item.id}
-                onClick={() => setSelectedId(item.id)}
-                className={`rounded-lg border overflow-hidden cursor-pointer transition-colors ${selectedId === item.id ? 'border-[#7C5CFC]' : 'border-white/5 hover:border-white/20'}`}
+      {subTab === 'artes' && <ArtesSubTab projectId={projectId} />}
+
+      {subTab !== 'artes' && (
+        <div className="flex flex-col items-center justify-center py-12 text-center gap-2 border border-dashed border-white/10 rounded-xl">
+          <Layers className="w-8 h-8 text-[#9494A8]/50" />
+          <p className="text-xs font-semibold text-[#9494A8]">Em breve</p>
+          <p className="text-[10px] text-[#9494A8]/60 max-w-[200px] leading-relaxed">
+            Esta sub-aba estará disponível em uma próxima atualização do LUMEN Studio.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ===========================================================================
+   Sub-tab Artes
+   =========================================================================== */
+
+function ArtesSubTab({ projectId }: { projectId: string }) {
+  const {
+    scriptBlocks,
+    mediaAssets,
+    blockAssignments,
+    addBlockAssignment,
+    updateBlockAssignment,
+    deleteBlockAssignment,
+    getAssignmentsForBlock,
+    syncArtsEnabled,
+    setSyncArtsEnabled,
+    artBlockIndex,
+    setArtBlockIndex,
+  } = useStudio()
+
+  const [assetFilter, setAssetFilter] = useState<'all' | 'image' | 'video'>('all')
+  const [carouselIdx, setCarouselIdx] = useState(0)
+  const [multiSelectOpen, setMultiSelectOpen] = useState(false)
+  const [multiSelectBlocks, setMultiSelectBlocks] = useState<Set<string>>(new Set())
+  const [pendingDupAssetId, setPendingDupAssetId] = useState<string | null>(null)
+
+  const safeArtIndex = Math.min(artBlockIndex, Math.max(0, scriptBlocks.length - 1))
+  const selectedBlock = scriptBlocks[safeArtIndex]
+  const assignments = selectedBlock ? getAssignmentsForBlock(selectedBlock.id) : []
+
+  // Reset carousel quando muda o bloco selecionado ou as atribuições.
+  React.useEffect(() => {
+    setCarouselIdx(0)
+  }, [safeArtIndex, assignments.length])
+
+  const filteredAssets = useMemo(() => {
+    return mediaAssets.filter((a) => {
+      if (assetFilter === 'image') return a.type === 'image'
+      if (assetFilter === 'video') return a.type === 'video'
+      return a.type === 'image' || a.type === 'video'
+    })
+  }, [mediaAssets, assetFilter])
+
+  // Quando não há blocos, não há o que atribuir.
+  if (scriptBlocks.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-10 text-center gap-2 border border-dashed border-white/10 rounded-xl">
+        <Layers className="w-7 h-7 text-[#9494A8]/50" />
+        <p className="text-xs text-[#9494A8]">Nenhum bloco de roteiro encontrado.</p>
+        <p className="text-[10px] text-[#9494A8]/70 max-w-[220px]">
+          Crie blocos na aba "Roteiro" para atribuir artes a cada parte da fala.
+        </p>
+      </div>
+    )
+  }
+
+  const safeCarouselIdx = Math.min(carouselIdx, Math.max(0, assignments.length - 1))
+  const currentAssignment = assignments[safeCarouselIdx]
+
+  const assignedAssetIds = new Set(assignments.map((a) => a.assetId))
+
+  const handleAssignAsset = (assetId: string) => {
+    if (!selectedBlock) return
+    const existing = blockAssignments.find(
+      (a) => a.blockId === selectedBlock.id && a.assetId === assetId,
+    )
+    if (existing) {
+      toast.info('Esta mídia já está atribuída a este bloco.')
+      return
+    }
+    addBlockAssignment({
+      projectId,
+      blockId: selectedBlock.id,
+      assetId,
+      kind: 'art',
+      order: assignments.length,
+      enabled: true,
+      fit: 'contain',
+      positionX: 0.5,
+      positionY: 0.5,
+      scale: 1,
+      backgroundColor: '#000000',
+    })
+    toast.success('Arte atribuída ao bloco.')
+  }
+
+  const handleApplyToMany = (assetId: string) => {
+    if (multiSelectBlocks.size === 0) {
+      toast.warning('Selecione ao menos um bloco.')
+      return
+    }
+    let count = 0
+    multiSelectBlocks.forEach((blockId) => {
+      const existing = blockAssignments.find((a) => a.blockId === blockId && a.assetId === assetId)
+      if (existing) return
+      const order = blockAssignments.filter((a) => a.blockId === blockId).length
+      addBlockAssignment({
+        projectId,
+        blockId,
+        assetId,
+        kind: 'art',
+        order,
+        enabled: true,
+        fit: 'contain',
+        positionX: 0.5,
+        positionY: 0.5,
+        scale: 1,
+        backgroundColor: '#000000',
+      })
+      count += 1
+    })
+    toast.success(`Arte aplicada a ${count} bloco(s).`)
+    setMultiSelectBlocks(new Set())
+    setMultiSelectOpen(false)
+    setPendingDupAssetId(null)
+  }
+
+  const handleRemoveAssignment = (id: string) => {
+    deleteBlockAssignment(id)
+  }
+
+  const handleReorder = (id: string, dir: -1 | 1) => {
+    const idx = assignments.findIndex((a) => a.id === id)
+    if (idx < 0) return
+    const target = idx + dir
+    if (target < 0 || target >= assignments.length) return
+    const a = assignments[idx]
+    const b = assignments[target]
+    updateBlockAssignment(a.id, { order: b.order })
+    updateBlockAssignment(b.id, { order: a.order })
+  }
+
+  const handleDuplicateTo = (assignment: BlockMediaAssignment, targetBlockId: string) => {
+    const existing = blockAssignments.find(
+      (a) => a.blockId === targetBlockId && a.assetId === assignment.assetId,
+    )
+    if (existing) {
+      toast.info('Já existe essa arte no bloco de destino.')
+      return
+    }
+    const order = blockAssignments.filter((a) => a.blockId === targetBlockId).length
+    addBlockAssignment({
+      ...assignment,
+      blockId: targetBlockId,
+      order,
+    })
+    toast.success('Arte duplicada para o bloco.')
+  }
+
+  const assetById = (id: string) => mediaAssets.find((a) => a.id === id)
+
+  const fitOptions: { id: BlockMediaAssignment['fit']; label: string }[] = [
+    { id: 'contain', label: 'Conter' },
+    { id: 'cover', label: 'Cobrir' },
+    { id: 'fill', label: 'Preencher' },
+  ]
+
+  return (
+    <div className="space-y-3">
+      {/* Header com toggle de sincronização */}
+      <div className="flex items-center justify-between rounded-xl border border-white/10 bg-[#1C1C27]/60 px-3 py-2">
+        <div className="flex flex-col">
+          <span className="text-[11px] font-bold text-white">Sincronizar com artes</span>
+          <span className="text-[9px] text-[#9494A8] leading-tight">
+            {syncArtsEnabled ? 'Palco segue o teleprompter' : 'Navegação manual no painel'}
+          </span>
+        </div>
+        <button
+          onClick={() => setSyncArtsEnabled(!syncArtsEnabled)}
+          className={`relative w-10 h-5 rounded-full transition-colors ${
+            syncArtsEnabled ? 'bg-[#7C5CFC]' : 'bg-[#3A3A4A]'
+          }`}
+          title="Alternar sincronização com o teleprompter"
+        >
+          <span
+            className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+              syncArtsEnabled ? 'translate-x-5' : 'translate-x-0.5'
+            }`}
+          />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-12 gap-2">
+        {/* Coluna esquerda — lista de blocos (~30%) */}
+        <div className="col-span-4 space-y-1 max-h-[360px] overflow-y-auto pr-1">
+          <span className="text-[9px] font-bold text-[#9494A8] uppercase tracking-wider px-1">
+            Blocos
+          </span>
+          {scriptBlocks.map((block, idx) => {
+            const hasArt = blockAssignments.some((a) => a.blockId === block.id && a.enabled)
+            const isSelected = idx === safeArtIndex
+            return (
+              <button
+                key={block.id}
+                onClick={() => {
+                  if (syncArtsEnabled) {
+                    toast.info('Desative "Sincronizar com artes" para navegar manualmente.')
+                    return
+                  }
+                  setArtBlockIndex(idx)
+                }}
+                className={`w-full text-left p-2 rounded-lg border transition-all ${
+                  isSelected
+                    ? 'border-[#7C5CFC] bg-[#7C5CFC]/10'
+                    : 'border-white/5 bg-[#14141C] hover:border-white/20'
+                }`}
               >
-                <div className="aspect-video bg-[#0B0B10] flex items-center justify-center">
-                  {item.type === 'video' ? (
-                    <video src={item.url} className="w-full h-full object-cover" muted />
-                  ) : (
-                    <img src={item.url} alt={item.name} className="w-full h-full object-cover" />
-                  )}
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[9px] font-bold text-white/80 shrink-0">{idx + 1}</span>
+                  <Badge
+                    className={`text-[8px] px-1 py-0 h-4 ${
+                      hasArt
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                        : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                    }`}
+                  >
+                    {hasArt ? 'Pronto' : 'Pendente'}
+                  </Badge>
                 </div>
-                <div className="p-1.5 flex items-center justify-between gap-1">
-                  <span className="text-[9px] text-white truncate flex items-center gap-1">
-                    {item.type === 'video' ? (
-                      <Film className="w-2.5 h-2.5 text-pink-400" />
-                    ) : (
-                      <ImageIcon className="w-2.5 h-2.5 text-cyan-400" />
-                    )}
-                    {item.name}
-                  </span>
-                  <div className="flex items-center gap-0.5 shrink-0">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleAddToTimeline(item)
-                      }}
-                      className="p-1 text-[#22D3EE] hover:bg-[#22D3EE]/10 rounded"
-                      title="Adicionar à timeline"
-                    >
-                      <Plus className="w-3 h-3" />
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleRemove(item.id)
-                      }}
-                      className="p-1 text-[#9494A8] hover:text-red-400 rounded"
-                      title="Remover"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+                <p className="text-[10px] text-white/70 line-clamp-2 leading-tight mt-1">
+                  {block.text}
+                </p>
+              </button>
+            )
+          })}
+        </div>
 
-      {/* PROMPT 2 — B-roll da biblioteca canônica (mesma fonte de /midias) */}
-      {mediaAssets.filter((a) => a.type === 'image' || a.type === 'video').length > 0 && (
-        <div className="space-y-2">
-          <h4 className="text-[10px] font-bold text-[#9494A8] uppercase tracking-wider">
-            B-roll da Biblioteca
-          </h4>
-          <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
-            {mediaAssets
-              .filter((a) => a.type === 'image' || a.type === 'video')
-              .map((asset) => (
-                <div
-                  key={asset.id}
-                  onClick={() =>
-                    handleAddToTimeline({
-                      id: asset.id,
-                      name: asset.name,
-                      type: asset.type as 'video' | 'image',
-                      url: asset.publicUrl || '',
-                      duration: asset.durationMs ? asset.durationMs / 1000 : undefined,
-                      scale: 1,
-                      x: 0.5,
-                      y: 0.5,
-                      opacity: 100,
-                      timelineDuration: asset.durationMs ? asset.durationMs / 1000 : 5,
-                      z: 1,
+        {/* Coluna central — preview (~45%) */}
+        <div className="col-span-5 space-y-2">
+          <div className="relative aspect-video bg-[#0B0B10] rounded-lg border border-white/10 overflow-hidden flex items-center justify-center">
+            {assignments.length === 0 ? (
+              <div className="flex flex-col items-center justify-center text-center gap-1.5 p-3">
+                <ImageIcon className="w-6 h-6 text-[#9494A8]/50" />
+                <span className="text-[10px] text-[#9494A8]">
+                  Nenhuma arte atribuída a este bloco
+                </span>
+              </div>
+            ) : (
+              <ArtPreview
+                assignment={currentAssignment}
+                asset={assetById(currentAssignment.assetId)}
+              />
+            )}
+
+            {/* Carousel dots */}
+            {assignments.length > 1 && (
+              <div className="absolute bottom-1.5 left-0 right-0 flex items-center justify-center gap-1">
+                {assignments.map((a, i) => (
+                  <button
+                    key={a.id}
+                    onClick={() => setCarouselIdx(i)}
+                    className={`w-1.5 h-1.5 rounded-full transition-all ${
+                      i === safeCarouselIdx ? 'bg-white w-3' : 'bg-white/40'
+                    }`}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Carousel nav */}
+          {assignments.length > 1 && (
+            <div className="flex items-center justify-center gap-2">
+              <button
+                onClick={() => setCarouselIdx((i) => Math.max(0, i - 1))}
+                disabled={safeCarouselIdx === 0}
+                className="p-1 rounded text-[#9494A8] hover:text-white hover:bg-white/5 disabled:opacity-30"
+              >
+                <ChevronUp className="w-3.5 h-3.5 rotate-[-90deg]" />
+              </button>
+              <span className="text-[9px] text-[#9494A8] font-mono">
+                {safeCarouselIdx + 1}/{assignments.length}
+              </span>
+              <button
+                onClick={() => setCarouselIdx((i) => Math.min(assignments.length - 1, i + 1))}
+                disabled={safeCarouselIdx >= assignments.length - 1}
+                className="p-1 rounded text-[#9494A8] hover:text-white hover:bg-white/5 disabled:opacity-30"
+              >
+                <ChevronDown className="w-3.5 h-3.5 rotate-[-90deg]" />
+              </button>
+            </div>
+          )}
+
+          {/* Controles da arte selecionada */}
+          {currentAssignment && (
+            <div className="rounded-lg border border-white/10 bg-[#1C1C27]/60 p-2 space-y-2">
+              <div className="flex items-center gap-1">
+                {fitOptions.map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => updateBlockAssignment(currentAssignment.id, { fit: f.id })}
+                    className={`flex-1 py-1 text-[9px] font-semibold rounded transition-all ${
+                      currentAssignment.fit === f.id
+                        ? 'bg-[#7C5CFC] text-white'
+                        : 'bg-[#14141C] text-[#9494A8] hover:text-white'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+
+              <SliderRow
+                label="Posição X"
+                value={currentAssignment.positionX}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(v) => updateBlockAssignment(currentAssignment.id, { positionX: v })}
+                format={(v) => v.toFixed(2)}
+              />
+              <SliderRow
+                label="Posição Y"
+                value={currentAssignment.positionY}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(v) => updateBlockAssignment(currentAssignment.id, { positionY: v })}
+                format={(v) => v.toFixed(2)}
+              />
+              <SliderRow
+                label="Escala"
+                value={currentAssignment.scale}
+                min={0.5}
+                max={2}
+                step={0.05}
+                onChange={(v) => updateBlockAssignment(currentAssignment.id, { scale: v })}
+                format={(v) => v.toFixed(2) + 'x'}
+              />
+
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-[9px] text-[#9494A8]">Cor de fundo</label>
+                <input
+                  type="color"
+                  value={currentAssignment.backgroundColor}
+                  onChange={(e) =>
+                    updateBlockAssignment(currentAssignment.id, {
+                      backgroundColor: e.target.value,
                     })
                   }
-                  className="rounded-lg border border-white/5 hover:border-[#7C5CFC]/40 overflow-hidden cursor-pointer transition-colors"
-                  title={`Adicionar "${asset.name}" à timeline`}
+                  className="w-6 h-5 rounded border border-white/10 bg-transparent cursor-pointer"
+                />
+              </div>
+
+              {/* Ações por atribuição */}
+              <div className="flex items-center gap-1 pt-1 border-t border-white/5">
+                <button
+                  onClick={() => handleReorder(currentAssignment.id, -1)}
+                  disabled={safeCarouselIdx === 0}
+                  className="p-1 rounded text-[#9494A8] hover:text-white hover:bg-white/5 disabled:opacity-30"
+                  title="Mover para esquerda"
                 >
-                  <div className="aspect-video bg-[#0B0B10]">
+                  <ChevronUp className="w-3.5 h-3.5 rotate-[-90deg]" />
+                </button>
+                <button
+                  onClick={() => handleReorder(currentAssignment.id, 1)}
+                  disabled={safeCarouselIdx >= assignments.length - 1}
+                  className="p-1 rounded text-[#9494A8] hover:text-white hover:bg-white/5 disabled:opacity-30"
+                  title="Mover para direita"
+                >
+                  <ChevronDown className="w-3.5 h-3.5 rotate-[-90deg]" />
+                </button>
+                <select
+                  className="flex-1 bg-[#14141C] border border-white/10 rounded px-1.5 py-1 text-[9px] text-white focus:outline-none"
+                  defaultValue=""
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      handleDuplicateTo(currentAssignment, e.target.value)
+                      e.target.value = ''
+                    }
+                  }}
+                >
+                  <option value="" disabled>
+                    Duplicar para...
+                  </option>
+                  {scriptBlocks
+                    .filter((b) => b.id !== selectedBlock?.id)
+                    .map((b, i) => (
+                      <option key={b.id} value={b.id}>
+                        Bloco {i + 1}
+                      </option>
+                    ))}
+                </select>
+                <button
+                  onClick={() => handleRemoveAssignment(currentAssignment.id)}
+                  className="p-1 rounded text-red-400 hover:bg-red-500/10"
+                  title="Remover"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Coluna direita — biblioteca de mídias (~25%) */}
+        <div className="col-span-3 space-y-2">
+          <div className="flex items-center gap-1">
+            {(
+              [
+                { id: 'all', label: 'Todas' },
+                { id: 'image', label: 'Img' },
+                { id: 'video', label: 'Vid' },
+              ] as { id: typeof assetFilter; label: string }[]
+            ).map((f) => (
+              <button
+                key={f.id}
+                onClick={() => setAssetFilter(f.id)}
+                className={`flex-1 py-1 text-[9px] font-semibold rounded transition-all ${
+                  assetFilter === f.id
+                    ? 'bg-[#7C5CFC] text-white'
+                    : 'bg-[#14141C] text-[#9494A8] hover:text-white'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 gap-1.5 max-h-[260px] overflow-y-auto pr-0.5">
+            {filteredAssets.length === 0 && (
+              <p className="col-span-2 text-[10px] text-[#9494A8] text-center py-4">
+                Nenhuma mídia na biblioteca.
+              </p>
+            )}
+            {filteredAssets.map((asset) => {
+              const isAssigned = assignedAssetIds.has(asset.id)
+              return (
+                <button
+                  key={asset.id}
+                  onClick={() => handleAssignAsset(asset.id)}
+                  onDoubleClick={() => {
+                    setPendingDupAssetId(asset.id)
+                    setMultiSelectOpen(true)
+                  }}
+                  className="relative rounded-md overflow-hidden border border-white/5 hover:border-[#7C5CFC]/50 transition-all group"
+                  title={
+                    isAssigned ? 'Atribuída — clique para adicionar outra' : 'Atribuir ao bloco'
+                  }
+                >
+                  <div className="aspect-square bg-[#0B0B10]">
                     <img
                       src={asset.thumbnailUrl || asset.publicUrl}
                       alt={asset.name}
@@ -229,147 +522,174 @@ export function MediaPanel({ projectId }: MediaPanelProps) {
                       loading="lazy"
                     />
                   </div>
-                  <div className="p-1.5 flex items-center gap-1">
+                  {isAssigned && (
+                    <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center">
+                      <Check className="w-2.5 h-2.5 text-white" />
+                    </span>
+                  )}
+                  <span className="absolute bottom-0 inset-x-0 bg-black/70 text-[8px] text-white px-1 py-0.5 truncate text-left flex items-center gap-0.5">
                     {asset.type === 'video' ? (
-                      <Film className="w-2.5 h-2.5 text-pink-400 shrink-0" />
+                      <Film className="w-2 h-2 text-pink-400 shrink-0" />
                     ) : (
-                      <ImageIcon className="w-2.5 h-2.5 text-cyan-400 shrink-0" />
+                      <ImageIcon className="w-2 h-2 text-cyan-400 shrink-0" />
                     )}
-                    <span className="text-[9px] text-white truncate">{asset.name}</span>
-                  </div>
-                </div>
-              ))}
+                    {asset.name}
+                  </span>
+                </button>
+              )
+            })}
           </div>
-        </div>
-      )}
 
-      {/* Propriedades da mídia selecionada */}
-      {selected && (
-        <div className="rounded-xl border border-white/10 bg-[#1C1C27]/60 p-2.5 space-y-2">
-          <h4 className="text-[10px] font-bold text-white uppercase tracking-wider truncate">
-            {selected.name}
-          </h4>
-          <div className="space-y-1">
-            <div className="flex justify-between text-[9px] text-[#9494A8]">
-              <span>Escala</span>
-              <span className="font-mono">{selected.scale.toFixed(2)}</span>
-            </div>
-            <Slider
-              value={[Math.round(selected.scale * 100)]}
-              min={10}
-              max={200}
-              step={5}
-              onValueChange={(v) => updateSelected({ scale: v[0] / 100 })}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <div className="flex justify-between text-[9px] text-[#9494A8]">
-                <span>X</span>
-                <span className="font-mono">{selected.x.toFixed(2)}</span>
-              </div>
-              <Slider
-                value={[Math.round(selected.x * 100)]}
-                min={0}
-                max={100}
-                step={1}
-                onValueChange={(v) => updateSelected({ x: v[0] / 100 })}
-              />
-            </div>
-            <div className="space-y-1">
-              <div className="flex justify-between text-[9px] text-[#9494A8]">
-                <span>Y</span>
-                <span className="font-mono">{selected.y.toFixed(2)}</span>
-              </div>
-              <Slider
-                value={[Math.round(selected.y * 100)]}
-                min={0}
-                max={100}
-                step={1}
-                onValueChange={(v) => updateSelected({ y: v[0] / 100 })}
-              />
-            </div>
-          </div>
-          <div className="space-y-1">
-            <div className="flex justify-between text-[9px] text-[#9494A8]">
-              <span>Opacidade</span>
-              <span className="font-mono">{selected.opacity}%</span>
-            </div>
-            <Slider
-              value={[selected.opacity]}
-              min={0}
-              max={100}
-              step={1}
-              onValueChange={(v) => updateSelected({ opacity: v[0] })}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <label className="text-[9px] text-[#9494A8]">Duração (s)</label>
-              <input
-                type="number"
-                min={0.1}
-                step={0.5}
-                value={selected.timelineDuration}
-                onChange={(e) => updateSelected({ timelineDuration: Number(e.target.value) || 1 })}
-                className="w-full bg-[#14141C] border border-white/10 rounded-lg px-2 py-1 text-[10px] text-white focus:outline-none"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[9px] text-[#9494A8]">Camada (z)</label>
-              <input
-                type="number"
-                min={0}
-                step={1}
-                value={selected.z}
-                onChange={(e) => updateSelected({ z: Number(e.target.value) || 0 })}
-                className="w-full bg-[#14141C] border border-white/10 rounded-lg px-2 py-1 text-[10px] text-white focus:outline-none"
-              />
-            </div>
-          </div>
           <Button
             size="sm"
             variant="outline"
-            onClick={() => handleRemove(selected.id)}
-            className="w-full h-7 text-[10px] border-red-500/40 text-red-400 hover:bg-red-500/10 gap-1"
+            onClick={() => setMultiSelectOpen((v) => !v)}
+            className="w-full h-7 text-[9px] border-white/10 text-[#9494A8] hover:text-white gap-1"
           >
-            <Trash2 className="w-3 h-3" /> Remover mídia
+            <Copy className="w-3 h-3" /> Aplicar a vários blocos
           </Button>
-        </div>
-      )}
 
-      {/* B-roll por bloco */}
-      {scriptBlocks.length > 0 && (
-        <div className="rounded-xl border border-white/10 bg-[#1C1C27]/60 p-2.5 space-y-2">
-          <h4 className="text-[10px] font-bold text-white uppercase tracking-wider">
-            B-roll por bloco
-          </h4>
-          <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
-            {scriptBlocks.map((block, idx) => (
-              <div key={block.id} className="flex items-center gap-2">
-                <span
-                  className="text-[10px] text-[#9494A8] shrink-0 w-16 truncate"
-                  title={block.text}
-                >
-                  Bloco {idx + 1}
-                </span>
-                <select
-                  value={brollByBlock[block.id] || ''}
-                  onChange={(e) => setBlockMedia(block.id, e.target.value)}
-                  className="flex-1 bg-[#14141C] border border-white/10 rounded-lg px-2 py-1 text-[10px] text-white focus:outline-none"
-                >
-                  <option value="">— Nenhuma —</option>
-                  {items.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.name}
-                    </option>
-                  ))}
-                </select>
+          {multiSelectOpen && (
+            <div className="rounded-lg border border-white/10 bg-[#14141C] p-2 space-y-1.5">
+              <span className="text-[9px] text-[#9494A8]">Selecione os blocos:</span>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {scriptBlocks.map((b, i) => (
+                  <label
+                    key={b.id}
+                    className="flex items-center gap-1.5 text-[10px] text-white cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={multiSelectBlocks.has(b.id)}
+                      onChange={(e) => {
+                        const next = new Set(multiSelectBlocks)
+                        if (e.target.checked) next.add(b.id)
+                        else next.delete(b.id)
+                        setMultiSelectBlocks(next)
+                      }}
+                      className="w-3 h-3 accent-[#7C5CFC]"
+                    />
+                    <span className="truncate">
+                      Bloco {i + 1}: {b.text.slice(0, 20)}
+                    </span>
+                  </label>
+                ))}
               </div>
-            ))}
-          </div>
+              <select
+                className="w-full bg-[#0B0B10] border border-white/10 rounded px-1.5 py-1 text-[9px] text-white focus:outline-none"
+                value={pendingDupAssetId || ''}
+                onChange={(e) => setPendingDupAssetId(e.target.value || null)}
+              >
+                <option value="">Selecione a mídia...</option>
+                {filteredAssets.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                onClick={() => pendingDupAssetId && handleApplyToMany(pendingDupAssetId)}
+                disabled={!pendingDupAssetId || multiSelectBlocks.size === 0}
+                className="w-full h-6 text-[9px] bg-[#7C5CFC] hover:bg-[#6A48E0] gap-1"
+              >
+                <Check className="w-3 h-3" /> Aplicar
+              </Button>
+            </div>
+          )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+/* ---------- ArtPreview — renderiza uma arte conforme fit/position/scale ---------- */
+
+function ArtPreview({
+  assignment,
+  asset,
+}: {
+  assignment: BlockMediaAssignment
+  asset: { publicUrl?: string; thumbnailUrl?: string; type: string } | undefined
+}) {
+  if (!asset) {
+    return (
+      <div className="flex flex-col items-center justify-center text-center gap-1">
+        <X className="w-5 h-5 text-red-400/60" />
+        <span className="text-[9px] text-[#9494A8]">Mídia não encontrada</span>
+      </div>
+    )
+  }
+  const url = asset.publicUrl || asset.thumbnailUrl || ''
+  const objectFit =
+    assignment.fit === 'cover' ? 'cover' : assignment.fit === 'fill' ? 'fill' : 'contain'
+  const tx = (assignment.positionX - 0.5) * 100
+  const ty = (assignment.positionY - 0.5) * 100
+  return (
+    <div
+      className="w-full h-full relative overflow-hidden"
+      style={{ backgroundColor: assignment.backgroundColor }}
+    >
+      {asset.type === 'video' ? (
+        <video
+          src={url}
+          className="w-full h-full"
+          style={{
+            objectFit: objectFit as any,
+            transform: `translate(${tx}%, ${ty}%) scale(${assignment.scale})`,
+          }}
+          muted
+          loop
+          autoPlay
+          playsInline
+        />
+      ) : (
+        <img
+          src={url}
+          alt="arte"
+          className="w-full h-full"
+          style={{
+            objectFit: objectFit as any,
+            transform: `translate(${tx}%, ${ty}%) scale(${assignment.scale})`,
+          }}
+        />
       )}
+    </div>
+  )
+}
+
+/* ---------- SliderRow helper ---------- */
+
+function SliderRow({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+  format,
+}: {
+  label: string
+  value: number
+  min: number
+  max: number
+  step: number
+  onChange: (v: number) => void
+  format: (v: number) => string
+}) {
+  return (
+    <div className="space-y-0.5">
+      <div className="flex justify-between text-[9px] text-[#9494A8]">
+        <span>{label}</span>
+        <span className="font-mono">{format(value)}</span>
+      </div>
+      <Slider
+        value={[value]}
+        min={min}
+        max={max}
+        step={step}
+        onValueChange={(v) => onChange(v[0])}
+      />
     </div>
   )
 }

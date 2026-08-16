@@ -38,6 +38,8 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { MediaLibraryModal } from '@/components/MediaLibraryModal'
+import { MediaPanel } from '@/components/studio/MediaPanel'
+import { BlockArtStageOverlay } from '@/components/studio/BlockArtStageOverlay'
 import { toast } from 'sonner'
 
 export default function Gravadora() {
@@ -66,6 +68,8 @@ export default function Gravadora() {
     gravadoraScript,
     stageConfig,
     updateStageConfig,
+    syncArtsEnabled,
+    setSyncArtsEnabled,
   } = useStudio()
   // PROMPT 2 — Mídias rápidas e split agora vêm da fonte canônica (mesma de
   // /midias e /biblioteca). Não usamos mais useStudio().mediaLibrary.
@@ -701,6 +705,17 @@ export default function Gravadora() {
               pausa rolagem · ↑ volta bloco · F Modo Foco · Esc minimiza o HUD. Não disparam durante
               digitação.
             </div>
+
+            {/* PROMPT 3 — Sincronização das artes com o teleprompter */}
+            <div className="flex items-center justify-between pt-2 border-t border-white/5">
+              <div>
+                <span className="text-xs text-white">Sincronizar com artes</span>
+                <p className="text-[9px] text-[#9494A8]">
+                  O palco mostra a arte do bloco ativo do teleprompter
+                </p>
+              </div>
+              <Switch checked={syncArtsEnabled} onCheckedChange={(v) => setSyncArtsEnabled(v)} />
+            </div>
           </div>
         </TabsContent>
 
@@ -710,9 +725,9 @@ export default function Gravadora() {
               <FileVideo className="w-3.5 h-3.5 text-[#7C5CFC]" /> Mídias & B-Roll do Projeto
             </span>
           </div>
-          <p className="text-xs text-[#9494A8]">
-            Insira cortes, imagens e sobreposições diretamente durante a gravação do seu take.
-          </p>
+
+          {/* PROMPT 3 — Sub-tabs de mídia (Artes/Reação/Quadro/B-roll) */}
+          <MediaPanel projectId={activeProjectId || 'temp'} />
 
           {/* === Split Screen: mídia da outra metade === */}
           <div className="rounded-xl border border-[#7C5CFC]/30 bg-[#7C5CFC]/5 p-3 space-y-3">
@@ -1247,6 +1262,9 @@ export default function Gravadora() {
             style={{ filter: camFilter }}
           />
         )}
+
+        {/* PROMPT 3 — Overlay de artes do bloco atual (sincronizado com o teleprompter). */}
+        <BlockArtStageOverlay layout={layout} splitCameraRatio={splitCameraRatio} />
 
         <TitleOverlay
           config={titleConfig}

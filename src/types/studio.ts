@@ -550,6 +550,23 @@ export interface TitleConfig {
   durationSeconds: number
 }
 
+/** Atribuição de mídia a um bloco de roteiro (PROMPT 3 — Restaurar artes por bloco). */
+export interface BlockMediaAssignment {
+  id: string
+  projectId: string
+  blockId: string
+  assetId: string
+  kind: 'art' | 'reaction' | 'broll'
+  order: number
+  enabled: boolean
+  fit: 'contain' | 'cover' | 'fill'
+  positionX: number // 0-1 normalized
+  positionY: number // 0-1 normalized
+  scale: number // 0.5-2
+  backgroundColor: string
+  createdAt: string
+}
+
 /** B-roll (vídeo do Pexels) anexado a um bloco de roteiro. */
 export interface BlockBRoll {
   /** ID do vídeo no Pexels. */
