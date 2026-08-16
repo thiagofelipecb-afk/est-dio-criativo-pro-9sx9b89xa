@@ -50,6 +50,8 @@ import {
 import { RecordingDock } from '@/components/studio/RecordingDock'
 import { PreFlightCheck } from '@/components/studio/PreFlightCheck'
 import { StudioAccordionPanel } from '@/components/studio/StudioAccordionPanel'
+import { EmptyScriptCard } from '@/components/studio/EmptyScriptCard'
+import { SplitPreviewDialog } from '@/components/studio/SplitPreviewDialog'
 import {
   type RecordingState,
   type PreFlightInput,
@@ -57,6 +59,7 @@ import {
   type SplitModeId,
   isActivelyRecording,
 } from '@/lib/studio-recording-logic'
+import { singleBlockFromText, type SplitPresetId } from '@/lib/script-split'
 import { toast } from 'sonner'
 
 export default function Gravadora() {
@@ -665,6 +668,68 @@ export default function Gravadora() {
     typeof stageConfig.splitCameraRatio === 'number' ? stageConfig.splitCameraRatio : 0.6
 
   const [mediaModalOpen, setMediaModalOpen] = useState(false)
+
+  // === Fluxo de roteiro frontal ===
+  // Estado sem roteiro: card central no palco. Visível quando não há blocos E
+  // não estamos em modo foco E a câmera está pronta/idle (não bloqueia o gate).
+  const [splitPreviewOpen, setSplitPreviewOpen] = useState(false)
+  const [splitText, setSplitText] = useState('')
+  const [splitPreset, setSplitPreset] = useState<SplitPresetId>('medium')
+  // Descarta o card central manualmente (ex.: usuário começou a digitar no
+  // painel lateral). Volta a aparecer quando blocos são limpos.
+  const [dismissEmptyCard, setDismissEmptyCard] = useState(false)
+
+  // Aliases locais para os setters do StudioContext (não são hooks quando usados
+  // como valores dentro de callbacks — apenas referências estáveis).
+  const setBlocks = useStudioSetScriptBlocks
+  const setScript = useStudioSetGravadoraScript
+
+  const showEmptyScriptCard = scriptBlocks.length === 0 && !isFocusMode && !dismissEmptyCard
+
+  // Abre o preview de divisão a partir do EmptyScriptCard.
+  const handleDivideFromEmpty = useCallback((text: string) => {
+    setSplitText(text)
+    setSplitPreviewOpen(true)
+  }, [])
+
+  // "Usar texto inteiro": cria 1 bloco e inicia.
+  const handleUseWholeFromEmpty = useCallback(
+    (text: string) => {
+      const blocks = singleBlockFromText(text)
+      if (blocks.length === 0) {
+        toast.warning('Escreva ou cole seu roteiro primeiro.')
+        return
+      }
+      setBlocks(blocks)
+      setScript(text)
+      setDismissEmptyCard(true)
+      toast.success('Roteiro criado como bloco único.')
+    },
+    // setBlocks/setScript são identidades estáveis do useStudio (useCallback).
+    [],
+  )
+
+  // "Salvar como rascunho": persiste o texto bruto no localStorage.
+  const handleSaveDraftFromEmpty = useCallback((text: string) => {
+    try {
+      localStorage.setItem('lumen_script_draft', text)
+      toast.success('Rascunho salvo localmente.')
+    } catch {
+      toast.error('Não foi possível salvar o rascunho.')
+    }
+  }, [])
+
+  // Aplica a divisão vinda do preview.
+  const handleApplySplit = useCallback(
+    (blocks: import('@/types/studio').ScriptBlock[], preset: SplitPresetId) => {
+      setSplitPreset(preset)
+      setBlocks(blocks)
+      setScript(blocks.map((b) => b.text).join('\n\n'))
+      setDismissEmptyCard(true)
+      toast.success(`${blocks.length} blocos criados.`)
+    },
+    [],
+  )
 
   const setLayout = useCallback(
     (next: StageLayout) => updateStageConfig({ layout: next }),
@@ -1760,6 +1825,17 @@ export default function Gravadora() {
         />
 
         {renderCameraGate()}
+
+        {/* Card central do estado sem roteiro (sobre o palco). */}
+        {showEmptyScriptCard && (
+          <EmptyScriptCard
+            value={gravadoraScript}
+            onTextChange={useStudioSetGravadoraScript}
+            onDivide={handleDivideFromEmpty}
+            onUseWhole={handleUseWholeFromEmpty}
+            onSaveDraft={handleSaveDraftFromEmpty}
+          />
+        )}
       </div>
     )
   }
@@ -2073,6 +2149,16 @@ export default function Gravadora() {
             toast.success(`Mídia "${item.title}" selecionada para tela dividida.`)
           }
         }}
+      />
+
+      {/* Modal de preview da divisão do roteiro em blocos. */}
+      <SplitPreviewDialog
+        open={splitPreviewOpen}
+        onOpenChange={setSplitPreviewOpen}
+        text={splitText}
+        existingBlockCount={scriptBlocks.length}
+        initialPreset={splitPreset}
+        onApply={handleApplySplit}
       />
     </div>
   )

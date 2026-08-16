@@ -13,11 +13,42 @@ import {
   Split,
   Merge,
   GitBranch,
+  MoreVertical,
+  GripVertical,
+  Timer,
+  PauseCircle,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react'
 import { useStudio } from '@/context/StudioContext'
 import { Switch } from '@/components/ui/switch'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
 import { toast } from 'sonner'
-import type { ScriptBlock } from '@/types/studio'
+import type { ScriptBlock, ScriptBlockStatus } from '@/types/studio'
+import {
+  estimateDurationSeconds,
+  formatDurationLabel,
+  totalDurationSeconds,
+} from '@/lib/script-split'
+import { makeBlockId } from '@/hooks/use-script-blocks'
+import { BlockSplitDialog, type MediaSplitMode } from '@/components/studio/BlockSplitDialog'
+
+/* Status badge meta. */
+const STATUS_META: Record<ScriptBlockStatus, { label: string; cls: string }> = {
+  draft: { label: 'rascunho', cls: 'bg-white/10 text-white/70' },
+  pending: { label: 'rascunho', cls: 'bg-white/10 text-white/70' },
+  ready: {
+    label: 'pronto',
+    cls: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30',
+  },
+  recorded: { label: 'gravado', cls: 'bg-[#22D3EE]/15 text-[#22D3EE] border border-[#22D3EE]/30' },
+}
 
 export function ScriptPanel() {
   const {
@@ -40,125 +71,231 @@ export function ScriptPanel() {
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null)
   const [editingText, setEditingBlockText] = useState('')
 
-  // PROMPT 3 — Estado do prompt inline de split (duplicar/mover/manter artes).
-  const [splitPrompt, setSplitPrompt] = useState<{
-    originalBlockId: string
-    newBlockId: string
-  } | null>(null)
+  // Bloco selecionado para o modal de divisão.
+  const [splitTarget, setSplitTarget] = useState<ScriptBlock | null>(null)
+  // Seleção múltipla para juntar adjacentes.
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  // Drag handle (HTML5 DnD).
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
 
-  // PROMPT 3 — Split de um bloco em dois no cursor (parágrafo do meio).
-  const handleSplitBlock = (block: ScriptBlock) => {
-    const text = block.text.trim()
-    if (!text) {
-      toast.warning('Bloco vazio não pode ser dividido.')
-      return
-    }
-    // Procura um separador de parágrafo (\n\n) ou ponto final no meio.
-    let splitPos = text.indexOf('\n\n')
-    if (splitPos < 0) {
-      const match = text.match(/[.!?]\s+/g)
-      if (match && match.length >= 2) {
-        // divide no primeiro .!? depois do primeiro
-        const firstIdx = text.indexOf(match[0]) + match[0].length
-        splitPos = firstIdx
-      }
-    }
-    if (splitPos <= 0) {
-      // sem divisor claro: divide ao meio por palavras
-      const words = text.split(' ')
-      if (words.length < 4) {
-        toast.warning('Bloco muito curto para dividir.')
-        return
-      }
-      const half = Math.floor(words.length / 2)
-      splitPos = words.slice(0, half).join(' ').length
-    }
-    const firstHalf = text.slice(0, splitPos).trim()
-    const secondHalf = text.slice(splitPos).trim()
-    if (!firstHalf || !secondHalf) {
-      toast.warning('Não foi possível dividir este bloco.')
-      return
-    }
-    const newBlockId = 'blk-' + Date.now() + '-split'
-    const newBlock: ScriptBlock = {
-      id: newBlockId,
-      text: secondHalf,
-      status: 'pending',
-      estimatedSeconds: Math.max(3, Math.ceil(secondHalf.length / 15)),
-    }
-    const idx = scriptBlocks.findIndex((b) => b.id === block.id)
-    const updated = scriptBlocks.map((b) =>
-      b.id === block.id
-        ? { ...b, text: firstHalf, estimatedSeconds: Math.max(3, Math.ceil(firstHalf.length / 15)) }
-        : b,
-    )
-    const next = [...updated.slice(0, idx + 1), newBlock, ...updated.slice(idx + 1)]
-    setScriptBlocks(next)
-    setGravadoraScript(next.map((b) => b.text).join('\n\n'))
-    // Abre prompt inline sobre o que fazer com as artes.
-    setSplitPrompt({ originalBlockId: block.id, newBlockId })
+  const syncScript = (blocks: ScriptBlock[]) => {
+    setScriptBlocks(blocks)
+    setGravadoraScript(blocks.map((b) => b.text).join('\n\n'))
   }
 
-  // PROMPT 3 — Resolve o split conforme escolha do usuário.
-  const resolveSplit = (choice: 'duplicate' | 'move' | 'keep') => {
-    if (!splitPrompt) return
-    const { originalBlockId, newBlockId } = splitPrompt
-    const arts = blockAssignments.filter((a) => a.blockId === originalBlockId && a.enabled)
+  /** Conta mídias (assignments) associadas a um bloco. */
+  const mediaCountFor = (blockId: string) =>
+    blockAssignments.filter((a) => a.blockId === blockId && a.enabled).length
+
+  /* ── Dividir bloco (modal BlockSplitDialog) ─────────────────────────── */
+  const handleSplitConfirm = (
+    blockId: string,
+    before: string,
+    after: string,
+    mode: MediaSplitMode,
+  ) => {
+    const idx = scriptBlocks.findIndex((b) => b.id === blockId)
+    if (idx < 0) return
+    const newBlockId = makeBlockId()
+    const now = new Date().toISOString()
+    const updated = scriptBlocks.map((b) =>
+      b.id === blockId
+        ? {
+            ...b,
+            text: before,
+            estimatedSeconds: estimateDurationSeconds(before),
+            estimatedDurationMs: estimateDurationSeconds(before) * 1000,
+            updatedAt: now,
+          }
+        : b,
+    )
+    const newBlock: ScriptBlock = {
+      id: newBlockId,
+      text: after,
+      status: 'draft',
+      estimatedSeconds: estimateDurationSeconds(after),
+      estimatedDurationMs: estimateDurationSeconds(after) * 1000,
+      order: idx + 2,
+      createdAt: now,
+      updatedAt: now,
+    }
+    const next = [...updated.slice(0, idx + 1), newBlock, ...updated.slice(idx + 1)]
+    // Reordena campo `order`.
+    next.forEach((b, i) => (b.order = i + 1))
+    setScriptBlocks(next)
+    setGravadoraScript(next.map((b) => b.text).join('\n\n'))
+
+    // Redistribui mídias conforme escolha.
+    const arts = blockAssignments.filter((a) => a.blockId === blockId && a.enabled)
     if (arts.length > 0) {
-      if (choice === 'duplicate') {
+      if (mode === 'duplicate') {
         arts.forEach((a, i) => {
-          addBlockAssignment({
-            ...a,
-            blockId: newBlockId,
-            order: i,
-          })
+          addBlockAssignment({ ...a, blockId: newBlockId, order: i })
         })
-        toast.success('Artes duplicadas para o novo bloco.')
-      } else if (choice === 'move') {
+        toast.success(`Bloco dividido. ${arts.length} mídias duplicadas para o novo bloco.`)
+      } else if (mode === 'move') {
         arts.forEach((a, i) => {
           updateBlockAssignment(a.id, { blockId: newBlockId, order: i })
         })
-        toast.success('Artes movidas para o novo bloco.')
+        toast.success(`Bloco dividido. ${arts.length} mídias movidas para o novo bloco.`)
       } else {
-        toast.info('Artes mantidas no bloco original.')
+        toast.success('Bloco dividido. Mídias mantidas no bloco original.')
       }
+    } else {
+      toast.success('Bloco dividido.')
     }
-    setSplitPrompt(null)
   }
 
-  // PROMPT 3 — Merge de um bloco com o próximo (adjacente).
-  const handleMergeWithNext = (block: ScriptBlock) => {
-    const idx = scriptBlocks.findIndex((b) => b.id === block.id)
-    if (idx < 0 || idx >= scriptBlocks.length - 1) {
-      toast.warning('Não há próximo bloco para unir.')
-      return
-    }
-    const nextBlock = scriptBlocks[idx + 1]
-    const mergedText = block.text + '\n\n' + nextBlock.text
-    const mergedBlock: ScriptBlock = {
-      ...block,
+  /* ── Juntar blocos adjacentes (seleção) ────────────────────────────── */
+  const canMergeSelected = () => {
+    if (selectedIds.length !== 2) return false
+    const [a, b] = selectedIds
+      .map((id) => scriptBlocks.findIndex((bl) => bl.id === id))
+      .sort((x, y) => x - y)
+    return a >= 0 && b === a + 1
+  }
+
+  const handleMergeSelected = () => {
+    if (!canMergeSelected()) return
+    const [iA, iB] = selectedIds
+      .map((id) => scriptBlocks.findIndex((bl) => bl.id === id))
+      .sort((x, y) => x - y)
+    const blockA = scriptBlocks[iA]
+    const blockB = scriptBlocks[iB]
+    const mergedText = blockA.text + '\n\n' + blockB.text
+    const merged: ScriptBlock = {
+      ...blockA,
       text: mergedText,
-      estimatedSeconds: Math.max(3, Math.ceil(mergedText.length / 15)),
+      estimatedSeconds: estimateDurationSeconds(mergedText),
+      estimatedDurationMs: estimateDurationSeconds(mergedText) * 1000,
+      updatedAt: new Date().toISOString(),
     }
-    const updated = [...scriptBlocks.slice(0, idx), mergedBlock, ...scriptBlocks.slice(idx + 2)]
-    setScriptBlocks(updated)
-    setGravadoraScript(updated.map((b) => b.text).join('\n\n'))
-    // Preserva todas as artes: reatribui as do bloco seguinte ao bloco mesclado.
-    const nextArts = blockAssignments.filter((a) => a.blockId === nextBlock.id && a.enabled)
-    const currentArts = blockAssignments.filter((a) => a.blockId === block.id && a.enabled)
-    nextArts.forEach((a, i) => {
-      updateBlockAssignment(a.id, {
-        blockId: block.id,
-        order: currentArts.length + i,
-      })
+    const next = [...scriptBlocks.slice(0, iA), merged, ...scriptBlocks.slice(iB + 1)]
+    next.forEach((b, i) => (b.order = i + 1))
+    setScriptBlocks(next)
+    setGravadoraScript(next.map((b) => b.text).join('\n\n'))
+
+    // Preserva ambos os conjuntos de assignments (concatena, mantendo order).
+    const artsA = blockAssignments.filter((a) => a.blockId === blockA.id && a.enabled)
+    const artsB = blockAssignments.filter((a) => a.blockId === blockB.id && a.enabled)
+    artsB.forEach((a, i) => {
+      updateBlockAssignment(a.id, { blockId: blockA.id, order: artsA.length + i })
     })
-    toast.success('Artes dos blocos unificadas.')
+    const total = artsA.length + artsB.length
+    toast.success(
+      `Blocos unidos. ${total} ${total === 1 ? 'mídia preservada' : 'mídias preservadas'}.`,
+    )
+    setSelectedIds([])
+  }
+
+  /* ── Operações de bloco ────────────────────────────────────────────── */
+  const handleDuplicate = (block: ScriptBlock) => {
+    const idx = scriptBlocks.findIndex((b) => b.id === block.id)
+    if (idx < 0) return
+    const now = new Date().toISOString()
+    const copy: ScriptBlock = {
+      ...block,
+      id: makeBlockId(),
+      text: block.text,
+      status: 'draft',
+      estimatedSeconds: block.estimatedSeconds,
+      estimatedDurationMs: block.estimatedSeconds * 1000,
+      createdAt: now,
+      updatedAt: now,
+    }
+    const next = [...scriptBlocks.slice(0, idx + 1), copy, ...scriptBlocks.slice(idx + 1)]
+    next.forEach((b, i) => (b.order = i + 1))
+    setScriptBlocks(next)
+    setGravadoraScript(next.map((b) => b.text).join('\n\n'))
+    toast.success('Bloco duplicado.')
+  }
+
+  const handleAddBlockAt = (blockId: string, before: boolean) => {
+    const idx = scriptBlocks.findIndex((b) => b.id === blockId)
+    if (idx < 0) return
+    const now = new Date().toISOString()
+    const newBlock: ScriptBlock = {
+      id: makeBlockId(),
+      text: '',
+      title: before ? 'Novo bloco (antes)' : 'Novo bloco (depois)',
+      status: 'draft',
+      estimatedSeconds: 0,
+      estimatedDurationMs: 0,
+      createdAt: now,
+      updatedAt: now,
+    }
+    const at = before ? idx : idx + 1
+    const next = [...scriptBlocks.slice(0, at), newBlock, ...scriptBlocks.slice(at)]
+    next.forEach((b, i) => (b.order = i + 1))
+    setScriptBlocks(next)
+    setGravadoraScript(next.map((b) => b.text).join('\n\n'))
+  }
+
+  const handleTogglePause = (block: ScriptBlock) => {
+    const updated = scriptBlocks.map((b) =>
+      b.id === block.id ? { ...b, pause: !b.pause, updatedAt: new Date().toISOString() } : b,
+    )
+    setScriptBlocks(updated)
+    toast.info(block.pause ? 'Pausa removida.' : 'Pausa marcada antes deste bloco.')
+  }
+
+  const handleSetDuration = (block: ScriptBlock) => {
+    const input = window.prompt('Duração estimada (segundos):', String(block.estimatedSeconds || 0))
+    if (input == null) return
+    const sec = Math.max(0, Math.round(Number(input) || 0))
+    const updated = scriptBlocks.map((b) =>
+      b.id === block.id
+        ? {
+            ...b,
+            estimatedSeconds: sec,
+            estimatedDurationMs: sec * 1000,
+            updatedAt: new Date().toISOString(),
+          }
+        : b,
+    )
+    setScriptBlocks(updated)
+    toast.success(`Duração definida: ${sec}s`)
+  }
+
+  const handleCycleStatus = (block: ScriptBlock) => {
+    const order: ScriptBlockStatus[] = ['draft', 'ready', 'recorded']
+    const cur = order.includes(block.status) ? block.status : 'draft'
+    const nextStatus = order[(order.indexOf(cur) + 1) % order.length]
+    const updated = scriptBlocks.map((b) =>
+      b.id === block.id ? { ...b, status: nextStatus, updatedAt: new Date().toISOString() } : b,
+    )
+    setScriptBlocks(updated)
+  }
+
+  /* ── Drag handle reordenação (HTML5 DnD) ───────────────────────────── */
+  const handleDragStart = (idx: number) => setDragIndex(idx)
+  const handleDragOver = (e: React.DragEvent, idx: number) => {
+    e.preventDefault()
+    if (dragIndex === null || dragIndex === idx) return
+    const next = [...scriptBlocks]
+    const [moved] = next.splice(dragIndex, 1)
+    next.splice(idx, 0, moved)
+    next.forEach((b, i) => (b.order = i + 1))
+    setScriptBlocks(next)
+    setGravadoraScript(next.map((b) => b.text).join('\n\n'))
+    setDragIndex(idx)
+  }
+  const handleDragEnd = () => setDragIndex(null)
+
+  /* ── Mover para cima/baixo ─────────────────────────────────────────── */
+  const moveBlock = (idx: number, dir: -1 | 1) => {
+    const to = idx + dir
+    if (to < 0 || to >= scriptBlocks.length) return
+    const next = [...scriptBlocks]
+    ;[next[idx], next[to]] = [next[to], next[idx]]
+    next.forEach((b, i) => (b.order = i + 1))
+    setScriptBlocks(next)
+    setGravadoraScript(next.map((b) => b.text).join('\n\n'))
   }
 
   // Roteiro simples -> texto bruto
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const val = e.target.value
-    setGravadoraScript(val)
+    setGravadoraScript(e.target.value)
   }
 
   // Gera blocos automaticamente a partir de quebras de linha duplas / frases
@@ -172,11 +309,16 @@ export function ScriptPanel() {
       .map((p) => p.trim())
       .filter(Boolean)
 
+    const now = new Date().toISOString()
     const newBlocks: ScriptBlock[] = paragraphs.map((p, idx) => ({
-      id: 'blk-' + Date.now() + '-' + idx,
+      id: makeBlockId(),
       text: p,
-      status: 'pending',
-      estimatedSeconds: Math.max(3, Math.ceil(p.length / 15)),
+      status: 'draft',
+      estimatedSeconds: estimateDurationSeconds(p),
+      estimatedDurationMs: estimateDurationSeconds(p) * 1000,
+      order: idx + 1,
+      createdAt: now,
+      updatedAt: now,
     }))
 
     setScriptBlocks(newBlocks)
@@ -185,22 +327,27 @@ export function ScriptPanel() {
 
   // Adiciona bloco manual
   const handleAddBlock = () => {
+    const now = new Date().toISOString()
     const newBlock: ScriptBlock = {
-      id: 'blk-' + Date.now(),
+      id: makeBlockId(),
       text: 'Novo trecho da sua fala...',
-      status: 'pending',
+      status: 'draft',
       estimatedSeconds: 5,
+      estimatedDurationMs: 5000,
+      order: scriptBlocks.length + 1,
+      createdAt: now,
+      updatedAt: now,
     }
     const updated = [...scriptBlocks, newBlock]
-    setScriptBlocks(updated)
-    // Atualiza também gravadoraScript com o texto unificado
-    setGravadoraScript(updated.map((b) => b.text).join('\n\n'))
+    syncScript(updated)
   }
 
   const handleDeleteBlock = (id: string) => {
     const updated = scriptBlocks.filter((b) => b.id !== id)
+    updated.forEach((b, i) => (b.order = i + 1))
     setScriptBlocks(updated)
     setGravadoraScript(updated.map((b) => b.text).join('\n\n'))
+    setSelectedIds((s) => s.filter((x) => x !== id))
   }
 
   const handleStartEdit = (b: ScriptBlock) => {
@@ -209,10 +356,24 @@ export function ScriptPanel() {
   }
 
   const handleSaveEdit = (id: string) => {
-    const updated = scriptBlocks.map((b) => (b.id === id ? { ...b, text: editingText } : b))
+    const updated = scriptBlocks.map((b) =>
+      b.id === id
+        ? {
+            ...b,
+            text: editingText,
+            estimatedSeconds: estimateDurationSeconds(editingText),
+            estimatedDurationMs: estimateDurationSeconds(editingText) * 1000,
+            updatedAt: new Date().toISOString(),
+          }
+        : b,
+    )
     setScriptBlocks(updated)
     setGravadoraScript(updated.map((b) => b.text).join('\n\n'))
     setEditingBlockId(null)
+  }
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id].slice(-2)))
   }
 
   const handleGenerateScriptAI = async () => {
@@ -233,6 +394,8 @@ A prática: escreva seu roteiro em blocos, ensaie com o teleprompter e grave com
       toast.success('Roteiro gerado com sucesso via IA!')
     }, 1200)
   }
+
+  const totalSeconds = totalDurationSeconds(scriptBlocks)
 
   return (
     <div className="flex flex-col h-full overflow-y-auto p-4 space-y-5 scrollbar-thin">
@@ -304,149 +467,290 @@ A prática: escreva seu roteiro em blocos, ensaie com o teleprompter e grave com
       <div className="space-y-2.5 pt-2 border-t border-white/5">
         <div className="flex items-center justify-between">
           <span className="text-xs font-bold text-white uppercase tracking-wider">
-            Blocos Estruturados ({scriptBlocks.length})
+            Blocos Estruturados ({scriptBlocks.length}
+            {scriptBlocks.length > 0 && (
+              <span className="text-[#9494A8] font-normal normal-case ml-1">
+                · {formatDurationLabel(totalSeconds)} total
+              </span>
+            )}
+            )
           </span>
-          <button
-            onClick={handleAddBlock}
-            className="text-xs text-[#7C5CFC] hover:bg-[#7C5CFC]/10 px-2 py-1 rounded-lg flex items-center gap-1 font-semibold transition-all"
-          >
-            <Plus className="w-3.5 h-3.5" /> Adicionar Bloco
-          </button>
+          <div className="flex items-center gap-1.5">
+            {canMergeSelected() && (
+              <button
+                onClick={handleMergeSelected}
+                className="text-[11px] text-[#7C5CFC] hover:bg-[#7C5CFC]/10 px-2 py-1 rounded-lg flex items-center gap-1 font-semibold transition-all"
+                title="Juntar os 2 blocos selecionados"
+              >
+                <Merge className="w-3.5 h-3.5" /> Juntar blocos
+              </button>
+            )}
+            <button
+              onClick={handleAddBlock}
+              className="text-xs text-[#7C5CFC] hover:bg-[#7C5CFC]/10 px-2 py-1 rounded-lg flex items-center gap-1 font-semibold transition-all"
+            >
+              <Plus className="w-3.5 h-3.5" /> Adicionar Bloco
+            </button>
+          </div>
         </div>
 
         {scriptBlocks.length === 0 ? (
           <div className="p-4 border border-dashed border-white/10 rounded-xl text-center bg-[#14141C]">
             <p className="text-xs text-[#9494A8]">Nenhum bloco separado ainda.</p>
             <p className="text-[11px] text-[#9494A8]/60 mt-1">
-              Clique em "Transformar em Blocos" acima para usar a leitura por partes.
+              Escreva seu roteiro no card central do palco ou clique em "Transformar em Blocos"
+              acima.
             </p>
           </div>
         ) : (
-          <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+          <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
             {scriptBlocks.map((block, idx) => {
               const isActive = idx === activeBlockIndex
               const isEditing = editingBlockId === block.id
+              const isSelected = selectedIds.includes(block.id)
+              const status = STATUS_META[block.status] ?? STATUS_META.draft
+              const preview =
+                block.text.length > 100 ? block.text.slice(0, 100) + '…' : block.text || '— vazio —'
+              const mediaCount = mediaCountFor(block.id)
 
               return (
                 <div
                   key={block.id}
                   onClick={() => setActiveBlockIndex(idx)}
+                  draggable={false}
                   className={`p-3 rounded-xl border transition-all cursor-pointer ${
-                    isActive
+                    isSelected
                       ? 'border-[#7C5CFC] bg-[#7C5CFC]/10'
-                      : 'border-white/5 bg-[#1C1C27] hover:border-white/20'
+                      : isActive
+                        ? 'border-[#7C5CFC] bg-[#7C5CFC]/10'
+                        : 'border-white/5 bg-[#1C1C27] hover:border-white/20'
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded uppercase bg-white/10 text-white/80">
-                        Bloco {idx + 1}
+                  <div className="flex items-start justify-between gap-2 mb-1.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {/* Drag handle */}
+                      <span
+                        draggable
+                        onDragStart={() => handleDragStart(idx)}
+                        onDragOver={(e) => handleDragOver(e, idx)}
+                        onDragEnd={handleDragEnd}
+                        onClick={(e) => e.stopPropagation()}
+                        className="cursor-grab active:cursor-grabbing text-[#9494A8]/50 hover:text-white touch-none"
+                        title="Arraste para reordenar"
+                      >
+                        <GripVertical className="w-3.5 h-3.5" />
                       </span>
+                      <span
+                        className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase bg-white/10 text-white/80"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleSelect(block.id)
+                        }}
+                        title="Selecionar (para juntar)"
+                      >
+                        {idx + 1}
+                      </span>
+                      {block.title && (
+                        <span className="text-[10px] font-semibold text-white/70 truncate">
+                          {block.title}
+                        </span>
+                      )}
                       {isActive && (
                         <span className="text-[9px] bg-[#7C5CFC] text-white font-bold px-1.5 py-0.2 rounded">
                           Lendo Agora
                         </span>
                       )}
+                      {block.pause && <PauseCircle className="w-3 h-3 text-amber-400 shrink-0" />}
                     </div>
-                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                    <div
+                      className="flex items-center gap-0.5 shrink-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {/* Status badge (clica para ciclar) */}
+                      <button
+                        onClick={() => handleCycleStatus(block)}
+                        className={`text-[9px] font-semibold px-1.5 py-0.5 rounded uppercase ${status.cls}`}
+                        title="Clicar para mudar status"
+                      >
+                        {status.label}
+                      </button>
+                      {/* Editar / salvar */}
                       {!isEditing ? (
-                        <button
-                          onClick={() => handleStartEdit(block)}
-                          className="p-1 text-[#9494A8] hover:text-white"
-                          title="Editar Bloco"
-                        >
+                        <IconBtn title="Editar" onClick={() => handleStartEdit(block)}>
                           <Pencil className="w-3.5 h-3.5" />
-                        </button>
+                        </IconBtn>
                       ) : (
-                        <button
+                        <IconBtn
+                          title="Salvar"
                           onClick={() => handleSaveEdit(block.id)}
-                          className="p-1 text-emerald-400 hover:text-emerald-300"
-                          title="Salvar Bloco"
+                          className="text-emerald-400 hover:text-emerald-300"
                         >
                           <Check className="w-3.5 h-3.5" />
-                        </button>
+                        </IconBtn>
                       )}
-                      <button
-                        onClick={() => handleSplitBlock(block)}
-                        className="p-1 text-[#9494A8] hover:text-[#22D3EE]"
+                      {/* Dividir (tesoura) */}
+                      <IconBtn
                         title="Dividir bloco"
+                        onClick={() => setSplitTarget(block)}
+                        className="text-[#9494A8] hover:text-[#22D3EE]"
                       >
                         <Split className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleMergeWithNext(block)}
-                        className="p-1 text-[#9494A8] hover:text-[#7C5CFC]"
-                        title="Unir com próximo bloco"
+                      </IconBtn>
+                      {/* Duplicar (cópia) */}
+                      <IconBtn
+                        title="Duplicar"
+                        onClick={() => handleDuplicate(block)}
+                        className="text-[#9494A8] hover:text-white"
                       >
-                        <Merge className="w-3.5 h-3.5" />
-                      </button>
-                      <button
+                        <Copy className="w-3.5 h-3.5" />
+                      </IconBtn>
+                      {/* Excluir */}
+                      <IconBtn
+                        title="Excluir"
                         onClick={() => handleDeleteBlock(block.id)}
-                        className="p-1 text-[#9494A8] hover:text-red-400"
-                        title="Excluir Bloco"
+                        className="text-[#9494A8] hover:text-red-400"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      </IconBtn>
+                      {/* Menu de contexto */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            className="p-1 text-[#9494A8] hover:text-white"
+                            title="Mais opções"
+                          >
+                            <MoreVertical className="w-3.5 h-3.5" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          align="end"
+                          className="bg-[#1C1C27] border-white/10 text-white"
+                        >
+                          <DropdownMenuItem
+                            onSelect={() => handleAddBlockAt(block.id, true)}
+                            className="text-xs"
+                          >
+                            <Plus className="w-3.5 h-3.5 mr-2" /> Adicionar bloco antes
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => handleAddBlockAt(block.id, false)}
+                            className="text-xs"
+                          >
+                            <Plus className="w-3.5 h-3.5 mr-2" /> Adicionar bloco depois
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator className="bg-white/10" />
+                          <DropdownMenuItem
+                            onSelect={() => handleTogglePause(block)}
+                            className="text-xs"
+                          >
+                            <PauseCircle className="w-3.5 h-3.5 mr-2" />
+                            {block.pause ? 'Remover pausa' : 'Marcar pausa'}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => handleSetDuration(block)}
+                            className="text-xs"
+                          >
+                            <Timer className="w-3.5 h-3.5 mr-2" /> Definir duração estimada
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator className="bg-white/10" />
+                          <DropdownMenuItem
+                            onSelect={() => moveBlock(idx, -1)}
+                            disabled={idx === 0}
+                            className="text-xs data-[disabled]:opacity-40"
+                          >
+                            <ArrowUp className="w-3.5 h-3.5 mr-2" /> Mover para cima
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => moveBlock(idx, 1)}
+                            disabled={idx === scriptBlocks.length - 1}
+                            className="text-xs data-[disabled]:opacity-40"
+                          >
+                            <ArrowDown className="w-3.5 h-3.5 mr-2" /> Mover para baixo
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </div>
 
                   {isEditing ? (
                     <textarea
-                      rows={2}
+                      rows={3}
                       value={editingText}
                       onChange={(e) => setEditingBlockText(e.target.value)}
-                      className="w-full bg-[#0B0B10] border border-white/20 rounded p-2 text-xs text-white focus:outline-none"
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-full bg-[#0B0B10] border border-white/20 rounded p-2 text-xs text-white focus:outline-none focus:border-[#7C5CFC]"
                     />
                   ) : (
-                    <p className="text-xs text-white/90 leading-normal line-clamp-3">
-                      {block.text}
-                    </p>
+                    <p className="text-xs text-white/80 leading-normal line-clamp-2">{preview}</p>
                   )}
 
-                  {/* PROMPT 3 — Prompt inline de split (duplicar/mover/manter artes). */}
-                  {splitPrompt?.originalBlockId === block.id && (
-                    <div className="mt-2 rounded-lg border border-[#22D3EE]/30 bg-[#22D3EE]/5 p-2 space-y-1.5">
-                      <div className="flex items-center gap-1.5 text-[10px] font-bold text-white">
-                        <GitBranch className="w-3 h-3 text-[#22D3EE]" />
-                        A arte atribuída deve:
-                      </div>
-                      <div className="grid grid-cols-3 gap-1">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            resolveSplit('duplicate')
-                          }}
-                          className="py-1 text-[9px] font-semibold rounded bg-[#7C5CFC]/20 text-[#A78BFA] hover:bg-[#7C5CFC]/30"
-                        >
-                          Duplicar
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            resolveSplit('move')
-                          }}
-                          className="py-1 text-[9px] font-semibold rounded bg-[#22D3EE]/20 text-[#22D3EE] hover:bg-[#22D3EE]/30"
-                        >
-                          Mover
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            resolveSplit('keep')
-                          }}
-                          className="py-1 text-[9px] font-semibold rounded bg-white/5 text-[#9494A8] hover:bg-white/10"
-                        >
-                          Manter
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                  {/* Meta: duração + mídias */}
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <span className="text-[9px] text-[#9494A8] font-mono">
+                      ⏱ {formatDurationLabel(block.estimatedSeconds)}
+                    </span>
+                    {mediaCount > 0 && (
+                      <span className="text-[9px] text-[#22D3EE] font-mono">
+                        🎞 {mediaCount} {mediaCount === 1 ? 'mídia' : 'mídias'}
+                      </span>
+                    )}
+                  </div>
                 </div>
               )
             })}
           </div>
         )}
       </div>
+
+      {/* Prompter Config (preservado) */}
+      <div className="space-y-2 pt-2 border-t border-white/5">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+            <Play className="w-3.5 h-3.5 text-[#22D3EE]" /> Configuração do Prompter
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] text-[#9494A8]">Modo</span>
+          <Switch
+            checked={prompterConfig.mode === 'continuous'}
+            onCheckedChange={(v) => updatePrompterConfig({ mode: v ? 'continuous' : 'blocks' })}
+          />
+        </div>
+      </div>
+
+      {/* Modal: Dividir bloco */}
+      <BlockSplitDialog
+        open={!!splitTarget}
+        onOpenChange={(o) => !o && setSplitTarget(null)}
+        block={splitTarget}
+        mediaCount={splitTarget ? mediaCountFor(splitTarget.id) : 0}
+        onConfirm={handleSplitConfirm}
+      />
     </div>
   )
 }
+
+/* ── Botão de ícone reutilizável ──────────────────────────────────────── */
+function IconBtn({
+  children,
+  onClick,
+  title,
+  className = '',
+}: {
+  children: React.ReactNode
+  onClick: () => void
+  title: string
+  className?: string
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={`p-1 text-[#9494A8] hover:text-white transition-colors ${className}`}
+    >
+      {children}
+    </button>
+  )
+}
+
+export default ScriptPanel

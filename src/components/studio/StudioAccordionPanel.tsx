@@ -397,7 +397,9 @@ export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
                         </div>
                       )}
 
-                      {/* Edição inline de blocos (reutiliza ScriptPanel que já tem split/juntar/duplicar/reordenar/excluir) */}
+                      {/* Edição inline de blocos (reutiliza ScriptPanel — agora com
+                          drag handle, menu de contexto, duplicar, juntar adjacentes,
+                          status badge, divisão via modal) */}
                       <div className="pt-2 border-t border-white/5">
                         <ScriptPanel />
                       </div>

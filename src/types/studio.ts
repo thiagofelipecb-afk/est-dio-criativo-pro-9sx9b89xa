@@ -323,8 +323,12 @@ export interface RecordingTake {
    Tipos aditivos. Nenhum tipo existente foi removido ou alterado.
    =========================================================================== */
 
-/** Status de gravação de um bloco de roteiro. */
-export type ScriptBlockStatus = 'ready' | 'pending'
+/** Status de gravação de um bloco de roteiro.
+ *  - 'draft'    → rascunho (texto importado, ainda não revisado).
+ *  - 'pending'  → (legado) equivalente a 'draft' neste fluxo.
+ *  - 'ready'    → pronto para gravar.
+ *  - 'recorded' → já gravado. */
+export type ScriptBlockStatus = 'draft' | 'ready' | 'recorded' | 'pending'
 
 /** Modo de exibição do teleprompter integrado na Gravadora. */
 export type TeleprompterMode = 'blocks' | 'continuous' | 'fixed'
@@ -343,6 +347,21 @@ export interface ScriptBlock {
   status: ScriptBlockStatus
   /** Duração estimada em segundos, com base em ~150 palavras/min. */
   estimatedSeconds: number
+  /* Campos opcionais de compatibilidade (aditivos) — alinham o tipo com a
+     especificação do fluxo de roteiro sem quebrar o schema existente.
+     Omitted/undefined por padrão; preenchidos apenas quando necessário. */
+  /** ID do projeto dono do bloco (quando persistido em backend). */
+  projectId?: string
+  /** Ordem (1-based) do bloco dentro do roteiro. */
+  order?: number
+  /** Duração estimada em milissegundos (equivale a estimatedSeconds * 1000). */
+  estimatedDurationMs?: number
+  /** Marcador de pausa antes/para este bloco. */
+  pause?: boolean
+  /** ISO timestamp de criação. */
+  createdAt?: string
+  /** ISO timestamp da última atualização. */
+  updatedAt?: string
 }
 
 /** Estado completo do roteiro dentro da Gravadora. */
