@@ -256,7 +256,7 @@ export interface RecordingTake {
 export type ScriptBlockStatus = 'ready' | 'pending'
 
 /** Modo de exibição do teleprompter integrado na Gravadora. */
-export type TeleprompterMode = 'blocks' | 'continuous'
+export type TeleprompterMode = 'blocks' | 'continuous' | 'fixed'
 
 /** Cor do texto do teleprompter. */
 export type TeleprompterTextColor = 'white' | 'green' | 'yellow'

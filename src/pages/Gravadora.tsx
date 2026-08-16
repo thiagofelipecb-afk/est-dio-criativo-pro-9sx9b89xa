@@ -1,33 +1,18 @@
-import React, { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  FileText,
   ScrollText,
-  Image,
-  Type,
   Camera,
   Mic,
   Maximize2,
   Minimize2,
-  Video,
-  Play,
   Square,
   Settings2,
-  Sliders,
-  Sparkles,
-  Volume2,
-  VolumeX,
-  Layers,
-  ChevronRight,
   Eye,
   X,
   RotateCcw,
-  Check,
-  PanelRightClose,
-  PanelRightOpen,
   Circle,
   FileVideo,
-  Monitor,
   Smartphone,
 } from 'lucide-react'
 import { useStudio } from '@/context/StudioContext'
@@ -42,7 +27,6 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { toast } from 'sonner'
-import type { TeleprompterTextColor, TeleprompterMode } from '@/types/studio'
 
 export default function Gravadora() {
   const navigate = useNavigate()
@@ -60,8 +44,6 @@ export default function Gravadora() {
     updatePrompterConfig,
     audioConfig,
     updateAudioConfig,
-    stageConfig,
-    updateStageConfig,
     saveDevicePreference,
     loadDevicePreference,
     saveRawVideo,
@@ -210,22 +192,20 @@ export default function Gravadora() {
     }
   }, [isRecording])
 
-  // FASE 2D — Atalho "F" alterna Modo Foco; "Esc" sai do Modo Foco.
-  // Não dispara quando o usuário está digitando em inputs/textarea/select.
+  // FASE 2D — Atalhos "F" (Modo Foco) e "Esc" (sair do foco / minimizar HUD)
+  // são tratados centralmente no PrompterHUD para evitar duplicação de handlers.
+  // Aqui permanece apenas a leitura de isFocusMode para o layout.
   useEffect(() => {
-    const isTypingTarget = (el: EventTarget | null) => {
-      if (!(el instanceof HTMLElement)) return false
-      const tag = el.tagName.toLowerCase()
-      return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable
-    }
+    if (!isFocusMode) return
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return
-      if (isTypingTarget(e.target)) return
-      const k = e.key.toLowerCase()
-      if (k === 'f') {
-        e.preventDefault()
-        setIsFocusMode(!isFocusMode)
-      } else if (k === 'escape' && isFocusMode) {
+      const target = e.target
+      if (target instanceof HTMLElement) {
+        const tag = target.tagName.toLowerCase()
+        if (tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable)
+          return
+      }
+      if (e.key.toLowerCase() === 'escape') {
         e.preventDefault()
         setIsFocusMode(false)
       }
@@ -350,7 +330,7 @@ export default function Gravadora() {
             <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
               <ScrollText className="w-3.5 h-3.5 text-[#7C5CFC]" /> Configurações do Prompter
             </span>
-            <span className="text-[10px] text-[#22D3EE] font-mono">HUD Ativo</span>
+            <span className="text-[10px] text-[#22D3EE] font-mono">HUD fixo no topo</span>
           </div>
 
           <div className="space-y-3">
@@ -358,28 +338,46 @@ export default function Gravadora() {
               <label className="text-[10px] text-[#9494A8] uppercase tracking-wider">
                 Modo de Leitura
               </label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   onClick={() => updatePrompterConfig({ mode: 'blocks' })}
-                  className={`py-2 text-xs font-semibold rounded-lg border transition-all ${
+                  className={`py-2 text-[11px] font-semibold rounded-lg border transition-all ${
                     prompterConfig.mode === 'blocks'
                       ? 'border-[#7C5CFC] bg-[#7C5CFC]/20 text-white'
                       : 'border-white/10 bg-[#1C1C27] text-[#9494A8]'
                   }`}
                 >
-                  Por Blocos (Seta / Espaço)
+                  Blocos
+                </button>
+                <button
+                  onClick={() => updatePrompterConfig({ mode: 'fixed' })}
+                  className={`py-2 text-[11px] font-semibold rounded-lg border transition-all ${
+                    prompterConfig.mode === 'fixed'
+                      ? 'border-[#7C5CFC] bg-[#7C5CFC]/20 text-white'
+                      : 'border-white/10 bg-[#1C1C27] text-[#9494A8]'
+                  }`}
+                >
+                  Nota Fixa
                 </button>
                 <button
                   onClick={() => updatePrompterConfig({ mode: 'continuous' })}
-                  className={`py-2 text-xs font-semibold rounded-lg border transition-all ${
+                  className={`py-2 text-[11px] font-semibold rounded-lg border transition-all ${
                     prompterConfig.mode === 'continuous'
                       ? 'border-[#7C5CFC] bg-[#7C5CFC]/20 text-white'
                       : 'border-white/10 bg-[#1C1C27] text-[#9494A8]'
                   }`}
                 >
-                  Rolagem Contínua
+                  Rolagem
                 </button>
               </div>
+              <p className="text-[9px] text-[#9494A8]/70 leading-relaxed mt-1">
+                {prompterConfig.mode === 'blocks' &&
+                  'Avança bloco por bloco com Seta ↓ / Espaço. Volta com Seta ↑.'}
+                {prompterConfig.mode === 'fixed' &&
+                  'Texto estático fixo no topo — ideal para anotações rápidas.'}
+                {prompterConfig.mode === 'continuous' &&
+                  'Rolagem automática — Espaço pausa/continua. Inicia junto com a gravação.'}
+              </p>
             </div>
 
             <div className="space-y-1">
@@ -389,7 +387,7 @@ export default function Gravadora() {
               </div>
               <Slider
                 value={[prompterConfig.fontSize]}
-                min={24}
+                min={28}
                 max={72}
                 step={2}
                 onValueChange={(v) => updatePrompterConfig({ fontSize: v[0] })}
@@ -405,12 +403,43 @@ export default function Gravadora() {
                 <Slider
                   value={[prompterConfig.speed]}
                   min={1}
-                  max={10}
+                  max={8}
                   step={1}
                   onValueChange={(v) => updatePrompterConfig({ speed: v[0] })}
                 />
               </div>
             )}
+
+            <div className="space-y-1">
+              <label className="text-[10px] text-[#9494A8] uppercase tracking-wider">
+                Cor do Texto
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {(
+                  [
+                    { id: 'white', label: 'Branco', color: '#FFFFFF' },
+                    { id: 'green', label: 'Ciano', color: '#22D3EE' },
+                    { id: 'yellow', label: 'Amarelo', color: '#FFFF44' },
+                  ] as const
+                ).map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => updatePrompterConfig({ color: c.id })}
+                    className={`flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold rounded-lg border transition-all ${
+                      prompterConfig.color === c.id
+                        ? 'border-[#7C5CFC] bg-[#7C5CFC]/20 text-white'
+                        : 'border-white/10 bg-[#1C1C27] text-[#9494A8]'
+                    }`}
+                  >
+                    <span
+                      className="w-2.5 h-2.5 rounded-full border border-white/20"
+                      style={{ backgroundColor: c.color }}
+                    />
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <div className="space-y-1">
               <div className="flex justify-between text-[10px] text-[#9494A8]">
@@ -427,11 +456,36 @@ export default function Gravadora() {
             </div>
 
             <div className="flex items-center justify-between pt-2 border-t border-white/5">
-              <span className="text-xs text-white">Espelhar Texto (Mirror)</span>
+              <div>
+                <span className="text-xs text-white">Espelhar Texto (Mirror)</span>
+                <p className="text-[9px] text-[#9494A8]">Para uso com vidro refletivo</p>
+              </div>
               <Switch
                 checked={prompterConfig.mirror}
                 onCheckedChange={(v) => updatePrompterConfig({ mirror: v })}
               />
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-white/5">
+              <div>
+                <span className="text-xs text-white">Iniciar com a Gravação</span>
+                <p className="text-[9px] text-[#9494A8]">
+                  Liga a leitura automaticamente ao gravar
+                </p>
+              </div>
+              <Switch
+                checked={prompterConfig.mode === 'continuous'}
+                disabled={prompterConfig.mode !== 'continuous'}
+                onCheckedChange={(v) => {
+                  if (v) updatePrompterConfig({ mode: 'continuous', reading: true })
+                }}
+              />
+            </div>
+
+            <div className="rounded-lg border border-white/5 bg-[#14141C] p-2.5 text-[9px] text-[#9494A8] leading-relaxed">
+              <span className="text-white font-semibold">Atalhos:</span> Espaço/↓ avança bloco ou
+              pausa rolagem · ↑ volta bloco · F Modo Foco · Esc minimiza o HUD. Não disparam durante
+              digitação.
             </div>
           </div>
         </TabsContent>
