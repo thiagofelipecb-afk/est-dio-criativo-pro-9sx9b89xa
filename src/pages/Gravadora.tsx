@@ -38,6 +38,19 @@ import {
   type SplitMediaLayer,
   type ArtLayer,
 } from '@/lib/studio-compositor'
+import {
+  parseCapabilities,
+  buildTrackConstraints,
+  clampZoom,
+  clampPan,
+  centerCropOnPoint,
+  restoreCrop,
+  cameraErrorMessage,
+  type CameraCapabilities as CamCaps,
+  type CameraHardwareSettings,
+  type ResolutionOption,
+} from '@/lib/camera-controls'
+import { CAMERA_PRESETS } from '@/lib/studio-recording-logic'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -189,14 +202,14 @@ export default function Gravadora() {
   // Elemento de mídia carregado para a tela dividida (imagem ou vídeo).
   const [splitMediaEl, setSplitMediaEl] = useState<HTMLImageElement | HTMLVideoElement | null>(null)
 
-  // Capacidades reais do dispositivo de câmera (getCapabilities/getSettings).
-  const [cameraCapabilities, setCameraCapabilities] = useState<{
-    maxWidth: number
-    maxHeight: number
-    maxFrameRate: number
-    zoom: { min: number; max: number; step: number } | null
-    supportedResolutions: string[]
-  } | null>(null)
+  // Capacidades reais do dispositivo de câmera (getCapabilities normalizado).
+  const [hardwareCapabilities, setHardwareCapabilities] = useState<CamCaps | null>(null)
+  // Resolução/FPS efetivamente entregues após applyConstraints (getSettings).
+  const [deliveredWidth, setDeliveredWidth] = useState<number | undefined>()
+  const [deliveredHeight, setDeliveredHeight] = useState<number | undefined>()
+  const [deliveredFrameRate, setDeliveredFrameRate] = useState<number | undefined>()
+  // Erro da última applyConstraints (ex.: OverconstrainedError) — exibido na UI.
+  const [applyConstraintsError, setApplyConstraintsError] = useState<string>('')
 
   // Medidor de Áudio
   const [micLevel, setMicLevel] = useState(0)
@@ -448,34 +461,18 @@ export default function Gravadora() {
       }
 
       // Detecta capacidades reais da câmera (getCapabilities/getSettings).
+      // PROMPT 6 — usamos o parser normalizado que cobre exposição, foco, WB,
+      // brilho, contraste, saturação, nitidez, zoom óptico, etc.
       try {
         const track = mediaStream.getVideoTracks()[0]
         if (track) {
-          const caps = (track as any).getCapabilities?.() ?? {}
+          const rawCaps = (track as any).getCapabilities?.() ?? {}
+          const caps = parseCapabilities(rawCaps)
+          setHardwareCapabilities(caps)
           const settings = track.getSettings?.() ?? {}
-          const maxW = Math.max(caps.width?.max || 0, settings.width || 0, 1280)
-          const maxH = Math.max(caps.height?.max || 0, settings.height || 0, 720)
-          const maxFps = Math.max(caps.frameRate?.max || 0, settings.frameRate || 0, 30)
-          const zoom =
-            caps.zoom && typeof caps.zoom.max === 'number'
-              ? {
-                  min: caps.zoom.min ?? 100,
-                  max: caps.zoom.max,
-                  step: caps.zoom.step ?? 10,
-                }
-              : null
-          const supported: string[] = []
-          if (maxH >= 720) supported.push('720p')
-          if (maxH >= 1080) supported.push('1080p')
-          if (maxH >= 1440) supported.push('1440p')
-          if (maxH >= 2160) supported.push('4K')
-          setCameraCapabilities({
-            maxWidth: maxW,
-            maxHeight: maxH,
-            maxFrameRate: maxFps,
-            zoom,
-            supportedResolutions: supported,
-          })
+          setDeliveredWidth(settings.width)
+          setDeliveredHeight(settings.height)
+          setDeliveredFrameRate(settings.frameRate)
         }
       } catch {
         /* getCapabilities pode não existir — ignoramos silenciosamente */
@@ -689,7 +686,107 @@ export default function Gravadora() {
 
   const [mediaModalOpen, setMediaModalOpen] = useState(false)
 
-  // === Fluxo de roteiro frontal ===
+  // === PROMPT 6 — applyConstraints para resolução/FPS/controles manuais ===
+  // Aplica constraints reais ao track de vídeo e lê o resultado em getSettings.
+  // Em caso de OverconstrainedError, mostra o erro real (NÃO simula).
+  const applyHardwareConstraints = useCallback(async () => {
+    const track = streamRef.current?.getVideoTracks?.()[0]
+    if (!track) return
+    const caps = hardwareCapabilities ?? parseCapabilities(null)
+    const settings = { ...cameraConfig.hardware }
+    const constraints = buildTrackConstraints(settings, caps)
+    if (Object.keys(constraints).length === 0) return
+    try {
+      await (track as MediaStreamTrack).applyConstraints(constraints as MediaTrackConstraintSet)
+      setApplyConstraintsError('')
+      // Lê o resultado efetivo após applyConstraints.
+      const s = track.getSettings?.() ?? {}
+      setDeliveredWidth(s.width)
+      setDeliveredHeight(s.height)
+      setDeliveredFrameRate(s.frameRate)
+    } catch (e) {
+      const info = cameraErrorMessage(e)
+      setApplyConstraintsError(info.message)
+      toast.error(info.message)
+    }
+  }, [cameraConfig.hardware, hardwareCapabilities])
+
+  // Aplica constraints quando o usuário muda resolução/FPS/controles manuais.
+  useEffect(() => {
+    if (camStatus !== 'ready') return
+    applyHardwareConstraints()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraConfig.hardware, camStatus])
+
+  // Zoom digital + pan via crop no compositor. Persistido (cameraCrop já existe).
+  const handleZoomChange = useCallback((z: number) => {
+    setCameraCrop((c) => ({ ...c, zoom: clampZoom(z) }))
+  }, [])
+  const handlePanChange = useCallback((x: number, y: number) => {
+    setCameraCrop((c) => ({ ...c, panX: clampPan(x), panY: clampPan(y) }))
+  }, [])
+  const handleResetCrop = useCallback(() => {
+    setCameraCrop((c) => restoreCrop(c.mirror))
+  }, [])
+  const handleCenterFace = useCallback(() => {
+    // Posição aproximada do rosto: assume centralizado (sem detector de ROI
+    // dedicado no painel). A gravação real usa o pipeline facial; aqui
+    // centralizamos o crop no centro do frame, o que aproxima o rosto quando
+    // ele está centralizado. Para ROI preciso, o pipeline reportaria coords.
+    setCameraCrop((c) => centerCropOnPoint(c.zoom, 0.5, 0.42, c.mirror))
+  }, [])
+  const handleMirrorChange = useCallback((v: boolean) => {
+    setCameraCrop((c) => ({ ...c, mirror: v }))
+  }, [])
+
+  // Atualiza hardware settings (vindos do painel) — persistido no StudioContext.
+  const handleUpdateHardware = useCallback(
+    (u: Partial<CameraHardwareSettings>) => {
+      updateCameraConfig({ hardware: { ...cameraConfig.hardware, ...u } })
+    },
+    [cameraConfig.hardware, updateCameraConfig],
+  )
+
+  // Restaurar padrões: preset Natural + zoom 1x + hardware auto.
+  const handleRestoreCameraDefaults = useCallback(() => {
+    const natural = CAMERA_PRESETS[0]
+    updateCameraConfig({
+      brightness: natural.brightness,
+      contrast: natural.contrast,
+      beautySmooth: natural.beautySmooth,
+      saturation: natural.saturation,
+      temperature: natural.temperature,
+      sharpness: natural.sharpness,
+      smoothness: natural.smoothness,
+      vignette: natural.vignette,
+      hardware: { resolutionId: 'auto', frameRate: 'auto' },
+      requestedResolution: 'auto',
+      requestedFrameRate: 'auto',
+    })
+    setCameraCrop((c) => restoreCrop(c.mirror))
+    setApplyConstraintsError('')
+    toast.success('Padrões de câmera restaurados.')
+  }, [updateCameraConfig])
+
+  const handleRequestResolution = useCallback(
+    (id: ResolutionOption['id'] | 'auto') => {
+      updateCameraConfig({
+        requestedResolution: id,
+        hardware: { ...cameraConfig.hardware, resolutionId: id },
+      })
+    },
+    [cameraConfig.hardware, updateCameraConfig],
+  )
+  const handleRequestFrameRate = useCallback(
+    (fps: number | 'auto') => {
+      updateCameraConfig({
+        requestedFrameRate: fps,
+        hardware: { ...cameraConfig.hardware, frameRate: fps },
+      })
+    },
+    [cameraConfig.hardware, updateCameraConfig],
+  )
+
   // Estado sem roteiro: card central no palco. Visível quando não há blocos E
   // não estamos em modo foco E a câmera está pronta/idle (não bloqueia o gate).
   const [splitPreviewOpen, setSplitPreviewOpen] = useState(false)
@@ -2220,10 +2317,31 @@ export default function Gravadora() {
               setSelectedCamera(id)
               saveDevicePreference(id, selectedMic)
             }}
-            cameraCapabilities={cameraCapabilities}
+            hardwareCapabilities={hardwareCapabilities}
+            requestedResolution={cameraConfig.requestedResolution}
+            requestedFrameRate={cameraConfig.requestedFrameRate}
+            deliveredWidth={deliveredWidth}
+            deliveredHeight={deliveredHeight}
+            deliveredFrameRate={deliveredFrameRate}
+            camStatus={camStatus}
+            camError={camError || applyConstraintsError}
+            onRetryCamera={handleActivateCamera}
+            onRequestResolution={handleRequestResolution}
+            onRequestFrameRate={handleRequestFrameRate}
+            zoom={cameraCrop.zoom}
+            panX={cameraCrop.panX}
+            panY={cameraCrop.panY}
+            onZoomChange={handleZoomChange}
+            onPanChange={handlePanChange}
+            onCenterFace={handleCenterFace}
+            onResetCrop={handleResetCrop}
+            hardware={cameraConfig.hardware}
+            onUpdateHardware={handleUpdateHardware}
+            mirror={cameraCrop.mirror}
+            onMirrorChange={handleMirrorChange}
             cameraConfig={cameraConfig}
             updateCameraConfig={updateCameraConfig}
-            camStatus={camStatus}
+            onRestoreDefaults={handleRestoreCameraDefaults}
             beauty={beauty}
             setBeauty={setBeauty}
             faceDetected={faceDetected}
@@ -2311,10 +2429,16 @@ export default function Gravadora() {
             cameraStream: stream && stream.getVideoTracks().length > 0 ? stream : null,
             micStream: stream && stream.getAudioTracks().length > 0 ? stream : null,
             composerReady: !!stageRef.current || !!stream,
-            resolution: cameraCapabilities
-              ? { width: cameraCapabilities.maxWidth, height: cameraCapabilities.maxHeight }
-              : null,
-            fps: cameraCapabilities?.maxFrameRate ?? null,
+            resolution:
+              deliveredWidth && deliveredHeight
+                ? { width: deliveredWidth, height: deliveredHeight }
+                : hardwareCapabilities?.width && hardwareCapabilities.height
+                  ? {
+                      width: hardwareCapabilities.width.max,
+                      height: hardwareCapabilities.height.max,
+                    }
+                  : null,
+            fps: deliveredFrameRate ?? hardwareCapabilities?.frameRate?.max ?? null,
             micLevel,
             layout: stageConfig.layout,
             hasScript,

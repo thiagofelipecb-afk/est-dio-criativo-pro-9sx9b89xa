@@ -30,6 +30,7 @@ import {
   MEDIA_ASSETS_KEY,
 } from '@/services/mediaService'
 import { MEDIA_ASSETS_EVENT } from '@/hooks/useMediaAssets'
+import type { CameraHardwareSettings } from '@/lib/camera-controls'
 
 /** Defaults FASE 4 — Fundo. */
 const DEFAULT_BACKGROUND_CONFIG: BackgroundConfig = {
@@ -88,6 +89,21 @@ export interface CameraConfig {
   smoothness: number
   /** Vinheta (0–100, padrão 0). */
   vignette: number
+  /**
+   * PROMPT 6 — Configurações de hardware aplicadas via MediaStreamTrack.
+   * applyConstraints(). Persistida para sobreviver ao recarregamento. Campos
+   * não suportados pelo hardware são ignorados no applyConstraints.
+   */
+  hardware: CameraHardwareSettings
+  /**
+   * PROMPT 6 — Resolução solicitada (id) vs entregue (real, pós-applyConstraints).
+   * `delivered*` é preenchido pela Gravadora após ler getSettings().
+   */
+  requestedResolution: import('@/lib/camera-controls').ResolutionOption['id'] | 'auto'
+  requestedFrameRate: number | 'auto'
+  deliveredWidth?: number
+  deliveredHeight?: number
+  deliveredFrameRate?: number
 }
 
 const DEFAULT_CAMERA_CONFIG: CameraConfig = {
@@ -99,6 +115,12 @@ const DEFAULT_CAMERA_CONFIG: CameraConfig = {
   sharpness: 0,
   smoothness: 0,
   vignette: 0,
+  hardware: {
+    resolutionId: 'auto',
+    frameRate: 'auto',
+  },
+  requestedResolution: 'auto',
+  requestedFrameRate: 'auto',
 }
 
 /** Config do Teleprompter */
@@ -413,7 +435,12 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const saved = localStorage.getItem('lumen_camera_config')
     if (saved) {
       try {
-        return { ...DEFAULT_CAMERA_CONFIG, ...JSON.parse(saved) }
+        const parsed = JSON.parse(saved)
+        return {
+          ...DEFAULT_CAMERA_CONFIG,
+          ...parsed,
+          hardware: { ...DEFAULT_CAMERA_CONFIG.hardware, ...(parsed?.hardware ?? {}) },
+        }
       } catch {
         return DEFAULT_CAMERA_CONFIG
       }

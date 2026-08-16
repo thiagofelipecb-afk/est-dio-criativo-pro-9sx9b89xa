@@ -420,33 +420,137 @@ export type CameraPresetId =
 export interface CameraPreset {
   id: CameraPresetId
   label: string
+  /** Descrição curta dos valores modificados (pt-BR). */
+  description: string
   brightness: number
   contrast: number
   beautySmooth: number
+  /* PROMPT 6 — valores profissionais completos do preset. */
+  saturation: number
+  temperature: number
+  sharpness: number
+  smoothness: number
+  vignette: number
 }
 
 export const CAMERA_PRESETS: CameraPreset[] = [
-  { id: 'natural', label: 'Natural', brightness: 100, contrast: 100, beautySmooth: 40 },
+  {
+    id: 'natural',
+    label: 'Natural',
+    description: 'Valores padrão do dispositivo.',
+    brightness: 100,
+    contrast: 100,
+    beautySmooth: 40,
+    saturation: 100,
+    temperature: 0,
+    sharpness: 0,
+    smoothness: 0,
+    vignette: 0,
+  },
   {
     id: 'webcam-melhorada',
     label: 'Webcam Melhorada',
-    brightness: 108,
-    contrast: 108,
-    beautySmooth: 55,
+    description: 'Leve aumento de contraste + nitidez.',
+    brightness: 104,
+    contrast: 110,
+    beautySmooth: 45,
+    saturation: 105,
+    temperature: 4,
+    sharpness: 20,
+    smoothness: 5,
+    vignette: 0,
   },
-  { id: 'estudio', label: 'Estúdio', brightness: 115, contrast: 105, beautySmooth: 45 },
-  { id: 'luz-baixa', label: 'Luz Baixa', brightness: 130, contrast: 95, beautySmooth: 35 },
-  { id: 'luz-fria', label: 'Luz Fria', brightness: 100, contrast: 110, beautySmooth: 40 },
-  { id: 'luz-quente', label: 'Luz Quente', brightness: 105, contrast: 98, beautySmooth: 45 },
+  {
+    id: 'estudio',
+    label: 'Estúdio',
+    description: 'Exposição equilibrada, temperatura neutra, nitidez moderada.',
+    brightness: 108,
+    contrast: 104,
+    beautySmooth: 40,
+    saturation: 102,
+    temperature: 0,
+    sharpness: 25,
+    smoothness: 0,
+    vignette: 0,
+  },
+  {
+    id: 'luz-baixa',
+    label: 'Luz Baixa',
+    description: 'Aumento de exposição/brilho, redução de ruído.',
+    brightness: 128,
+    contrast: 96,
+    beautySmooth: 30,
+    saturation: 98,
+    temperature: -4,
+    sharpness: 0,
+    smoothness: 25,
+    vignette: 0,
+  },
+  {
+    id: 'luz-fria',
+    label: 'Luz Fria',
+    description: 'Temperatura fria, contraste alto.',
+    brightness: 100,
+    contrast: 118,
+    beautySmooth: 40,
+    saturation: 104,
+    temperature: -35,
+    sharpness: 15,
+    smoothness: 0,
+    vignette: 5,
+  },
+  {
+    id: 'luz-quente',
+    label: 'Luz Quente',
+    description: 'Temperatura quente, contraste suave.',
+    brightness: 104,
+    contrast: 96,
+    beautySmooth: 45,
+    saturation: 106,
+    temperature: 35,
+    sharpness: 10,
+    smoothness: 5,
+    vignette: 0,
+  },
   {
     id: 'alto-contraste',
     label: 'Alto Contraste',
+    description: 'Contraste máximo.',
     brightness: 100,
-    contrast: 135,
-    beautySmooth: 30,
+    contrast: 140,
+    beautySmooth: 35,
+    saturation: 110,
+    temperature: 0,
+    sharpness: 20,
+    smoothness: 0,
+    vignette: 10,
   },
-  { id: 'suave', label: 'Suave', brightness: 105, contrast: 92, beautySmooth: 70 },
-  { id: 'personalizado', label: 'Personalizado', brightness: 100, contrast: 100, beautySmooth: 40 },
+  {
+    id: 'suave',
+    label: 'Suave',
+    description: 'Nitidez reduzida, contraste baixo.',
+    brightness: 104,
+    contrast: 92,
+    beautySmooth: 60,
+    saturation: 98,
+    temperature: 6,
+    sharpness: 0,
+    smoothness: 30,
+    vignette: 0,
+  },
+  {
+    id: 'personalizado',
+    label: 'Personalizado',
+    description: 'Valores manuais.',
+    brightness: 100,
+    contrast: 100,
+    beautySmooth: 40,
+    saturation: 100,
+    temperature: 0,
+    sharpness: 0,
+    smoothness: 0,
+    vignette: 0,
+  },
 ]
 
 export type BeautyPresetId =

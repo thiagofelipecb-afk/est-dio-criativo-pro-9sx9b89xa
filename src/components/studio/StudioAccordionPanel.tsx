@@ -28,7 +28,26 @@ import {
   EyeOff,
   Layers,
   CheckCircle2,
+  Crosshair,
+  RotateCcw,
+  Lock,
 } from 'lucide-react'
+import {
+  type CameraCapabilities as CamCaps,
+  type CameraHardwareSettings,
+  type ResolutionOption,
+  RESOLUTION_OPTIONS,
+  FPS_OPTIONS,
+  DIGITAL_ZOOM_MIN,
+  DIGITAL_ZOOM_MAX,
+  supportedResolutions,
+  supportedFrameRates,
+  isControlSupported,
+  clampZoom,
+  clampPan,
+  parseCapabilities,
+  aspectLabel,
+} from '@/lib/camera-controls'
 import { toast } from 'sonner'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
@@ -74,13 +93,37 @@ export interface StudioAccordionPanelProps {
   cameras: MediaDeviceInfo[]
   selectedCamera: string
   onSelectCamera: (id: string) => void
-  cameraCapabilities: {
-    maxWidth: number
-    maxHeight: number
-    maxFrameRate: number
-    zoom: { min: number; max: number; step: number } | null
-    supportedResolutions: string[]
-  } | null
+  /** Capacidades cruas do hardware (saída de getCapabilities normalizada). */
+  hardwareCapabilities: CamCaps | null
+  /** Resolução/FPS solicitados (id / número) pelo usuário. */
+  requestedResolution: ResolutionOption['id'] | 'auto'
+  requestedFrameRate: number | 'auto'
+  /** Resolução/FPS efetivamente entregues após applyConstraints (getSettings). */
+  deliveredWidth?: number
+  deliveredHeight?: number
+  deliveredFrameRate?: number
+  /** Estado da câmera: idle | requesting | ready | denied | error. */
+  camStatus: 'idle' | 'requesting' | 'ready' | 'denied' | 'error'
+  camError: string
+  /** Aciona a (re)inicialização do stream (botão "Tentar novamente"). */
+  onRetryCamera: () => void
+  /** Troca de resolução/FPS aplicada via applyConstraints. */
+  onRequestResolution: (id: ResolutionOption['id'] | 'auto') => void
+  onRequestFrameRate: (fps: number | 'auto') => void
+  /** Zoom digital (crop no compositor) 1..4 + pan X/Y normalizados. */
+  zoom: number
+  panX: number
+  panY: number
+  onZoomChange: (z: number) => void
+  onPanChange: (x: number, y: number) => void
+  onCenterFace: () => void
+  onResetCrop: () => void
+  /** Hardware settings manuais (exposição, foco, WB, etc.). */
+  hardware: CameraHardwareSettings
+  onUpdateHardware: (u: Partial<CameraHardwareSettings>) => void
+  /** Espelhamento horizontal (só no preview). */
+  mirror: boolean
+  onMirrorChange: (v: boolean) => void
   cameraConfig: {
     brightness: number
     contrast: number
@@ -103,7 +146,8 @@ export interface StudioAccordionPanelProps {
       vignette: number
     }>,
   ) => void
-  camStatus: string
+  /** Restaura padrões de câmera (preset natural + zoom 1x + hardware auto). */
+  onRestoreDefaults: () => void
   // Aparência (beauty)
   beauty: {
     skinSmooth: number
@@ -220,12 +264,17 @@ export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
 
   const applyCameraPreset = (id: CameraPresetId) => {
     setCameraPreset(id)
-    const p = CAMERA_PRESETS.find((x) => x.id === id)!
     if (id !== 'personalizado') {
+      const p = CAMERA_PRESETS.find((x) => x.id === id)!
       props.updateCameraConfig({
         brightness: p.brightness,
         contrast: p.contrast,
         beautySmooth: p.beautySmooth,
+        saturation: p.saturation,
+        temperature: p.temperature,
+        sharpness: p.sharpness,
+        smoothness: p.smoothness,
+        vignette: p.vignette,
       })
     }
   }
@@ -503,102 +552,12 @@ export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
 
                   {/* ============ 4. CÂMERA ============ */}
                   {acc.id === 'camera' && (
-                    <>
-                      <SelectRow
-                        label="Dispositivo de vídeo"
-                        value={props.selectedCamera}
-                        onChange={props.onSelectCamera}
-                        options={props.cameras.map((c, i) => ({
-                          value: c.deviceId,
-                          label: c.label || `Câmera ${i + 1}`,
-                        }))}
-                        disabledHint={
-                          props.camStatus !== 'ready'
-                            ? 'Ative a câmera para ver os nomes reais.'
-                            : undefined
-                        }
-                      />
-                      {props.cameraCapabilities && (
-                        <div className="text-[9px] text-[#9494A8] bg-[#1C1C27] rounded-lg p-2 leading-relaxed">
-                          Resolução máx.: {props.cameraCapabilities.maxWidth}×
-                          {props.cameraCapabilities.maxHeight}
-                          <br />
-                          FPS máx.: {props.cameraCapabilities.maxFrameRate}
-                          <br />
-                          Suportadas:{' '}
-                          {props.cameraCapabilities.supportedResolutions.join(', ') || '—'}
-                        </div>
-                      )}
-                      <div>
-                        <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">
-                          Presets de câmera
-                        </span>
-                        <div className="grid grid-cols-3 gap-1 mt-1">
-                          {CAMERA_PRESETS.map((p) => (
-                            <button
-                              key={p.id}
-                              onClick={() => applyCameraPreset(p.id)}
-                              className={`text-[9px] py-1.5 rounded-lg border transition-all ${cameraPreset === p.id ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'}`}
-                            >
-                              {p.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <SliderRow
-                        label="Brilho"
-                        value={props.cameraConfig.brightness}
-                        min={50}
-                        max={150}
-                        step={1}
-                        onChange={(v) => props.updateCameraConfig({ brightness: v })}
-                        suffix="%"
-                      />
-                      <SliderRow
-                        label="Contraste"
-                        value={props.cameraConfig.contrast}
-                        min={50}
-                        max={150}
-                        step={1}
-                        onChange={(v) => props.updateCameraConfig({ contrast: v })}
-                        suffix="%"
-                      />
-                      {props.cameraCapabilities?.zoom ? (
-                        <SliderRow
-                          label="Zoom"
-                          value={props.cameraCapabilities.zoom.min}
-                          min={props.cameraCapabilities.zoom.min}
-                          max={props.cameraCapabilities.zoom.max}
-                          step={props.cameraCapabilities.zoom.step}
-                          onChange={() => {}}
-                          suffix=""
-                        />
-                      ) : (
-                        <p className="text-[9px] text-[#9494A8]/70">
-                          Zoom não suportado por este dispositivo.
-                        </p>
-                      )}
-                      <p className="text-[9px] text-[#9494A8]/70 leading-relaxed">
-                        Controles avançados (exposição, foco, balanço de branco, saturação, nitidez)
-                        são aplicados via applyConstraints apenas quando suportados pelo
-                        dispositivo.
-                      </p>
-                      <div className="rounded-lg border border-white/10 bg-[#1C1C27] p-2 space-y-1.5">
-                        {(
-                          [
-                            'exposureTime',
-                            'focusDistance',
-                            'whiteBalanceMode',
-                            'brightness',
-                            'contrast',
-                            'saturation',
-                            'sharpness',
-                          ] as const
-                        ).map((cap) => (
-                          <CapabilityRow key={cap} cap={cap} />
-                        ))}
-                      </div>
-                    </>
+                    <CameraAccordionSection
+                      {...props}
+                      cameraPreset={cameraPreset}
+                      applyCameraPreset={applyCameraPreset}
+                      setCameraPreset={setCameraPreset}
+                    />
                   )}
 
                   {/* ============ 5. APARÊNCIA ============ */}
@@ -1241,23 +1200,558 @@ function SelectRow({
   )
 }
 
-function CapabilityRow({ cap }: { cap: string }) {
-  // Na prática, a disponibilidade depende de getCapabilities; mostramos desabilitado com explicação.
-  const labels: Record<string, string> = {
-    exposureTime: 'Exposição',
-    focusDistance: 'Foco',
-    whiteBalanceMode: 'Balanço de branco',
-    brightness: 'Brilho (HW)',
-    contrast: 'Contraste (HW)',
-    saturation: 'Saturação',
-    sharpness: 'Nitidez',
+/* ---------------------------------------------------------------------------
+   PROMPT 6 — Seção Câmera: diagnósticos, resolução/FPS reais, zoom digital
+   (crop no compositor), presets profissionais e controles manuais de hardware.
+   ------------------------------------------------------------------------- */
+function CameraAccordionSection({
+  cameras,
+  selectedCamera,
+  onSelectCamera,
+  hardwareCapabilities,
+  requestedResolution,
+  requestedFrameRate,
+  deliveredWidth,
+  deliveredHeight,
+  deliveredFrameRate,
+  camStatus,
+  camError,
+  onRetryCamera,
+  onRequestResolution,
+  onRequestFrameRate,
+  zoom,
+  panX,
+  panY,
+  onZoomChange,
+  onPanChange,
+  onCenterFace,
+  onResetCrop,
+  hardware,
+  onUpdateHardware,
+  mirror,
+  onMirrorChange,
+  cameraConfig,
+  updateCameraConfig,
+  onRestoreDefaults,
+  faceDetected,
+  cameraPreset,
+  applyCameraPreset,
+  setCameraPreset,
+}: StudioAccordionPanelProps & {
+  cameraPreset: CameraPresetId
+  applyCameraPreset: (id: CameraPresetId) => void
+  setCameraPreset: (id: CameraPresetId) => void
+}) {
+  const caps = hardwareCapabilities
+  const resOptions = useMemo(() => (caps ? supportedResolutions(caps) : []), [caps])
+  const fpsOptions = useMemo(() => (caps ? supportedFrameRates(caps) : []), [caps])
+  const reqRes =
+    requestedResolution === 'auto'
+      ? 'Auto'
+      : (resOptions.find((r) => r.id === requestedResolution)?.label ?? requestedResolution)
+  const reqFps = requestedFrameRate === 'auto' ? 'Auto' : `${requestedFrameRate} FPS`
+  const deliveredRes =
+    deliveredWidth && deliveredHeight ? `${deliveredWidth}×${deliveredHeight}` : '—'
+  const deliveredFpsS = deliveredFrameRate ? `${Math.round(deliveredFrameRate)} FPS` : '—'
+  const aspectS =
+    deliveredWidth && deliveredHeight ? aspectLabel(deliveredWidth, deliveredHeight) : '—'
+
+  // Controle manual habilitado quando suportado pelo hardware.
+  const supported = (c: Parameters<typeof isControlSupported>[1]) =>
+    isControlSupported(caps ?? parseCapabilities(null), c)
+
+  return (
+    <>
+      {/* ---- Dispositivo ---- */}
+      <SelectRow
+        label="Dispositivo de vídeo"
+        value={selectedCamera}
+        onChange={onSelectCamera}
+        options={cameras.map((c, i) => ({
+          value: c.deviceId,
+          label: c.label || `Câmera ${i + 1}`,
+        }))}
+        disabledHint={camStatus !== 'ready' ? 'Ative a câmera para ver os nomes reais.' : undefined}
+      />
+
+      {/* ---- Estado da câmera ---- */}
+      <CameraStatusBadge status={camStatus} error={camError} onRetry={onRetryCamera} />
+
+      {/* ---- Diagnóstico: solicitado vs entregue ---- */}
+      {camStatus === 'ready' && (
+        <div className="rounded-lg border border-white/10 bg-[#1C1C27] p-2 space-y-1 text-[9px] text-[#9494A8] leading-relaxed">
+          <div className="flex justify-between">
+            <span>Resolução</span>
+            <span className="font-mono text-white">
+              {reqRes} solicitado → {deliveredRes} entregue
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span>FPS</span>
+            <span className="font-mono text-white">
+              {reqFps} solicitado → {deliveredFpsS} entregue
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span>Proporção</span>
+            <span className="font-mono text-white">{aspectS}</span>
+          </div>
+          {caps?.width && caps.height && (
+            <div className="flex justify-between text-[#9494A8]/80">
+              <span>Máx. hardware</span>
+              <span className="font-mono">
+                {caps.width.max}×{caps.height.max} @ {caps.frameRate?.max?.toFixed(0) ?? '—'} FPS
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ---- Resolução real (apenas opções suportadas) ---- */}
+      {camStatus === 'ready' && (
+        <div>
+          <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">Resolução</span>
+          <div className="grid grid-cols-3 gap-1 mt-1">
+            <button
+              onClick={() => onRequestResolution('auto')}
+              className={`text-[9px] py-1.5 rounded-lg border transition-all ${requestedResolution === 'auto' ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'}`}
+            >
+              Auto
+            </button>
+            {RESOLUTION_OPTIONS.map((r) => {
+              const ok = resOptions.some((s) => s.id === r.id)
+              return (
+                <button
+                  key={r.id}
+                  disabled={!ok}
+                  onClick={() => ok && onRequestResolution(r.id)}
+                  className={`text-[9px] py-1.5 rounded-lg border transition-all ${requestedResolution === r.id ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : ok ? 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white' : 'border-white/5 bg-[#1C1C27]/50 text-[#9494A8]/30 cursor-not-allowed'}`}
+                >
+                  {r.label}
+                </button>
+              )
+            })}
+          </div>
+          <p className="text-[8px] text-[#9494A8]/70 mt-0.5 leading-relaxed">
+            Apenas resoluções suportadas pelo hardware são selecionáveis.
+          </p>
+        </div>
+      )}
+
+      {/* ---- FPS reais (apenas suportados) ---- */}
+      {camStatus === 'ready' && (
+        <div>
+          <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">FPS</span>
+          <div className="grid grid-cols-4 gap-1 mt-1">
+            <button
+              onClick={() => onRequestFrameRate('auto')}
+              className={`text-[9px] py-1.5 rounded-lg border transition-all ${requestedFrameRate === 'auto' ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'}`}
+            >
+              Auto
+            </button>
+            {FPS_OPTIONS.map((f) => {
+              const ok = fpsOptions.includes(f)
+              return (
+                <button
+                  key={f}
+                  disabled={!ok}
+                  onClick={() => ok && onRequestFrameRate(f)}
+                  className={`text-[9px] py-1.5 rounded-lg border transition-all ${requestedFrameRate === f ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : ok ? 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white' : 'border-white/5 bg-[#1C1C27]/50 text-[#9494A8]/30 cursor-not-allowed'}`}
+                >
+                  {f}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ---- Zoom digital (crop no compositor) ---- */}
+      <div className="pt-1 border-t border-white/5">
+        <span className="text-[9px] text-[#7C5CFC] uppercase tracking-wider font-bold">
+          Zoom digital
+        </span>
+        <p className="text-[8px] text-[#9494A8]/70 mt-0.5 leading-relaxed">
+          Crop + scale aplicado no compositor (canvas) — aparece no arquivo gravado.
+        </p>
+      </div>
+      <SliderRow
+        label="Zoom"
+        value={Number(zoom.toFixed(2))}
+        min={DIGITAL_ZOOM_MIN}
+        max={DIGITAL_ZOOM_MAX}
+        step={0.05}
+        onChange={(v) => onZoomChange(clampZoom(v))}
+        suffix="x"
+      />
+      <SliderRow
+        label="Enquadramento X"
+        value={Math.round(panX * 100)}
+        min={-100}
+        max={100}
+        step={1}
+        onChange={(v) => onPanChange(clampPan(v / 100), panY)}
+        suffix=""
+      />
+      <SliderRow
+        label="Enquadramento Y"
+        value={Math.round(panY * 100)}
+        min={-100}
+        max={100}
+        step={1}
+        onChange={(v) => onPanChange(panX, clampPan(v / 100))}
+        suffix=""
+      />
+      <div className="grid grid-cols-3 gap-1">
+        <button
+          onClick={onCenterFace}
+          disabled={!faceDetected}
+          className="flex items-center justify-center gap-1 text-[9px] py-1.5 rounded-lg border border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white hover:border-[#7C5CFC]/50 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Crosshair className="w-3 h-3" /> Centralizar rosto
+        </button>
+        <button
+          onClick={onResetCrop}
+          className="flex items-center justify-center gap-1 text-[9px] py-1.5 rounded-lg border border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white hover:border-[#7C5CFC]/50"
+        >
+          <RotateCcw className="w-3 h-3" /> Restaurar
+        </button>
+        <button
+          onClick={() => onMirrorChange(!mirror)}
+          className={`flex items-center justify-center gap-1 text-[9px] py-1.5 rounded-lg border transition-all ${mirror ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'}`}
+        >
+          Espelhar
+        </button>
+      </div>
+      {!faceDetected && (
+        <p className="text-[8px] text-[#9494A8]/70 leading-relaxed">
+          "Centralizar rosto" fica disponível quando um rosto é detectado no preview.
+        </p>
+      )}
+
+      {/* ---- Presets profissionais ---- */}
+      <div className="pt-1 border-t border-white/5">
+        <span className="text-[9px] text-[#7C5CFC] uppercase tracking-wider font-bold">
+          Presets de câmera
+        </span>
+      </div>
+      <div className="grid grid-cols-3 gap-1">
+        {CAMERA_PRESETS.map((p) => (
+          <button
+            key={p.id}
+            onClick={() => applyCameraPreset(p.id)}
+            className={`text-[9px] py-1.5 rounded-lg border transition-all ${cameraPreset === p.id ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'}`}
+            title={p.description}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+      {(() => {
+        const p = CAMERA_PRESETS.find((x) => x.id === cameraPreset)
+        if (!p || p.id === 'personalizado') return null
+        const mods: string[] = []
+        if (p.brightness !== 100) mods.push(`Brilho ${p.brightness}%`)
+        if (p.contrast !== 100) mods.push(`Contraste ${p.contrast}%`)
+        if (p.saturation !== 100) mods.push(`Saturação ${p.saturation}%`)
+        if (p.temperature !== 0) mods.push(`Temp. ${p.temperature > 0 ? '+' : ''}${p.temperature}`)
+        if (p.sharpness !== 0) mods.push(`Nitidez ${p.sharpness}`)
+        return (
+          <p className="text-[8px] text-[#9494A8]/80 leading-relaxed">
+            {p.description} {mods.length > 0 && `· ${mods.join(', ')}`}
+          </p>
+        )
+      })()}
+
+      {/* ---- Ajustes de imagem (fallback digital via canvas) ---- */}
+      <div className="pt-1 border-t border-white/5">
+        <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">
+          Ajustes de imagem (digital)
+        </span>
+      </div>
+      <SliderRow
+        label="Brilho"
+        value={cameraConfig.brightness}
+        min={50}
+        max={150}
+        step={1}
+        onChange={(v) => {
+          updateCameraConfig({ brightness: v })
+          setCameraPreset('personalizado')
+        }}
+        suffix="%"
+      />
+      <SliderRow
+        label="Contraste"
+        value={cameraConfig.contrast}
+        min={50}
+        max={150}
+        step={1}
+        onChange={(v) => {
+          updateCameraConfig({ contrast: v })
+          setCameraPreset('personalizado')
+        }}
+        suffix="%"
+      />
+      <SliderRow
+        label="Saturação"
+        value={cameraConfig.saturation}
+        min={0}
+        max={200}
+        step={1}
+        onChange={(v) => {
+          updateCameraConfig({ saturation: v })
+          setCameraPreset('personalizado')
+        }}
+        suffix="%"
+      />
+      <SliderRow
+        label="Temperatura"
+        value={cameraConfig.temperature}
+        min={-50}
+        max={50}
+        step={1}
+        onChange={(v) => {
+          updateCameraConfig({ temperature: v })
+          setCameraPreset('personalizado')
+        }}
+        suffix=""
+      />
+      <SliderRow
+        label="Nitidez"
+        value={cameraConfig.sharpness}
+        min={0}
+        max={100}
+        step={1}
+        onChange={(v) => {
+          updateCameraConfig({ sharpness: v })
+          setCameraPreset('personalizado')
+        }}
+        suffix="%"
+      />
+
+      {/* ---- Controles manuais de hardware (applyConstraints) ---- */}
+      <div className="pt-1 border-t border-white/5">
+        <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">
+          Controles de hardware
+        </span>
+        <p className="text-[8px] text-[#9494A8]/70 mt-0.5 leading-relaxed">
+          Aplicados via <code className="text-[#7C5CFC]">applyConstraints</code> quando suportados.
+          Controles não suportados aparecem desabilitados.
+        </p>
+      </div>
+      <HardwareToggleRow
+        label="Exposição (auto)"
+        options={caps?.exposureMode ?? null}
+        value={hardware.exposureMode}
+        onChange={(v) => onUpdateHardware({ exposureMode: v })}
+        supported={supported('exposureMode')}
+      />
+      <HardwareSliderRow
+        label="Compensação de exposição"
+        range={caps?.exposureCompensation ?? null}
+        value={hardware.exposureCompensation}
+        onChange={(v) => onUpdateHardware({ exposureCompensation: v })}
+        supported={supported('exposureCompensation')}
+      />
+      <HardwareToggleRow
+        label="Foco (modo)"
+        options={caps?.focusMode ?? null}
+        value={hardware.focusMode}
+        onChange={(v) => onUpdateHardware({ focusMode: v })}
+        supported={supported('focusMode')}
+      />
+      <HardwareSliderRow
+        label="Distância de foco"
+        range={caps?.focusDistance ?? null}
+        value={hardware.focusDistance}
+        onChange={(v) => onUpdateHardware({ focusDistance: v })}
+        supported={supported('focusDistance')}
+      />
+      <HardwareToggleRow
+        label="Balanço de branco"
+        options={caps?.whiteBalanceMode ?? null}
+        value={hardware.whiteBalanceMode}
+        onChange={(v) => onUpdateHardware({ whiteBalanceMode: v })}
+        supported={supported('whiteBalanceMode')}
+      />
+      <HardwareSliderRow
+        label="Temperatura de cor (K)"
+        range={caps?.colorTemperature ?? null}
+        value={hardware.colorTemperature}
+        onChange={(v) => onUpdateHardware({ colorTemperature: v })}
+        supported={supported('colorTemperature')}
+      />
+      <HardwareSliderRow
+        label="Brilho (HW)"
+        range={caps?.brightness ?? null}
+        value={hardware.brightness}
+        onChange={(v) => onUpdateHardware({ brightness: v })}
+        supported={supported('brightness')}
+      />
+      <HardwareSliderRow
+        label="Contraste (HW)"
+        range={caps?.contrast ?? null}
+        value={hardware.contrast}
+        onChange={(v) => onUpdateHardware({ contrast: v })}
+        supported={supported('contrast')}
+      />
+      <HardwareSliderRow
+        label="Saturação (HW)"
+        range={caps?.saturation ?? null}
+        value={hardware.saturation}
+        onChange={(v) => onUpdateHardware({ saturation: v })}
+        supported={supported('saturation')}
+      />
+      <HardwareSliderRow
+        label="Nitidez (HW)"
+        range={caps?.sharpness ?? null}
+        value={hardware.sharpness}
+        onChange={(v) => onUpdateHardware({ sharpness: v })}
+        supported={supported('sharpness')}
+      />
+
+      {/* ---- Restaurar padrões ---- */}
+      <button
+        onClick={onRestoreDefaults}
+        className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-[#1C1C27] border border-white/10 text-[10px] font-semibold text-white hover:border-[#7C5CFC]/50"
+      >
+        <RotateCcw className="w-3 h-3" /> Restaurar padrões
+      </button>
+    </>
+  )
+}
+
+/** Badge de estado da câmera com botão "Tentar novamente" em caso de erro. */
+function CameraStatusBadge({
+  status,
+  error,
+  onRetry,
+}: {
+  status: 'idle' | 'requesting' | 'ready' | 'denied' | 'error'
+  error: string
+  onRetry: () => void
+}) {
+  if (status === 'ready') {
+    return (
+      <div className="flex items-center gap-2 text-[9px] rounded-lg px-2 py-1.5 border text-emerald-300 bg-emerald-500/10 border-emerald-500/30">
+        <CheckCircle2 className="w-3 h-3" /> Câmera pronta
+      </div>
+    )
+  }
+  if (status === 'requesting') {
+    return (
+      <div className="flex items-center gap-2 text-[9px] rounded-lg px-2 py-1.5 border text-[#22D3EE] bg-[#22D3EE]/10 border-[#22D3EE]/30">
+        <Loader2 className="w-3 h-3 animate-spin" /> Solicitando acesso à câmera...
+      </div>
+    )
+  }
+  if (status === 'idle') {
+    return (
+      <div className="flex items-center gap-2 text-[9px] rounded-lg px-2 py-1.5 border text-[#9494A8] bg-white/5 border-white/10">
+        <Camera className="w-3 h-3" /> Câmera desligada
+      </div>
+    )
+  }
+  // denied | error
+  return (
+    <div className="rounded-lg px-2 py-1.5 border border-amber-500/30 bg-amber-500/10 text-amber-200 text-[9px] space-y-1.5">
+      <div className="flex items-start gap-2">
+        {status === 'denied' ? (
+          <Lock className="w-3 h-3 mt-0.5 shrink-0" />
+        ) : (
+          <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+        )}
+        <span className="leading-relaxed">
+          {error || (status === 'denied' ? 'Permissão negada.' : 'Erro de câmera.')}
+        </span>
+      </div>
+      <button
+        onClick={onRetry}
+        className="flex items-center gap-1 text-[9px] font-bold text-white bg-[#1C1C27] border border-white/10 rounded-md px-2 py-1 hover:border-[#7C5CFC]/50"
+      >
+        <RotateCcw className="w-3 h-3" /> Tentar novamente
+      </button>
+    </div>
+  )
+}
+
+/** Slider de controle de hardware — desabilitado quando não suportado. */
+function HardwareSliderRow({
+  label,
+  range,
+  value,
+  onChange,
+  supported,
+}: {
+  label: string
+  range: { min: number; max: number; step: number } | null
+  value: number | undefined
+  onChange: (v: number) => void
+  supported: boolean
+}) {
+  if (!supported || !range) {
+    return (
+      <div className="flex items-center justify-between opacity-50">
+        <span className="text-[9px] text-[#9494A8]">
+          {label} <span className="text-[8px]">(não suportado)</span>
+        </span>
+        <Badge className="text-[8px] h-4 bg-[#3A3A4A] text-[#9494A8] border-white/10">—</Badge>
+      </div>
+    )
+  }
+  const v = typeof value === 'number' ? value : range.min
+  return (
+    <SliderRow
+      label={label}
+      value={v}
+      min={range.min}
+      max={range.max}
+      step={range.step || 0.01}
+      onChange={onChange}
+      suffix=""
+    />
+  )
+}
+
+/** Seletor de modo (ex.: exposureMode 'continuous'/'manual') baseado em capabilities. */
+function HardwareToggleRow({
+  label,
+  options,
+  value,
+  onChange,
+  supported,
+}: {
+  label: string
+  options: string[] | null
+  value: string | undefined
+  onChange: (v: string) => void
+  supported: boolean
+}) {
+  if (!supported || !options || options.length === 0) {
+    return (
+      <div className="flex items-center justify-between opacity-50">
+        <span className="text-[9px] text-[#9494A8]">
+          {label} <span className="text-[8px]">(não suportado)</span>
+        </span>
+        <Badge className="text-[8px] h-4 bg-[#3A3A4A] text-[#9494A8] border-white/10">—</Badge>
+      </div>
+    )
   }
   return (
-    <div className="flex items-center justify-between">
-      <span className="text-[9px] text-[#9494A8]">{labels[cap] || cap}</span>
-      <Badge className="text-[8px] h-4 bg-[#3A3A4A] text-[#9494A8] border-white/10">
-        Indisponível
-      </Badge>
+    <div>
+      <label className="text-[9px] text-[#9494A8] uppercase tracking-wider">{label}</label>
+      <div className="grid grid-cols-2 gap-1 mt-1">
+        {options.map((o) => (
+          <button
+            key={o}
+            onClick={() => onChange(o)}
+            className={`text-[9px] py-1 rounded-lg border transition-all ${value === o ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'}`}
+          >
+            {o}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }
