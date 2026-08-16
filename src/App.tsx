@@ -39,6 +39,7 @@ import Modelos from './pages/Modelos'
 import Musicas from './pages/Musicas'
 import Midias from './pages/Midias'
 import Elementos from './pages/Elementos'
+import Perfil from './pages/Perfil'
 import { Whiteboard as WhiteboardPage } from '@/components/studio/Whiteboard'
 
 const App = () => (
@@ -84,6 +85,8 @@ const App = () => (
                 <Route path="/assessoria" element={<Assessoria />} />
                 <Route path="/versao-mobile" element={<VersaoMobile />} />
                 <Route path="/academy" element={<Academy />} />
+                <Route path="/analytics" element={<Analytics />} />
+                <Route path="/perfil" element={<Perfil />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
