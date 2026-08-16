@@ -181,6 +181,10 @@ export default function Gravadora() {
   // Elemento <video> oculto que recebe o stream da webcam. O StudioStage lê
   // dele para desenhar no canvas.
   const hiddenVideoRef = useRef<HTMLVideoElement | null>(null)
+  // Ref espelho de isRecording — lida dentro de callbacks/eventos (onpause do
+  // vídeo de split) sem precisar recriar o listener a cada mudança de estado.
+  const isRecordingRef = useRef(false)
+  isRecordingRef.current = isRecording
 
   // Elemento de mídia carregado para a tela dividida (imagem ou vídeo).
   const [splitMediaEl, setSplitMediaEl] = useState<HTMLImageElement | HTMLVideoElement | null>(null)
@@ -788,6 +792,15 @@ export default function Gravadora() {
           v.play().catch(() => {
             /* autoplay pode ser bloqueado; o compositor desenha o frame atual */
           })
+          // Durante a gravação o navegador pode pausar o vídeo de split (espe-
+          // cialmente quando não está visível no DOM), o que faria o
+          // canvas.drawImage() desenhar frame preto. Mantemos o vídeo vivo
+          // tentando play() novamente sempre que ele for pausado.
+          v.onpause = () => {
+            if (isRecordingRef.current) {
+              v.play().catch(() => {})
+            }
+          }
         }
       })
       .catch(() => {
@@ -1000,6 +1013,13 @@ export default function Gravadora() {
         }
       }
 
+      // Garante que o vídeo da webcam e o vídeo de split continuem tocando
+      // durante a gravação: o captureStream() do canvas só captura o que está
+      // sendo desenhado no momento, então qualquer vídeo pausado (especialmente
+      // se não estiver visível no DOM) faria drawImage desenhar frame preto.
+      hiddenVideoRef.current?.play().catch(() => {})
+      splitMediaVideoRef.current?.play().catch(() => {})
+
       setIsRecording(true)
       rsm.forceState('recording')
       toast.info('Gravação iniciada...')
@@ -1101,6 +1121,11 @@ export default function Gravadora() {
     }
     try {
       reactionOverlayRef.current?.video?.pause()
+    } catch {
+      /* noop */
+    }
+    try {
+      splitMediaVideoRef.current?.pause()
     } catch {
       /* noop */
     }

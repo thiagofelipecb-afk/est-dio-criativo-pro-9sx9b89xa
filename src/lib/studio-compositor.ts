@@ -375,7 +375,10 @@ function drawBackground(
     if (input.cameraVideo && input.cameraVideo.videoWidth) {
       ctx.save()
       ctx.filter = `blur(${Math.max(4, bg.blurAmount ?? 12)}px)`
-      ctx.drawImage(input.cameraVideo, 0, 0, W, H)
+      // Usa cover (preservando a proporção do vídeo) em vez de esticar o
+      // vídeo para preencher o canvas — evita distorção quando a proporção da
+      // webcam (ex: 16:9) difere muito da do canvas (ex: 9:16).
+      drawMediaFit(ctx, input.cameraVideo, 0, 0, W, H, 'cover')
       ctx.filter = 'none'
       ctx.restore()
     } else {
