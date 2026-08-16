@@ -146,14 +146,32 @@ export interface MusicTrack {
   color: string
 }
 
-/** Mídia da biblioteca (chave `lumen_media_library`). */
+/**
+ * Mídia da biblioteca.
+ *
+ * PROMPT 2 — agora alinhada ao modelo canônico `MediaAsset` (única fonte de
+ * verdade, persistida em `lumen_media_assets`). O tipo é mantido como um
+ * alias estreito de `MediaAsset` para compatibilidade de imports existentes.
+ */
 export interface MediaLibraryItem {
   id: string
   name: string
-  type: 'image' | 'video'
+  type: 'image' | 'video' | 'audio'
+  /** Data URL base64 da mídia (alias de `publicUrl` no MediaAsset canônico). */
   dataUrl: string
+  /** Thumbnail (data URL) quando disponível. */
+  thumbnailUrl?: string
   size: number
+  mimeType?: string
+  width?: number
+  height?: number
+  /** Duração em segundos (vídeos/áudios). */
+  duration?: number
   createdAt: string
+  updatedAt?: string
+  source?: 'upload' | 'recording' | 'generated' | 'pexels' | 'library'
+  /** Itens de demonstração — nunca tratados como arquivo real. */
+  demo?: boolean
 }
 
 /** Elemento decorativo da biblioteca (mockado, rota /elementos). */

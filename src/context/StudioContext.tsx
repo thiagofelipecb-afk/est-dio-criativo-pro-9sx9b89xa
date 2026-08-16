@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import {
   Project,
   MediaItem,
+  MediaAsset,
   ScheduledPost,
   CarouselProject,
   StaticPostProject,
@@ -17,6 +18,15 @@ import {
   TeleprompterMode,
   TeleprompterTextColor,
 } from '@/types/studio'
+import {
+  loadAssets,
+  saveAsset,
+  deleteAsset,
+  updateAsset,
+  toMediaItem,
+  MEDIA_ASSETS_KEY,
+} from '@/services/mediaService'
+import { MEDIA_ASSETS_EVENT } from '@/hooks/useMediaAssets'
 
 /** Defaults FASE 4 — Fundo. */
 const DEFAULT_BACKGROUND_CONFIG: BackgroundConfig = {
@@ -119,7 +129,12 @@ interface StudioContextType {
   duplicateProject: (id: string) => Project
   getProjectById: (id: string) => Project | undefined
 
-  // Media Library
+  // Media Library — PROMPT 2: agora derivada da fonte canônica `mediaAssets`.
+  mediaAssets: MediaAsset[]
+  addMediaAsset: (asset: MediaAsset) => MediaAsset
+  deleteMediaAsset: (id: string) => void
+  updateMediaAsset: (id: string, updates: Partial<MediaAsset>) => MediaAsset | null
+  // Alias legado (MediaItem[]) — mantido para não quebrar imports existentes.
   mediaLibrary: MediaItem[]
   addMediaItem: (item: Omit<MediaItem, 'id' | 'createdAt'>) => MediaItem
   deleteMediaItem: (id: string) => void
@@ -227,20 +242,12 @@ export interface BrandOSContext {
 // fake (URL de imagem usada como vídeo) quebrava o contrato do editor real.
 const DEFAULT_PROJECTS: Project[] = []
 
-const DEFAULT_MEDIA: MediaItem[] = [
-  {
-    id: 'media-1',
-    title: 'Abertura Vlog Estúdio 4K',
-    type: 'video',
-    url: 'https://img.usecurling.com/p/1080/1920?q=cinematic+podcaster+speaking&color=purple',
-    duration: 24,
-    size: '42 MB',
-    createdAt: new Date(Date.now() - 86400000).toISOString(),
-    tags: ['estúdio', '4k', 'fala'],
-    category: 'recording',
-  },
-]
-
+// PROMPT 2 — DEFAULT_MEDIA removido. O item fake `img.usecurling.com`
+// apresentado como "vídeo" com duration: 24 era uma IMAGEM, não um vídeo, e
+// criava estado contraditório entre /biblioteca, /midias e Gravadora. A
+// biblioteca canônica agora vive em `lumen_media_assets` (via mediaService) e
+// começa vazia. Itens demo, quando necessários, devem ser marcados com
+// `metadata.demo = true` e exibidos com badge "Demonstração".
 const DEFAULT_SCHEDULED_POSTS: ScheduledPost[] = []
 
 const StudioContext = createContext<StudioContextType | undefined>(undefined)
@@ -255,10 +262,27 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return projects[0]?.id || null
   })
 
-  const [mediaLibrary, setMediaLibrary] = useState<MediaItem[]>(() => {
-    const saved = localStorage.getItem('lumen_media')
-    return saved ? JSON.parse(saved) : DEFAULT_MEDIA
-  })
+  // PROMPT 2 — Fonte canônica única: `lumen_media_assets` (via mediaService).
+  // `mediaLibrary` (legado) é derivado deste array para compatibilidade.
+  const [mediaAssets, setMediaAssets] = useState<MediaAsset[]>(() => loadAssets())
+
+  // Sincroniza com mudanças em outras abas (storage) e nesta janela (evento
+  // custom disparado por useMediaAssets / StudioContext).
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === MEDIA_ASSETS_KEY) setMediaAssets(loadAssets())
+    }
+    const onCustom = () => setMediaAssets(loadAssets())
+    window.addEventListener('storage', onStorage)
+    window.addEventListener(MEDIA_ASSETS_EVENT, onCustom)
+    return () => {
+      window.removeEventListener('storage', onStorage)
+      window.removeEventListener(MEDIA_ASSETS_EVENT, onCustom)
+    }
+  }, [])
+
+  // Alias legado derivado — mantém o formato MediaItem para imports antigos.
+  const mediaLibrary: MediaItem[] = React.useMemo(() => mediaAssets.map(toMediaItem), [mediaAssets])
 
   const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>(() => {
     const saved = localStorage.getItem('lumen_scheduled')
@@ -705,9 +729,8 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     localStorage.setItem('lumen_projects', JSON.stringify(projects))
   }, [projects])
 
-  useEffect(() => {
-    localStorage.setItem('lumen_media', JSON.stringify(mediaLibrary))
-  }, [mediaLibrary])
+  // PROMPT 2 — a persistência de mídias agora é feita pelo mediaService em
+  // `lumen_media_assets`. A chave legada `lumen_media` não é mais escrita.
 
   useEffect(() => {
     localStorage.setItem('lumen_scheduled', JSON.stringify(scheduledPosts))
@@ -797,18 +820,67 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const getProjectById = (id: string) => projects.find((p) => p.id === id)
 
-  const addMediaItem = (item: Omit<MediaItem, 'id' | 'createdAt'>): MediaItem => {
-    const newItem: MediaItem = {
-      ...item,
-      id: 'media-' + Date.now(),
-      createdAt: new Date().toISOString(),
+  // PROMPT 2 — operações canônicas sobre `lumen_media_assets`.
+  const addMediaAsset = useCallback((asset: MediaAsset): MediaAsset => {
+    const saved = saveAsset(asset)
+    setMediaAssets(loadAssets())
+    try {
+      window.dispatchEvent(new CustomEvent(MEDIA_ASSETS_EVENT))
+    } catch {
+      /* noop */
     }
-    setMediaLibrary((prev) => [newItem, ...prev])
-    return newItem
+    return saved
+  }, [])
+
+  const deleteMediaAsset = useCallback((id: string) => {
+    deleteAsset(id)
+    setMediaAssets(loadAssets())
+    try {
+      window.dispatchEvent(new CustomEvent(MEDIA_ASSETS_EVENT))
+    } catch {
+      /* noop */
+    }
+  }, [])
+
+  const updateMediaAsset = useCallback(
+    (id: string, updates: Partial<MediaAsset>): MediaAsset | null => {
+      const updated = updateAsset(id, updates)
+      setMediaAssets(loadAssets())
+      try {
+        window.dispatchEvent(new CustomEvent(MEDIA_ASSETS_EVENT))
+      } catch {
+        /* noop */
+      }
+      return updated
+    },
+    [],
+  )
+
+  // Alias legado: adiciona como MediaAsset canônico e retorna MediaItem.
+  const addMediaItem = (item: Omit<MediaItem, 'id' | 'createdAt'>): MediaItem => {
+    const now = new Date().toISOString()
+    const id = 'media-' + Date.now()
+    const asset: MediaAsset = {
+      id,
+      workspaceId: 'default',
+      name: item.title,
+      type: item.type,
+      source: 'library',
+      storageKey: id,
+      publicUrl: item.url,
+      mimeType:
+        item.type === 'video' ? 'video/mp4' : item.type === 'audio' ? 'audio/mpeg' : 'image/jpeg',
+      sizeBytes: 0,
+      durationMs: item.duration ? item.duration * 1000 : undefined,
+      createdAt: now,
+      updatedAt: now,
+    }
+    addMediaAsset(asset)
+    return toMediaItem(asset)
   }
 
   const deleteMediaItem = (id: string) => {
-    setMediaLibrary((prev) => prev.filter((m) => m.id !== id))
+    deleteMediaAsset(id)
   }
 
   const saveCarousel = (carousel: CarouselProject) => {
@@ -900,6 +972,10 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         deleteProject,
         duplicateProject,
         getProjectById,
+        mediaAssets,
+        addMediaAsset,
+        deleteMediaAsset,
+        updateMediaAsset,
         mediaLibrary,
         addMediaItem,
         deleteMediaItem,

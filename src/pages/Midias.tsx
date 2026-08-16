@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -16,111 +16,88 @@ import {
   X,
   ChevronDown,
   Search,
+  Music,
+  Pencil,
+  AlertCircle,
+  Loader2,
+  LayoutGrid,
+  List,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { MediaLibraryItem } from '@/types/library'
+import { useMediaAssets } from '@/hooks/useMediaAssets'
+import { formatBytes } from '@/services/mediaService'
+import type { MediaAsset } from '@/types/studio'
 
-const STORAGE_KEY = 'lumen_media_library'
+type FilterType = 'all' | 'image' | 'video' | 'audio'
+type SortType = 'recent' | 'old' | 'name' | 'size'
+type ViewMode = 'grid' | 'list'
 
-const uid = (p: string) => `${p}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+const ACCEPTED_ACCEPT =
+  'image/jpeg,image/png,image/webp,video/mp4,video/webm,audio/mpeg,audio/wav,audio/ogg'
 
-const fileToDataUrl = (file: File): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(file)
-  })
-
-function loadMedia(): MediaLibraryItem[] {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY)
-    return saved ? (JSON.parse(saved) as MediaLibraryItem[]) : []
-  } catch {
-    return []
-  }
+function formatDuration(ms?: number): string {
+  if (!ms) return '—'
+  const s = Math.round(ms / 1000)
+  const m = Math.floor(s / 60)
+  const sec = s % 60
+  return m > 0 ? `${m}m ${sec.toString().padStart(2, '0')}s` : `${sec}s`
 }
-
-function saveMedia(list: MediaLibraryItem[]) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list))
-  } catch {
-    /* quota */
-  }
-}
-
-type FilterType = 'all' | 'image' | 'video'
-type SortType = 'recent' | 'old' | 'name'
 
 export default function Midias() {
-  const [items, setItems] = useState<MediaLibraryItem[]>(() => loadMedia())
+  const { assets, addFromFile, removeAsset, update, loading, error } = useMediaAssets()
+
   const [filter, setFilter] = useState<FilterType>('all')
   const [sort, setSort] = useState<SortType>('recent')
   const [search, setSearch] = useState('')
-  const [lightbox, setLightbox] = useState<MediaLibraryItem | null>(null)
+  const [view, setView] = useState<ViewMode>('grid')
+  const [lightbox, setLightbox] = useState<MediaAsset | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
-  const [uploading, setUploading] = useState(false)
+  const [renameId, setRenameId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
   const [isDragging, setIsDragging] = useState(false)
-  const fileInputRef = React.useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleFiles = useCallback(async (files: FileList | null) => {
+  const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return
     setUploading(true)
-    try {
-      const newItems: MediaLibraryItem[] = []
-      for (let i = 0; i < files.length; i++) {
-        const f = files[i]
-        const isImage = f.type.startsWith('image/')
-        const isVideo = f.type.startsWith('video/')
-        if (isImage && f.size > 10 * 1024 * 1024) {
-          toast.error(`${f.name}: imagem acima de 10MB`)
-          continue
-        }
-        if (isVideo && f.size > 50 * 1024 * 1024) {
-          toast.error(`${f.name}: vídeo acima de 50MB`)
-          continue
-        }
-        if (!isImage && !isVideo) {
-          toast.error(`${f.name}: formato não suportado`)
-          continue
-        }
-        const dataUrl = await fileToDataUrl(f)
-        newItems.push({
-          id: uid('media'),
-          name: f.name,
-          type: isImage ? 'image' : 'video',
-          dataUrl,
-          size: f.size,
-          createdAt: new Date().toISOString(),
-        })
+    let ok = 0
+    let fail = 0
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i]
+      try {
+        await addFromFile(f)
+        ok++
+      } catch (e: any) {
+        fail++
+        toast.error(`${f.name}: ${e?.message || 'falha no upload'}`)
       }
-      if (newItems.length > 0) {
-        setItems((prev) => {
-          const next = [newItems[0], ...newItems.slice(1), ...prev]
-          saveMedia(next)
-          return next
-        })
-        toast.success(`${newItems.length} mídia(s) adicionada(s)`)
-      }
-    } catch {
-      toast.error('Falha no upload')
-    } finally {
-      setUploading(false)
     }
-  }, [])
+    if (ok > 0) toast.success(`${ok} mídia(s) adicionada(s)`)
+    if (ok === 0 && fail === 0) toast.error('Nenhum arquivo válido.')
+    setUploading(false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
 
   const handleDelete = (id: string) => {
-    setItems((prev) => {
-      const next = prev.filter((m) => m.id !== id)
-      saveMedia(next)
-      return next
-    })
+    removeAsset(id)
     setDeleteId(null)
     toast.success('Mídia excluída')
   }
 
+  const handleRename = (id: string) => {
+    const name = renameValue.trim()
+    if (!name) {
+      setRenameId(null)
+      return
+    }
+    update(id, { name })
+    setRenameId(null)
+    toast.success('Mídia renomeada')
+  }
+
   const filtered = useMemo(() => {
-    let list = items.filter((m) => {
+    let list = assets.filter((m) => {
       if (filter !== 'all' && m.type !== filter) return false
       if (search && !m.name.toLowerCase().includes(search.toLowerCase())) return false
       return true
@@ -129,15 +106,35 @@ export default function Midias() {
       if (sort === 'recent')
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       if (sort === 'old') return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      if (sort === 'size') return b.sizeBytes - a.sizeBytes
       return a.name.localeCompare(b.name)
     })
     return list
-  }, [items, filter, sort, search])
+  }, [assets, filter, sort, search])
 
-  const formatSize = (b: number) => {
-    if (b < 1024) return `${b}B`
-    if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)}KB`
-    return `${(b / 1024 / 1024).toFixed(1)}MB`
+  const isDemo = (m: MediaAsset) => !!(m.metadata as any)?.demo
+
+  const renderThumb = (m: MediaAsset, className = 'w-full h-full object-cover') => {
+    const thumb = m.thumbnailUrl || m.publicUrl
+    if (m.type === 'audio') {
+      return (
+        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-emerald-500/10 to-[#1C1C27]">
+          <Music className="w-8 h-8 text-emerald-400" />
+        </div>
+      )
+    }
+    if (m.type === 'video') {
+      return (
+        <>
+          {thumb ? (
+            <img src={thumb} alt={m.name} className={className} loading="lazy" />
+          ) : (
+            <video src={m.publicUrl} className={className} muted preload="metadata" />
+          )}
+        </>
+      )
+    }
+    return <img src={thumb} alt={m.name} className={className} loading="lazy" />
   }
 
   return (
@@ -148,7 +145,8 @@ export default function Midias() {
             <FolderOpen className="w-7 h-7 text-[#7C5CFC]" /> Mídias
           </h1>
           <p className="text-xs sm:text-sm text-[#9494A8] mt-1">
-            Biblioteca de imagens e vídeos. Arraste arquivos ou clique para enviar.
+            Biblioteca canônica de imagens, vídeos e áudios. Mesma fonte usada na Biblioteca,
+            Gravadora e Editor.
           </p>
         </div>
       </div>
@@ -175,28 +173,39 @@ export default function Midias() {
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/jpeg,image/png,video/mp4,video/webm"
+          accept={ACCEPTED_ACCEPT}
           multiple
           onChange={(e) => handleFiles(e.target.files)}
           className="hidden"
         />
-        {uploading ? (
-          <span className="text-xs text-[#22D3EE]">Enviando...</span>
+        {uploading || loading ? (
+          <span className="text-xs text-[#22D3EE] flex items-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin" /> Processando...
+          </span>
         ) : (
           <div className="text-center">
             <Upload className="w-7 h-7 text-[#9494A8] mx-auto mb-2" />
             <p className="text-xs text-white font-semibold">
               Arraste arquivos ou clique para enviar
             </p>
-            <p className="text-[10px] text-[#9494A8] mt-1">JPEG/PNG até 10MB · MP4/WebM até 50MB</p>
+            <p className="text-[10px] text-[#9494A8] mt-1">
+              JPEG/PNG/WebP até 10MB · MP4/WebM até 100MB · MP3/WAV/OGG até 30MB
+            </p>
           </div>
         )}
       </div>
 
+      {error && (
+        <div className="rounded-xl bg-red-500/10 border border-red-500/30 p-3 flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+          <p className="text-xs text-red-200">{error}</p>
+        </div>
+      )}
+
       {/* Filtros e ordenação */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2 overflow-x-auto pb-1">
-          {(['all', 'image', 'video'] as const).map((f) => (
+          {(['all', 'image', 'video', 'audio'] as const).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -209,7 +218,14 @@ export default function Midias() {
               {f === 'all' && <FolderOpen className="w-3.5 h-3.5" />}
               {f === 'image' && <ImageIcon className="w-3.5 h-3.5" />}
               {f === 'video' && <Film className="w-3.5 h-3.5" />}
-              {f === 'all' ? 'Todos' : f === 'image' ? 'Imagens' : 'Vídeos'}
+              {f === 'audio' && <Music className="w-3.5 h-3.5" />}
+              {f === 'all'
+                ? 'Todos'
+                : f === 'image'
+                  ? 'Imagens'
+                  : f === 'video'
+                    ? 'Vídeos'
+                    : 'Áudios'}
             </button>
           ))}
         </div>
@@ -232,19 +248,40 @@ export default function Midias() {
               <option value="recent">Mais recentes</option>
               <option value="old">Mais antigos</option>
               <option value="name">Nome A-Z</option>
+              <option value="size">Tamanho</option>
             </select>
             <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#9494A8] pointer-events-none" />
+          </div>
+          <div className="flex items-center gap-0.5 bg-[#14141C] border border-white/10 rounded-lg p-0.5">
+            <button
+              onClick={() => setView('grid')}
+              className={`p-1.5 rounded-md ${view === 'grid' ? 'bg-[#7C5CFC] text-white' : 'text-[#9494A8]'}`}
+              title="Grade"
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setView('list')}
+              className={`p-1.5 rounded-md ${view === 'list' ? 'bg-[#7C5CFC] text-white' : 'text-[#9494A8]'}`}
+              title="Lista"
+            >
+              <List className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Grid */}
+      {/* Conteúdo */}
       {filtered.length === 0 ? (
         <div className="text-center py-16">
           <FolderOpen className="w-10 h-10 text-[#9494A8]/40 mx-auto mb-3" />
-          <p className="text-sm text-[#9494A8]">Nenhuma mídia na biblioteca ainda.</p>
+          <p className="text-sm text-[#9494A8]">
+            {assets.length === 0
+              ? 'Nenhuma mídia na biblioteca ainda. Envie um arquivo acima.'
+              : 'Nenhuma mídia corresponde aos filtros.'}
+          </p>
         </div>
-      ) : (
+      ) : view === 'grid' ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
           {filtered.map((item) => (
             <div
@@ -255,32 +292,100 @@ export default function Midias() {
                 className="relative aspect-square bg-black/40 cursor-pointer"
                 onClick={() => setLightbox(item)}
               >
-                {item.type === 'image' ? (
-                  <img src={item.dataUrl} alt={item.name} className="w-full h-full object-cover" />
-                ) : (
-                  <video src={item.dataUrl} className="w-full h-full object-cover" muted />
-                )}
+                {renderThumb(item)}
                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                   <span className="text-[10px] text-white font-bold px-2 py-1 rounded bg-black/60">
                     Ampliar
                   </span>
                 </div>
                 <span className="absolute top-2 left-2 p-1 rounded bg-black/60">
-                  {item.type === 'image' ? (
-                    <ImageIcon className="w-3 h-3 text-white" />
-                  ) : (
-                    <Film className="w-3 h-3 text-white" />
-                  )}
+                  {item.type === 'image' && <ImageIcon className="w-3 h-3 text-white" />}
+                  {item.type === 'video' && <Film className="w-3 h-3 text-white" />}
+                  {item.type === 'audio' && <Music className="w-3 h-3 text-white" />}
                 </span>
+                {isDemo(item) && (
+                  <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-amber-500/80 text-[9px] font-bold text-black">
+                    Demonstração
+                  </span>
+                )}
+                {item.durationMs ? (
+                  <span className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/80 text-[9px] text-white font-mono">
+                    {formatDuration(item.durationMs)}
+                  </span>
+                ) : null}
               </div>
               <div className="p-3 flex items-center justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <p className="text-xs text-white font-semibold truncate">{item.name}</p>
-                  <p className="text-[10px] text-[#9494A8]">{formatSize(item.size)}</p>
+                  <p className="text-[10px] text-[#9494A8]">
+                    {formatBytes(item.sizeBytes)}
+                    {item.width && item.height ? ` · ${item.width}×${item.height}` : ''}
+                  </p>
                 </div>
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <button
+                    onClick={() => {
+                      setRenameId(item.id)
+                      setRenameValue(item.name)
+                    }}
+                    className="p-1.5 rounded-lg text-[#9494A8] hover:text-[#22D3EE] hover:bg-[#22D3EE]/10"
+                    title="Renomear"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setDeleteId(item.id)}
+                    className="p-1.5 rounded-lg text-[#9494A8] hover:text-red-400 hover:bg-red-500/10"
+                    title="Excluir"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-2xl bg-[#14141C] border border-white/10 overflow-hidden">
+          {filtered.map((item) => (
+            <div
+              key={item.id}
+              className="flex items-center gap-3 p-2.5 border-b border-white/5 last:border-0 hover:bg-white/5"
+            >
+              <div
+                className="w-14 h-14 rounded-lg overflow-hidden bg-black/40 cursor-pointer shrink-0"
+                onClick={() => setLightbox(item)}
+              >
+                {renderThumb(item)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-white font-semibold truncate">{item.name}</p>
+                <p className="text-[10px] text-[#9494A8]">
+                  {item.type} · {formatBytes(item.sizeBytes)}
+                  {item.width && item.height ? ` · ${item.width}×${item.height}` : ''}
+                  {item.durationMs ? ` · ${formatDuration(item.durationMs)}` : ''}
+                </p>
+              </div>
+              {isDemo(item) && (
+                <span className="px-1.5 py-0.5 rounded bg-amber-500/80 text-[9px] font-bold text-black">
+                  Demonstração
+                </span>
+              )}
+              <div className="flex items-center gap-0.5 shrink-0">
+                <button
+                  onClick={() => {
+                    setRenameId(item.id)
+                    setRenameValue(item.name)
+                  }}
+                  className="p-1.5 rounded-lg text-[#9494A8] hover:text-[#22D3EE] hover:bg-[#22D3EE]/10"
+                  title="Renomear"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
                 <button
                   onClick={() => setDeleteId(item.id)}
-                  className="p-1.5 rounded-lg text-[#9494A8] hover:text-red-400 hover:bg-red-500/10 shrink-0"
+                  className="p-1.5 rounded-lg text-[#9494A8] hover:text-red-400 hover:bg-red-500/10"
+                  title="Excluir"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -290,24 +395,53 @@ export default function Midias() {
         </div>
       )}
 
-      {/* Lightbox */}
+      {/* Lightbox / preview */}
       <Dialog open={!!lightbox} onOpenChange={() => setLightbox(null)}>
         <DialogContent className="max-w-3xl bg-[#0B0B10] border-white/10 text-white rounded-2xl p-2">
           <DialogHeader className="px-3 pt-2">
-            <DialogTitle className="text-xs text-white">{lightbox?.name}</DialogTitle>
+            <DialogTitle className="text-xs text-white flex items-center gap-2">
+              {lightbox?.name}
+              {lightbox && isDemo(lightbox) && (
+                <span className="px-1.5 py-0.5 rounded bg-amber-500/80 text-[9px] font-bold text-black">
+                  Demonstração
+                </span>
+              )}
+            </DialogTitle>
           </DialogHeader>
-          {lightbox?.type === 'image' ? (
+          {lightbox?.type === 'image' && (
             <img
-              src={lightbox.dataUrl}
+              src={lightbox.publicUrl}
               alt={lightbox.name}
               className="w-full max-h-[70vh] object-contain rounded-xl"
             />
-          ) : (
+          )}
+          {lightbox?.type === 'video' && (
             <video
-              src={lightbox?.dataUrl}
+              src={lightbox.publicUrl}
               controls
               className="w-full max-h-[70vh] object-contain rounded-xl"
             />
+          )}
+          {lightbox?.type === 'audio' && (
+            <div className="p-6 flex flex-col items-center gap-3">
+              <Music className="w-12 h-12 text-emerald-400" />
+              <audio src={lightbox.publicUrl} controls className="w-full" />
+            </div>
+          )}
+          {lightbox && (
+            <div className="px-3 pb-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] text-[#9494A8]">
+              <span>Tipo: {lightbox.type}</span>
+              <span>Tamanho: {formatBytes(lightbox.sizeBytes)}</span>
+              <span>Duração: {formatDuration(lightbox.durationMs)}</span>
+              <span>
+                Dimensões:{' '}
+                {lightbox.width && lightbox.height ? `${lightbox.width}×${lightbox.height}` : '—'}
+              </span>
+              <span className="col-span-2">MIME: {lightbox.mimeType}</span>
+              <span className="col-span-2">
+                ID: <span className="font-mono">{lightbox.id}</span>
+              </span>
+            </div>
           )}
         </DialogContent>
       </Dialog>
@@ -333,6 +467,38 @@ export default function Midias() {
               className="bg-red-500 hover:bg-red-600 text-white text-xs"
             >
               Excluir
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Renomear */}
+      <Dialog open={!!renameId} onOpenChange={() => setRenameId(null)}>
+        <DialogContent className="max-w-sm bg-[#14141C] border-white/10 text-white rounded-2xl p-6">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-bold flex items-center gap-2">
+              <Pencil className="w-4 h-4 text-[#22D3EE]" /> Renomear mídia
+            </DialogTitle>
+          </DialogHeader>
+          <input
+            autoFocus
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && renameId) handleRename(renameId)
+            }}
+            className="w-full bg-[#0B0B10] border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
+          />
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setRenameId(null)} className="text-xs">
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => renameId && handleRename(renameId)}
+              className="bg-[#7C5CFC] hover:bg-[#6A48E0] text-white text-xs"
+            >
+              Salvar
             </Button>
           </DialogFooter>
         </DialogContent>

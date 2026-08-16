@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePlatform } from '@/context/PlatformContext'
 import { useStudio } from '@/context/StudioContext'
+import { useMediaAssets } from '@/hooks/useMediaAssets'
 import { useAIGeneration } from '@/hooks/use-ai-generation'
 import { ModuleHeader, EmptyState, inputClass } from '@/components/marketing/Shared'
 import { Button } from '@/components/ui/button'
@@ -22,8 +23,9 @@ import {
   Type,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { MediaItem, Project } from '@/types/studio'
+import type { Project } from '@/types/studio'
 import type { CapturedCreative } from '@/types/platform'
+import { formatBytes } from '@/services/mediaService'
 
 type Tab = 'Todos' | 'Midias' | 'Elementos' | 'Modelos' | 'Capturados'
 type SortBy = 'data' | 'nome'
@@ -161,14 +163,15 @@ function LayersSmall() {
   return <Shapes className="w-3.5 h-3.5" />
 }
 
-const mediaTypeIcon = (t: MediaItem['type']) => {
+const mediaTypeIcon = (t: 'image' | 'video' | 'audio') => {
   if (t === 'video') return <Film className="w-3.5 h-3.5 text-[#7C5CFC]" />
   if (t === 'audio') return <Music className="w-3.5 h-3.5 text-emerald-400" />
   return <ImageIcon className="w-3.5 h-3.5 text-[#22D3EE]" />
 }
 
-const formatDuration = (s?: number) => {
-  if (!s) return '—'
+const formatDurationMs = (ms?: number) => {
+  if (!ms) return '—'
+  const s = Math.round(ms / 1000)
   const m = Math.floor(s / 60)
   const sec = s % 60
   return m > 0 ? `${m}m ${sec}s` : `${sec}s`
@@ -176,7 +179,9 @@ const formatDuration = (s?: number) => {
 
 export default function Biblioteca() {
   const { capturedCreatives, updateCapturedCreative, deleteCapturedCreative } = usePlatform()
-  const { mediaLibrary } = useStudio()
+  // PROMPT 2 — Mídias agora vêm da fonte canônica (useMediaAssets), a mesma
+  // usada por /midias, Gravadora e Editor. Não usamos mais useStudio().mediaLibrary.
+  const { assets: mediaAssets, removeAsset } = useMediaAssets()
   const { generate } = useAIGeneration()
   const navigate = useNavigate()
 
@@ -191,8 +196,8 @@ export default function Biblioteca() {
   const [loading, setLoading] = useState(false)
 
   const counts = {
-    Todos: mediaLibrary.length + elementos.length + modelos.length + capturedCreatives.length,
-    Midias: mediaLibrary.length,
+    Todos: mediaAssets.length + elementos.length + modelos.length + capturedCreatives.length,
+    Midias: mediaAssets.length,
     Elementos: elementos.length,
     Modelos: modelos.length,
     Capturados: capturedCreatives.length,
@@ -216,7 +221,9 @@ export default function Biblioteca() {
     return sorted
   }
 
-  const filteredMedia = sortItems(mediaLibrary.filter((m) => matchQuery(m.title)))
+  const filteredMedia = sortItems(
+    mediaAssets.filter((m) => matchQuery(m.name)).map((m) => ({ ...m, title: m.name })),
+  )
   const filteredElementos = sortItems(elementos.filter((e) => matchQuery(e.nome)))
   const filteredModelos = sortItems(modelos.filter((m) => matchQuery(m.nome)))
   const filteredCapturados = sortItems(
@@ -330,8 +337,8 @@ export default function Biblioteca() {
                         </div>
                       ) : (
                         <img
-                          src={m.url}
-                          alt={m.title}
+                          src={m.thumbnailUrl || m.publicUrl}
+                          alt={m.name}
                           className="w-full h-full object-cover"
                           loading="lazy"
                         />
@@ -339,16 +346,33 @@ export default function Biblioteca() {
                       <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/70 text-[9px] text-white flex items-center gap-1 capitalize">
                         {mediaTypeIcon(m.type)} {m.type}
                       </span>
-                      {m.duration != null && (
+                      {(m.metadata as any)?.demo && (
+                        <span className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-amber-500/80 text-[9px] font-bold text-black">
+                          Demonstração
+                        </span>
+                      )}
+                      {m.durationMs != null && (
                         <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/80 text-[9px] text-white flex items-center gap-1">
-                          <Clock className="w-2.5 h-2.5" /> {formatDuration(m.duration)}
+                          <Clock className="w-2.5 h-2.5" /> {formatDurationMs(m.durationMs)}
                         </span>
                       )}
                     </div>
                     <div className="p-2.5 space-y-1">
-                      <p className="text-xs font-semibold text-white truncate">{m.title}</p>
+                      <div className="flex items-center justify-between gap-1">
+                        <p className="text-xs font-semibold text-white truncate">{m.name}</p>
+                        <button
+                          onClick={() => {
+                            removeAsset(m.id)
+                            toast.success('Mídia removida.')
+                          }}
+                          className="text-red-400 hover:bg-red-500/10 p-1 rounded shrink-0"
+                          aria-label="Remover mídia"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
                       <div className="flex items-center justify-between text-[10px] text-[#9494A8]">
-                        <span>{m.size || '—'}</span>
+                        <span>{formatBytes(m.sizeBytes)}</span>
                         <span>{new Date(m.createdAt).toLocaleDateString('pt-BR')}</span>
                       </div>
                     </div>

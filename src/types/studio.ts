@@ -72,6 +72,57 @@ export interface MediaItem {
   category: 'recording' | 'b-roll' | 'music' | 'sfx' | 'upload' | 'template'
 }
 
+/* ===========================================================================
+   PROMPT 2 — Modelo canônico único de mídia (MediaAsset)
+   --------------------------------------------------------------------------
+   Esta é a fonte única de verdade para mídias de toda a aplicação.
+   Persistida em `lumen_media_assets` (via mediaService). Substitui o uso
+   disperso de `lumen_media`, `lumen_media_library` e do `DEFAULT_MEDIA` fake.
+   O tipo `MediaItem` acima é mantido como legado/alias para não quebrar imports.
+   =========================================================================== */
+
+/** Tipo de mídia canônico. */
+export type MediaType = 'image' | 'video' | 'audio'
+
+/** Origem do ativo na biblioteca canônica. */
+export type MediaAssetSource = 'upload' | 'recording' | 'generated' | 'pexels' | 'library'
+
+/** Créditos/atribuição de um ativo (ex.: vídeo do Pexels). */
+export interface MediaAssetCredits {
+  provider: string
+  author?: string
+  url?: string
+  license?: string
+}
+
+/** Ativo de mídia canônico (única fonte de verdade para /midias, /biblioteca,
+ *  Gravadora e Editor). Persistido em `lumen_media_assets`. */
+export interface MediaAsset {
+  id: string
+  workspaceId: string
+  projectId?: string
+  name: string
+  type: MediaType
+  source: MediaAssetSource
+  /** Chave de storage (no fluxo local, igual ao id — reservado para storage remoto). */
+  storageKey: string
+  /** URL pública (no fluxo local, um data URL base64). */
+  publicUrl?: string
+  thumbnailKey?: string
+  thumbnailUrl?: string
+  mimeType: string
+  sizeBytes: number
+  width?: number
+  height?: number
+  /** Duração em milissegundos (vídeos/áudios). */
+  durationMs?: number
+  createdAt: string
+  updatedAt: string
+  credits?: MediaAssetCredits
+  /** Metadados livres. Itens demo usam { demo: true }. */
+  metadata?: Record<string, unknown>
+}
+
 export interface CarouselSlide {
   id: string
   title: string

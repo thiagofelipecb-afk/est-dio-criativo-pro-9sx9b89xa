@@ -3,8 +3,8 @@ import { Slider } from '@/components/ui/slider'
 import { Button } from '@/components/ui/button'
 import { Upload, Search, Trash2, Plus, Film, Image as ImageIcon } from 'lucide-react'
 import { toast } from 'sonner'
-import { assetManager } from '@/lib/asset-manager'
 import { useStudio } from '@/context/StudioContext'
+import { useMediaAssets } from '@/hooks/useMediaAssets'
 import {
   EditorMediaItem,
   editorKey,
@@ -17,7 +17,10 @@ interface MediaPanelProps {
 }
 
 export function MediaPanel({ projectId }: MediaPanelProps) {
-  const { scriptBlocks, mediaLibrary, addMediaItem } = useStudio()
+  const { scriptBlocks } = useStudio()
+  // PROMPT 2 — B-roll agora vem da fonte canônica (lumen_media_assets), a
+  // mesma usada por /midias, /biblioteca e Gravadora.
+  const { assets: mediaAssets, addFromFile } = useMediaAssets()
   const storageKey = editorKey(projectId, 'media')
 
   const [items, setItems] = useState<EditorMediaItem[]>(() =>
@@ -43,29 +46,26 @@ export function MediaPanel({ projectId }: MediaPanelProps) {
     if (files.length === 0) return
     const newItems: EditorMediaItem[] = []
     for (const file of files) {
-      const isVideo = file.type.startsWith('video/')
-      const isImage = file.type.startsWith('image/')
-      if (!isVideo && !isImage) continue
       try {
-        const asset = await assetManager.addAsset(file, 'upload', {
-          type: isVideo ? 'video' : 'image',
-        })
-        const url = asset.objectUrl || asset.dataUrl || URL.createObjectURL(file)
+        // PROMPT 2 — pipeline canônico: valida MIME/ext/tamanho, extrai
+        // duração/dimensões/thumbnail e salva em lumen_media_assets.
+        const asset = await addFromFile(file, { projectId, source: 'upload' })
+        const isVideo = asset.type === 'video'
         newItems.push({
-          id: 'med-' + Math.random().toString(36).slice(2, 9),
-          name: file.name,
+          id: asset.id,
+          name: asset.name,
           type: isVideo ? 'video' : 'image',
-          url,
-          duration: undefined,
+          url: asset.publicUrl || '',
+          duration: asset.durationMs ? asset.durationMs / 1000 : undefined,
           scale: 1,
           x: 0.5,
           y: 0.5,
           opacity: 100,
-          timelineDuration: 5,
+          timelineDuration: asset.durationMs ? asset.durationMs / 1000 : 5,
           z: 1,
         })
-      } catch {
-        toast.error(`Falha ao importar ${file.name}.`)
+      } catch (err: any) {
+        toast.error(`${file.name}: ${err?.message || 'falha ao importar'}`)
       }
     }
     persist([...items, ...newItems])
@@ -133,7 +133,7 @@ export function MediaPanel({ projectId }: MediaPanelProps) {
         />
       </div>
 
-      {/* Biblioteca */}
+      {/* Biblioteca do projeto (itens importados neste editor) */}
       <div className="space-y-2">
         <h4 className="text-xs font-bold text-white">Biblioteca ({filtered.length})</h4>
         {filtered.length === 0 ? (
@@ -190,6 +190,58 @@ export function MediaPanel({ projectId }: MediaPanelProps) {
           </div>
         )}
       </div>
+
+      {/* PROMPT 2 — B-roll da biblioteca canônica (mesma fonte de /midias) */}
+      {mediaAssets.filter((a) => a.type === 'image' || a.type === 'video').length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-[10px] font-bold text-[#9494A8] uppercase tracking-wider">
+            B-roll da Biblioteca
+          </h4>
+          <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
+            {mediaAssets
+              .filter((a) => a.type === 'image' || a.type === 'video')
+              .map((asset) => (
+                <div
+                  key={asset.id}
+                  onClick={() =>
+                    handleAddToTimeline({
+                      id: asset.id,
+                      name: asset.name,
+                      type: asset.type as 'video' | 'image',
+                      url: asset.publicUrl || '',
+                      duration: asset.durationMs ? asset.durationMs / 1000 : undefined,
+                      scale: 1,
+                      x: 0.5,
+                      y: 0.5,
+                      opacity: 100,
+                      timelineDuration: asset.durationMs ? asset.durationMs / 1000 : 5,
+                      z: 1,
+                    })
+                  }
+                  className="rounded-lg border border-white/5 hover:border-[#7C5CFC]/40 overflow-hidden cursor-pointer transition-colors"
+                  title={`Adicionar "${asset.name}" à timeline`}
+                >
+                  <div className="aspect-video bg-[#0B0B10]">
+                    <img
+                      src={asset.thumbnailUrl || asset.publicUrl}
+                      alt={asset.name}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                  </div>
+                  <div className="p-1.5 flex items-center gap-1">
+                    {asset.type === 'video' ? (
+                      <Film className="w-2.5 h-2.5 text-pink-400 shrink-0" />
+                    ) : (
+                      <ImageIcon className="w-2.5 h-2.5 text-cyan-400 shrink-0" />
+                    )}
+                    <span className="text-[9px] text-white truncate">{asset.name}</span>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
 
       {/* Propriedades da mídia selecionada */}
       {selected && (

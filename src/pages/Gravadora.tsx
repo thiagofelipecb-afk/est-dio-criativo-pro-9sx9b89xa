@@ -26,6 +26,7 @@ import {
 } from 'lucide-react'
 import type { StageLayout } from '@/types/studio'
 import { useStudio } from '@/context/StudioContext'
+import { useMediaAssets } from '@/hooks/useMediaAssets'
 import { ScriptPanel } from '@/components/ScriptPanel'
 import { BackgroundPanel } from '@/components/studio/BackgroundPanel'
 import { TitlePanel } from '@/components/studio/TitlePanel'
@@ -65,8 +66,21 @@ export default function Gravadora() {
     gravadoraScript,
     stageConfig,
     updateStageConfig,
-    mediaLibrary,
   } = useStudio()
+  // PROMPT 2 — Mídias rápidas e split agora vêm da fonte canônica (mesma de
+  // /midias e /biblioteca). Não usamos mais useStudio().mediaLibrary.
+  const { assets: mediaAssets } = useMediaAssets()
+  // Mídias visuais (imagem/vídeo) para o seletor split.
+  const visualMedia = mediaAssets
+    .filter((m) => m.type === 'image' || m.type === 'video')
+    .map((m) => ({
+      id: m.id,
+      title: m.name,
+      type: m.type as 'image' | 'video',
+      url: m.publicUrl || '',
+      thumbnailUrl: m.thumbnailUrl,
+      demo: !!(m.metadata as any)?.demo,
+    }))
 
   // Tab selecionada no painel de configuração
   const [activeTab, setActiveTab] = useState('roteiro')
@@ -769,33 +783,33 @@ export default function Gravadora() {
                 Mídias rápidas
               </span>
               <div className="grid grid-cols-2 gap-1.5 max-h-32 overflow-y-auto">
-                {mediaLibrary
-                  .filter((m) => m.type === 'image' || m.type === 'video')
-                  .slice(0, 6)
-                  .map((m) => (
-                    <button
-                      key={m.id}
-                      onClick={() =>
-                        updateStageConfig({
-                          splitMediaUrl: m.url,
-                          splitMediaType: m.type as 'image' | 'video',
-                        })
-                      }
-                      className={`relative rounded-md overflow-hidden border h-16 transition-all ${
-                        splitMediaUrl === m.url
-                          ? 'border-[#22D3EE]'
-                          : 'border-white/10 hover:border-[#7C5CFC]/50'
-                      }`}
-                      title={m.title}
-                    >
-                      <img src={m.url} alt={m.title} className="w-full h-full object-cover" />
-                      <span className="absolute bottom-0 inset-x-0 bg-black/70 text-[8px] text-white px-1 py-0.5 truncate text-left">
-                        {m.title}
-                      </span>
-                    </button>
-                  ))}
-                {mediaLibrary.filter((m) => m.type === 'image' || m.type === 'video').length ===
-                  0 && (
+                {visualMedia.slice(0, 6).map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() =>
+                      updateStageConfig({
+                        splitMediaUrl: m.url,
+                        splitMediaType: m.type as 'image' | 'video',
+                      })
+                    }
+                    className={`relative rounded-md overflow-hidden border h-16 transition-all ${
+                      splitMediaUrl === m.url
+                        ? 'border-[#22D3EE]'
+                        : 'border-white/10 hover:border-[#7C5CFC]/50'
+                    }`}
+                    title={m.title}
+                  >
+                    <img
+                      src={m.thumbnailUrl || m.url}
+                      alt={m.title}
+                      className="w-full h-full object-cover"
+                    />
+                    <span className="absolute bottom-0 inset-x-0 bg-black/70 text-[8px] text-white px-1 py-0.5 truncate text-left">
+                      {m.title}
+                    </span>
+                  </button>
+                ))}
+                {visualMedia.length === 0 && (
                   <p className="col-span-2 text-[10px] text-[#9494A8]/70 text-center py-2">
                     Nenhuma mídia na biblioteca ainda.
                   </p>
