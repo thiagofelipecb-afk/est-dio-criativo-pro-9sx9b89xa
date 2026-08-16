@@ -263,7 +263,7 @@ export class SegmentationPipeline {
       this.emptyFrames = 0
       this.status = 'ready'
     }
-    this.lastMask = new ImageData(data, W, H)
+    this.lastMask = new ImageData(data as Uint8ClampedArray<ArrayBuffer>, W, H)
   }
 
   /** Libera recursos do segmentador. */

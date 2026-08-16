@@ -14,6 +14,8 @@
 export interface RecordedCall {
   op: string
   args: number[]
+  /** Texto capturado em fillText/strokeText (opcional). */
+  text?: string
 }
 
 /** Cria um CanvasRenderingContext2D que registra todas as chamadas. */
