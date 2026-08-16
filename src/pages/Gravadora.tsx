@@ -28,6 +28,7 @@ import {
   Circle,
   FileVideo,
   Monitor,
+  Smartphone,
 } from 'lucide-react'
 import { useStudio } from '@/context/StudioContext'
 import { ScriptPanel } from '@/components/ScriptPanel'
@@ -67,6 +68,8 @@ export default function Gravadora() {
     backgroundConfig,
     titleConfig,
     setTitleConfig,
+    scriptBlocks,
+    gravadoraScript,
   } = useStudio()
 
   // Tab selecionada no painel de configuração
@@ -207,6 +210,30 @@ export default function Gravadora() {
     }
   }, [isRecording])
 
+  // FASE 2D — Atalho "F" alterna Modo Foco; "Esc" sai do Modo Foco.
+  // Não dispara quando o usuário está digitando em inputs/textarea/select.
+  useEffect(() => {
+    const isTypingTarget = (el: EventTarget | null) => {
+      if (!(el instanceof HTMLElement)) return false
+      const tag = el.tagName.toLowerCase()
+      return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      if (isTypingTarget(e.target)) return
+      const k = e.key.toLowerCase()
+      if (k === 'f') {
+        e.preventDefault()
+        setIsFocusMode(!isFocusMode)
+      } else if (k === 'escape' && isFocusMode) {
+        e.preventDefault()
+        setIsFocusMode(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [isFocusMode, setIsFocusMode])
+
   const handleToggleRecord = () => {
     if (isRecording) {
       // Parar Gravação
@@ -252,6 +279,9 @@ export default function Gravadora() {
   }
 
   const activeProject = projects.find((p) => p.id === activeProjectId)
+
+  // FASE 2B — PrompterHUD visível apenas quando há roteiro (blocos ou texto)
+  const hasScript = scriptBlocks.length > 0 || gravadoraScript.trim().length > 0
 
   // Painel lateral de configurações (Desktop & Mobile Drawer)
   const renderConfigTabs = () => (
@@ -500,6 +530,28 @@ export default function Gravadora() {
                 onValueChange={(v) => updateCameraConfig({ beautySmooth: v[0] })}
               />
             </div>
+
+            {/* FASE 2E — Câmera do Celular: honestamente "Em desenvolvimento" */}
+            <div className="pt-3 border-t border-white/5">
+              <div className="flex items-center justify-between rounded-xl border border-white/10 bg-[#1C1C27] p-3">
+                <div className="flex items-center gap-2">
+                  <Smartphone className="w-4 h-4 text-[#9494A8]" />
+                  <div>
+                    <p className="text-xs font-semibold text-white">Câmera do Celular</p>
+                    <p className="text-[10px] text-[#9494A8]">
+                      Use a câmera traseira do seu celular como fonte de vídeo
+                    </p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-1 rounded-full whitespace-nowrap">
+                  Em desenvolvimento
+                </span>
+              </div>
+              <p className="text-[10px] text-[#9494A8]/70 mt-1.5 leading-relaxed">
+                Em desenvolvimento — disponível em breve. A conexão via QR Code / WebRTC ainda não
+                está ativa. Por enquanto, utilize a webcam conectada ao seu computador.
+              </p>
+            </div>
           </div>
         </TabsContent>
 
@@ -575,8 +627,8 @@ export default function Gravadora() {
   if (isFocusMode) {
     return (
       <div className="relative w-screen h-screen bg-[#000000] overflow-hidden flex flex-col justify-between p-6 select-none">
-        {/* Portal Prompter HUD no topo */}
-        <PrompterHUD />
+        {/* Portal Prompter HUD no topo — apenas quando há roteiro */}
+        {hasScript && <PrompterHUD />}
 
         {/* Header Minimalista do Modo Foco */}
         <div className="relative z-50 flex items-center justify-between bg-black/60 backdrop-blur-md border border-white/10 rounded-2xl px-6 py-3">
@@ -669,8 +721,8 @@ export default function Gravadora() {
   // MODO PADRÃO
   return (
     <div className="flex flex-col h-screen w-full bg-[#0B0B10] overflow-hidden">
-      {/* Prompter HUD Renderizado Via Portal */}
-      <PrompterHUD />
+      {/* Prompter HUD Renderizado Via Portal — apenas quando há roteiro */}
+      {hasScript && <PrompterHUD />}
 
       {/* Header Compacto da Gravadora */}
       <header className="h-14 bg-[#0E0E15] border-b border-white/5 px-4 flex items-center justify-between shrink-0 z-20">
