@@ -62,6 +62,25 @@ import {
 import { toast } from 'sonner'
 import EditTimeline from '@/components/studio/EditTimeline'
 import OpenTakeModal from '@/components/studio/OpenTakeModal'
+import { TitlePanel } from '@/components/studio/TitlePanel'
+import { BackgroundPanel } from '@/components/studio/BackgroundPanel'
+import CaptionPanel from '@/components/studio/CaptionPanel'
+import MediaPanel from '@/components/studio/MediaPanel'
+import AdjustmentsPanel from '@/components/studio/AdjustmentsPanel'
+import EffectsPanel from '@/components/studio/EffectsPanel'
+import AudioPanel from '@/components/studio/AudioPanel'
+import {
+  AdjustmentsState,
+  DEFAULT_ADJUSTMENTS,
+  DEFAULT_EDITOR_AUDIO,
+  DEFAULT_EFFECTS,
+  EditorAudioState,
+  EffectsState,
+  adjustmentsToCssFilter,
+  effectsToCssFilter,
+  loadEditorState,
+  saveEditorState,
+} from '@/components/studio/editor-types'
 import {
   createVideoExporter,
   computeResultDuration,
@@ -291,18 +310,10 @@ export default function EditorVideo() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0) // tempo bruto
   const [playerResultTime, setPlayerResultTime] = useState(0) // tempo resultante
-  const [volume, setVolume] = useState(80)
-  const [isMuted, setIsMuted] = useState(false)
   const [playbackRate, setPlaybackRate] = useState<number>(1)
+  // Volume/mute agora vivem no AudioPanel (editorAudio) — fonte única no <video>.
 
-  // Sincroniza volume/mute/velocidade no elemento <video>.
-  useEffect(() => {
-    const v = playerVideoRef.current
-    if (!v) return
-    v.volume = isMuted ? 0 : Math.max(0, Math.min(1, volume / 100))
-    v.muted = isMuted
-  }, [volume, isMuted])
-
+  // Sincroniza velocidade no <video>.
   useEffect(() => {
     const v = playerVideoRef.current
     if (!v) return
@@ -559,39 +570,12 @@ export default function EditorVideo() {
     toast.success('Trecho excluído restaurado.')
   }, [hasMedia, timelineState, pushHistory, handleTimelineChange])
 
-  /* ── Legendas manuais (não fictícias) ─────────────────────────────────── */
+  /* ── Legendas manuais (legado — exibidas no player e na multi-track) ────
+     A edição profissional de legendas agora vive no CaptionPanel (aba
+     "Legendas" do inspetor). Mantemos este estado apenas para exibir as
+     legendas do projeto no player e na pista da multi-track timeline. */
   const [subtitles, setSubtitles] = useState<SubtitleBlock[]>(() => project?.subtitles || [])
-  const [newSubText, setNewSubText] = useState('')
-  const [subFontSize, setSubFontSize] = useState(28)
-  const [subColor, setSubColor] = useState('#FFFFFF')
-  const [subBgColor, setSubBgColor] = useState('#7C5CFC')
-  const [subAnimation, setSubAnimation] = useState<'none' | 'bounce' | 'slide' | 'fade' | 'pop'>(
-    'bounce',
-  )
   const [selectedSubtitleId, setSelectedSubtitleId] = useState<string | null>(null)
-
-  const handleAddSubtitleManual = () => {
-    if (!hasMedia) return
-    if (!newSubText.trim()) return
-    const newSub: SubtitleBlock = {
-      id: 'sub-' + Date.now(),
-      startTime: currentTime,
-      endTime: Math.min(safeDuration, currentTime + 3.5),
-      text: newSubText.trim(),
-      style: {
-        fontSize: subFontSize,
-        color: subColor,
-        bgColor: subBgColor,
-        fontFamily: 'Inter',
-        shadow: true,
-        animation: subAnimation,
-      },
-    }
-    setSubtitles((prev) => [...prev, newSub])
-    setNewSubText('')
-    setHasUnsavedChanges(true)
-    toast.success('Legenda adicionada!')
-  }
 
   // Sincroniza legendas do projeto quando ele muda.
   useEffect(() => {
@@ -810,6 +794,44 @@ export default function EditorVideo() {
   const [timelineZoom, setTimelineZoom] = useState(25)
 
   void historyTick
+
+  /* ── Estado do inspetor: ajustes / efeitos / áudio (persistido por projectId) */
+  const [adjustments, setAdjustments] = useState<AdjustmentsState>(() =>
+    id
+      ? loadEditorState<AdjustmentsState>(id, 'adjustments', DEFAULT_ADJUSTMENTS)
+      : DEFAULT_ADJUSTMENTS,
+  )
+  const [effects, setEffects] = useState<EffectsState>(() =>
+    id ? loadEditorState<EffectsState>(id, 'effects', DEFAULT_EFFECTS) : DEFAULT_EFFECTS,
+  )
+  const [editorAudio, setEditorAudio] = useState<EditorAudioState>(() =>
+    id
+      ? loadEditorState<EditorAudioState>(id, 'audio', DEFAULT_EDITOR_AUDIO)
+      : DEFAULT_EDITOR_AUDIO,
+  )
+
+  // Recarrega ao trocar de projeto
+  useEffect(() => {
+    if (!id) return
+    setAdjustments(loadEditorState<AdjustmentsState>(id, 'adjustments', DEFAULT_ADJUSTMENTS))
+    setEffects(loadEditorState<EffectsState>(id, 'effects', DEFAULT_EFFECTS))
+    setEditorAudio(loadEditorState<EditorAudioState>(id, 'audio', DEFAULT_EDITOR_AUDIO))
+  }, [id])
+
+  // CSS filter combinado (ajustes + efeitos) aplicado ao <video>
+  const videoFilterCss = useMemo(() => {
+    const adj = adjustmentsToCssFilter(adjustments)
+    const fx = effectsToCssFilter(effects)
+    return [adj, fx].filter(Boolean).join(' ')
+  }, [adjustments, effects])
+
+  // Aplica volume/mute do AudioPanel no <video> (sincroniza com player)
+  useEffect(() => {
+    const v = playerVideoRef.current
+    if (!v) return
+    v.volume = editorAudio.muted ? 0 : Math.max(0, Math.min(1, editorAudio.voiceVolume / 100))
+    v.muted = editorAudio.muted
+  }, [editorAudio.voiceVolume, editorAudio.muted])
 
   /* ═══════════════════════════════════════════════════════════════════════
      ESTADO VAZIO — sem mídia carregada
@@ -1034,6 +1056,7 @@ export default function EditorVideo() {
               ref={playerVideoRef}
               src={mediaUrl}
               className="w-full h-full object-cover select-none"
+              style={{ filter: videoFilterCss || undefined }}
               playsInline
               preload="metadata"
               onLoadedMetadata={handleLoadedMetadata}
@@ -1046,6 +1069,15 @@ export default function EditorVideo() {
               }}
               onError={handleVideoError}
             />
+            {/* Vinheta (overlay) — quando ajuste > 0 */}
+            {adjustments.vignette > 0 && (
+              <div
+                className="absolute inset-0 pointer-events-none z-20"
+                style={{
+                  background: `radial-gradient(ellipse at center, transparent ${100 - adjustments.vignette}%, rgba(0,0,0,${adjustments.vignette / 100}) 100%)`,
+                }}
+              />
+            )}
             {/* readyState badge */}
             <div className="absolute top-2 left-2 z-30 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/60 border border-white/10 backdrop-blur-sm">
               <span className="text-[10px] font-semibold text-emerald-300">
@@ -1135,26 +1167,36 @@ export default function EditorVideo() {
               {fmtTime(playerResultTime)} / {fmtTime(resultDuration)}
             </div>
 
-            {/* Volume */}
+            {/* Volume (reflete o AudioPanel do inspetor) */}
             <div className="flex items-center gap-1.5 w-28">
               <button
-                onClick={() => setIsMuted(!isMuted)}
+                onClick={() => {
+                  const next = !editorAudio.muted
+                  setEditorAudio((a) => {
+                    const updated = { ...a, muted: next }
+                    saveEditorState(id || 'temp', 'audio', updated)
+                    return updated
+                  })
+                }}
                 className="text-[#9494A8] hover:text-white"
               >
-                {isMuted ? (
+                {editorAudio.muted ? (
                   <VolumeX className="w-4 h-4 text-red-400" />
                 ) : (
                   <Volume2 className="w-4 h-4" />
                 )}
               </button>
               <Slider
-                value={[isMuted ? 0 : volume]}
+                value={[editorAudio.muted ? 0 : editorAudio.voiceVolume]}
                 min={0}
-                max={100}
+                max={200}
                 step={1}
                 onValueChange={(val) => {
-                  setVolume(val[0])
-                  setIsMuted(false)
+                  setEditorAudio((a) => {
+                    const updated = { ...a, voiceVolume: val[0], muted: false }
+                    saveEditorState(id || 'temp', 'audio', updated)
+                    return updated
+                  })
                 }}
               />
             </div>
@@ -1177,22 +1219,124 @@ export default function EditorVideo() {
           </div>
         </div>
 
-        {/* RIGHT SIDEBAR */}
+        {/* RIGHT SIDEBAR — Inspetor profissional com 8 abas */}
         <div className="lg:col-span-4 xl:col-span-3 bg-[#14141C] border-l border-white/10 flex flex-col h-full overflow-hidden">
-          <Tabs defaultValue="ai" className="flex-1 flex flex-col min-h-0">
-            <div className="px-3 pt-2 border-b border-white/5">
-              <TabsList className="w-full bg-[#1C1C27] grid grid-cols-2 p-1 rounded-xl">
+          <Tabs defaultValue="captions" className="flex-1 flex flex-col min-h-0">
+            <div className="px-2 pt-2 border-b border-white/5 shrink-0">
+              <TabsList className="w-full bg-[#1C1C27] grid grid-cols-4 gap-1 p-1 rounded-xl">
+                <TabsTrigger
+                  value="captions"
+                  className="text-[10px] font-semibold data-[state=active]:bg-[#7C5CFC] data-[state=active]:text-white"
+                >
+                  <Type className="w-3 h-3 mr-0.5" /> Legendas
+                </TabsTrigger>
+                <TabsTrigger
+                  value="titles"
+                  className="text-[10px] font-semibold data-[state=active]:bg-[#7C5CFC] data-[state=active]:text-white"
+                >
+                  <Type className="w-3 h-3 mr-0.5" /> Títulos
+                </TabsTrigger>
+                <TabsTrigger
+                  value="background"
+                  className="text-[10px] font-semibold data-[state=active]:bg-[#7C5CFC] data-[state=active]:text-white"
+                >
+                  <Palette className="w-3 h-3 mr-0.5" /> Fundo
+                </TabsTrigger>
+                <TabsTrigger
+                  value="media"
+                  className="text-[10px] font-semibold data-[state=active]:bg-[#7C5CFC] data-[state=active]:text-white"
+                >
+                  <Film className="w-3 h-3 mr-0.5" /> Mídias
+                </TabsTrigger>
+                <TabsTrigger
+                  value="adjustments"
+                  className="text-[10px] font-semibold data-[state=active]:bg-[#7C5CFC] data-[state=active]:text-white"
+                >
+                  <Gauge className="w-3 h-3 mr-0.5" /> Ajustes
+                </TabsTrigger>
+                <TabsTrigger
+                  value="effects"
+                  className="text-[10px] font-semibold data-[state=active]:bg-[#7C5CFC] data-[state=active]:text-white"
+                >
+                  <Sparkles className="w-3 h-3 mr-0.5" /> Efeitos
+                </TabsTrigger>
+                <TabsTrigger
+                  value="audio"
+                  className="text-[10px] font-semibold data-[state=active]:bg-[#7C5CFC] data-[state=active]:text-white"
+                >
+                  <Music className="w-3 h-3 mr-0.5" /> Áudio
+                </TabsTrigger>
                 <TabsTrigger
                   value="ai"
-                  className="text-xs font-semibold data-[state=active]:bg-[#7C5CFC] data-[state=active]:text-white"
+                  className="text-[10px] font-semibold data-[state=active]:bg-[#7C5CFC] data-[state=active]:text-white"
                 >
-                  <Sparkles className="w-3.5 h-3.5 mr-1" /> IA
-                </TabsTrigger>
-                <TabsTrigger value="text" className="text-xs">
-                  <Type className="w-3.5 h-3.5 mr-1" /> Legendas
+                  <Sparkles className="w-3 h-3 mr-0.5" /> IA
                 </TabsTrigger>
               </TabsList>
             </div>
+
+            <TabsContent
+              value="captions"
+              className="flex-1 overflow-y-auto p-3 space-y-3 focus:outline-none"
+            >
+              <CaptionPanel
+                projectId={id || 'temp'}
+                currentTime={currentTime}
+                duration={safeDuration}
+                onSeek={handleSeek}
+              />
+            </TabsContent>
+
+            <TabsContent value="titles" className="flex-1 overflow-y-auto focus:outline-none">
+              <div className="h-full overflow-y-auto">
+                <TitlePanel />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="background" className="flex-1 overflow-y-auto focus:outline-none">
+              <div className="h-full overflow-y-auto">
+                <BackgroundPanel />
+              </div>
+            </TabsContent>
+
+            <TabsContent
+              value="media"
+              className="flex-1 overflow-y-auto p-3 space-y-3 focus:outline-none"
+            >
+              <MediaPanel projectId={id || 'temp'} />
+            </TabsContent>
+
+            <TabsContent
+              value="adjustments"
+              className="flex-1 overflow-y-auto p-3 space-y-3 focus:outline-none"
+            >
+              <AdjustmentsPanel
+                projectId={id || 'temp'}
+                adjustments={adjustments}
+                onChange={setAdjustments}
+              />
+            </TabsContent>
+
+            <TabsContent
+              value="effects"
+              className="flex-1 overflow-y-auto p-3 space-y-3 focus:outline-none"
+            >
+              <EffectsPanel projectId={id || 'temp'} effects={effects} onChange={setEffects} />
+            </TabsContent>
+
+            <TabsContent
+              value="audio"
+              className="flex-1 overflow-y-auto p-3 space-y-3 focus:outline-none"
+            >
+              <AudioPanel
+                projectId={id || 'temp'}
+                audio={editorAudio}
+                onChange={setEditorAudio}
+                videoBlob={mediaBlob}
+                currentTime={currentTime}
+                duration={safeDuration}
+              />
+            </TabsContent>
 
             {/* TAB: IA — todos desabilitados (Integração pendente) */}
             <TabsContent
@@ -1231,122 +1375,6 @@ export default function EditorVideo() {
                 desc="Mídias contextuais nos vazios"
                 pendingReason="Integração pendente"
               />
-            </TabsContent>
-
-            {/* TAB: Legendas manuais */}
-            <TabsContent
-              value="text"
-              className="flex-1 overflow-y-auto p-4 space-y-3 focus:outline-none"
-            >
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider">
-                Adicionar Legenda
-              </h4>
-              <textarea
-                value={newSubText}
-                onChange={(e) => setNewSubText(e.target.value)}
-                placeholder="Digite o texto da legenda para o momento atual..."
-                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#7C5CFC]"
-                rows={2}
-              />
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[10px] text-[#9494A8]">Cor do Texto</label>
-                  <input
-                    type="color"
-                    value={subColor}
-                    onChange={(e) => setSubColor(e.target.value)}
-                    className="w-full h-8 rounded-lg bg-transparent border-0 cursor-pointer"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] text-[#9494A8]">Cor de Fundo</label>
-                  <input
-                    type="color"
-                    value={subBgColor}
-                    onChange={(e) => setSubBgColor(e.target.value)}
-                    className="w-full h-8 rounded-lg bg-transparent border-0 cursor-pointer"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1">
-                <div className="flex justify-between text-[10px] text-[#9494A8]">
-                  <span>Tamanho da Fonte</span>
-                  <span>{subFontSize}px</span>
-                </div>
-                <Slider
-                  value={[subFontSize]}
-                  min={16}
-                  max={48}
-                  step={1}
-                  onValueChange={(val) => setSubFontSize(val[0])}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] text-[#9494A8]">Animação</label>
-                <div className="grid grid-cols-4 gap-1">
-                  {(['bounce', 'pop', 'slide', 'fade'] as const).map((anim) => (
-                    <button
-                      key={anim}
-                      onClick={() => setSubAnimation(anim)}
-                      className={`py-1 text-[10px] rounded-lg font-medium capitalize ${
-                        subAnimation === anim
-                          ? 'bg-[#7C5CFC] text-white'
-                          : 'bg-[#1C1C27] text-[#9494A8] hover:text-white'
-                      }`}
-                    >
-                      {anim}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <Button
-                size="sm"
-                onClick={handleAddSubtitleManual}
-                className="w-full bg-[#7C5CFC] hover:bg-[#6A48E0] text-xs font-semibold"
-              >
-                Inserir Legenda no Frame Atual
-              </Button>
-
-              <div className="pt-3 border-t border-white/5 space-y-2">
-                <h4 className="text-xs font-bold text-white">Legendas ({subtitles.length})</h4>
-                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                  {subtitles.length === 0 ? (
-                    <p className="text-xs text-[#9494A8]">Nenhuma legenda adicionada.</p>
-                  ) : (
-                    subtitles.map((sub) => (
-                      <div
-                        key={sub.id}
-                        onClick={() => {
-                          handleSeek(sub.startTime)
-                          setSelectedSubtitleId(sub.id)
-                        }}
-                        className={`p-2 rounded-xl bg-[#1C1C27] border cursor-pointer flex items-center justify-between text-xs transition-colors ${
-                          selectedSubtitleId === sub.id
-                            ? 'border-[#7C5CFC] text-white'
-                            : 'border-white/5 text-[#9494A8] hover:text-white'
-                        }`}
-                      >
-                        <div className="truncate pr-2">
-                          <span className="font-mono text-[10px] text-[#22D3EE] mr-2">
-                            {sub.startTime.toFixed(1)}s
-                          </span>
-                          <span>{sub.text}</span>
-                        </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setSubtitles((prev) => prev.filter((s) => s.id !== sub.id))
-                            setHasUnsavedChanges(true)
-                          }}
-                          className="p-1 text-[#9494A8] hover:text-red-400"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
             </TabsContent>
           </Tabs>
         </div>
