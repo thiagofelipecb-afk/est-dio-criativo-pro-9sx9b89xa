@@ -81,7 +81,9 @@ export interface StudioAccordionPanelProps {
     supportedResolutions: string[]
   } | null
   cameraConfig: { brightness: number; contrast: number; beautySmooth: number }
-  updateCameraConfig: (u: Partial<{ brightness: number; contrast: number; beautySmooth: number }>) => void
+  updateCameraConfig: (
+    u: Partial<{ brightness: number; contrast: number; beautySmooth: number }>,
+  ) => void
   camStatus: string
   // Aparência (beauty)
   beauty: {
@@ -132,7 +134,15 @@ export interface StudioAccordionPanelProps {
 
 /* ---------- Acordeão genérico ---------- */
 
-type AccordionId = 'roteiro' | 'midias' | 'layout' | 'camera' | 'aparencia' | 'fundo' | 'audio' | 'gravacao'
+type AccordionId =
+  | 'roteiro'
+  | 'midias'
+  | 'layout'
+  | 'camera'
+  | 'aparencia'
+  | 'fundo'
+  | 'audio'
+  | 'gravacao'
 
 const ACCORDIONS: { id: AccordionId; label: string; icon: React.ReactNode }[] = [
   { id: 'roteiro', label: 'Roteiro', icon: <FileText className="w-3.5 h-3.5" /> },
@@ -164,7 +174,12 @@ export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
     setSplitError(null)
     setSplitProcessing(true)
     try {
-      const target = presetId === 'custom' ? customDuration : presetId === 'one-sentence' ? 0 : SPLIT_PRESETS.find((p) => p.id === presetId)!.targetSeconds
+      const target =
+        presetId === 'custom'
+          ? customDuration
+          : presetId === 'one-sentence'
+            ? 0
+            : SPLIT_PRESETS.find((p) => p.id === presetId)!.targetSeconds
       const blocks = deterministicSplit(props.gravadoraScript, target)
       if (blocks.length === 0) {
         setSplitError('Nenhum texto para dividir. Cole seu roteiro primeiro.')
@@ -182,7 +197,11 @@ export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
     setCameraPreset(id)
     const p = CAMERA_PRESETS.find((x) => x.id === id)!
     if (id !== 'personalizado') {
-      props.updateCameraConfig({ brightness: p.brightness, contrast: p.contrast, beautySmooth: p.beautySmooth })
+      props.updateCameraConfig({
+        brightness: p.brightness,
+        contrast: p.contrast,
+        beautySmooth: p.beautySmooth,
+      })
     }
   }
 
@@ -220,7 +239,10 @@ export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
         {ACCORDIONS.map((acc) => {
           const isOpen = open === acc.id
           return (
-            <div key={acc.id} className="mb-1.5 rounded-xl border border-white/5 bg-[#14141C] overflow-hidden">
+            <div
+              key={acc.id}
+              className="mb-1.5 rounded-xl border border-white/5 bg-[#14141C] overflow-hidden"
+            >
               <button
                 onClick={() => setOpen(isOpen ? null : acc.id)}
                 aria-expanded={isOpen}
@@ -230,7 +252,9 @@ export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
                   <span className="text-[#7C5CFC]">{acc.icon}</span>
                   {acc.label}
                 </span>
-                <ChevronDown className={`w-4 h-4 text-[#9494A8] transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                <ChevronDown
+                  className={`w-4 h-4 text-[#9494A8] transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                />
               </button>
               {isOpen && (
                 <div className="px-3 pb-3 pt-1 space-y-3 border-t border-white/5">
@@ -250,49 +274,97 @@ export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
                         className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2.5 text-xs text-white leading-relaxed resize-none focus:outline-none focus:border-[#7C5CFC] placeholder:text-[#9494A8]/50"
                       />
                       <div className="flex flex-wrap gap-1.5">
-                        <MiniBtn icon={<Download className="w-3 h-3" />} label="Importar" onClick={() => document.getElementById('script-import-input')?.click()} />
-                        <input id="script-import-input" type="file" accept=".txt,.md" className="hidden" onChange={(e) => {
-                          const f = e.target.files?.[0]
-                          if (!f) return
-                          const r = new FileReader()
-                          r.onload = () => props.setGravadoraScript(String(r.result || ''))
-                          r.readAsText(f)
-                        }} />
-                        <MiniBtn icon={<Wand2 className="w-3 h-3" />} label="Gerar com IA" onClick={() => toast.info('Assistente IA disponível no painel Roteiro abaixo.')} />
-                        <MiniBtn icon={<Scissors className="w-3 h-3" />} label="Dividir em blocos" onClick={() => handleSplit(splitPreset)} />
-                        <MiniBtn icon={<FileText className="w-3 h-3" />} label="Usar texto inteiro" onClick={() => {
-                          const blocks = deterministicSplit(props.gravadoraScript, 9999)
-                          props.setScriptBlocks(blocks.length ? blocks : [])
-                          toast.info('Texto inteiro usado como bloco único.')
-                        }} />
-                        <MiniBtn icon={<Save className="w-3 h-3" />} label="Salvar rascunho" onClick={() => toast.info('Rascunho salvo automaticamente.')} />
+                        <MiniBtn
+                          icon={<Download className="w-3 h-3" />}
+                          label="Importar"
+                          onClick={() => document.getElementById('script-import-input')?.click()}
+                        />
+                        <input
+                          id="script-import-input"
+                          type="file"
+                          accept=".txt,.md"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0]
+                            if (!f) return
+                            const r = new FileReader()
+                            r.onload = () => props.setGravadoraScript(String(r.result || ''))
+                            r.readAsText(f)
+                          }}
+                        />
+                        <MiniBtn
+                          icon={<Wand2 className="w-3 h-3" />}
+                          label="Gerar com IA"
+                          onClick={() =>
+                            toast.info('Assistente IA disponível no painel Roteiro abaixo.')
+                          }
+                        />
+                        <MiniBtn
+                          icon={<Scissors className="w-3 h-3" />}
+                          label="Dividir em blocos"
+                          onClick={() => handleSplit(splitPreset)}
+                        />
+                        <MiniBtn
+                          icon={<FileText className="w-3 h-3" />}
+                          label="Usar texto inteiro"
+                          onClick={() => {
+                            const blocks = deterministicSplit(props.gravadoraScript, 9999)
+                            props.setScriptBlocks(blocks.length ? blocks : [])
+                            toast.info('Texto inteiro usado como bloco único.')
+                          }}
+                        />
+                        <MiniBtn
+                          icon={<Save className="w-3 h-3" />}
+                          label="Salvar rascunho"
+                          onClick={() => toast.info('Rascunho salvo automaticamente.')}
+                        />
                       </div>
 
                       {/* Presets de divisão */}
                       <div>
-                        <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">Presets de divisão</span>
+                        <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">
+                          Presets de divisão
+                        </span>
                         <div className="grid grid-cols-2 gap-1 mt-1">
                           {SPLIT_PRESETS.map((p) => (
-                            <button key={p.id} onClick={() => setSplitPreset(p.id)} disabled={splitProcessing}
-                              className={`text-[9px] py-1.5 rounded-lg border transition-all ${splitPreset === p.id ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'}`}>
+                            <button
+                              key={p.id}
+                              onClick={() => setSplitPreset(p.id)}
+                              disabled={splitProcessing}
+                              className={`text-[9px] py-1.5 rounded-lg border transition-all ${splitPreset === p.id ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'}`}
+                            >
                               {p.label}
                             </button>
                           ))}
                         </div>
                         {splitPreset === 'custom' && (
                           <div className="mt-2">
-                            <div className="flex justify-between text-[9px] text-[#9494A8]"><span>Duração por bloco</span><span className="font-mono">{customDuration}s</span></div>
-                            <Slider value={[customDuration]} min={5} max={120} step={5} onValueChange={(v) => setCustomDuration(v[0])} />
+                            <div className="flex justify-between text-[9px] text-[#9494A8]">
+                              <span>Duração por bloco</span>
+                              <span className="font-mono">{customDuration}s</span>
+                            </div>
+                            <Slider
+                              value={[customDuration]}
+                              min={5}
+                              max={120}
+                              step={5}
+                              onValueChange={(v) => setCustomDuration(v[0])}
+                            />
                           </div>
                         )}
                       </div>
 
                       {splitProcessing && (
-                        <div className="flex items-center gap-2 text-[10px] text-[#22D3EE]"><Loader2 className="w-3 h-3 animate-spin" /> Processando roteiro...</div>
+                        <div className="flex items-center gap-2 text-[10px] text-[#22D3EE]">
+                          <Loader2 className="w-3 h-3 animate-spin" /> Processando roteiro...
+                        </div>
                       )}
                       {splitError && (
-                        <div className="flex items-center gap-2 text-[10px] text-red-300"><AlertTriangle className="w-3 h-3" /> {splitError}
-                          <button onClick={() => handleSplit(splitPreset)} className="underline">Tentar novamente</button>
+                        <div className="flex items-center gap-2 text-[10px] text-red-300">
+                          <AlertTriangle className="w-3 h-3" /> {splitError}
+                          <button onClick={() => handleSplit(splitPreset)} className="underline">
+                            Tentar novamente
+                          </button>
                         </div>
                       )}
 
@@ -310,69 +382,181 @@ export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
                   {acc.id === 'layout' && (
                     <>
                       <div>
-                        <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">Proporção</span>
+                        <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">
+                          Proporção
+                        </span>
                         <div className="grid grid-cols-4 gap-1 mt-1">
                           {(['9:16', '16:9', '1:1', '4:5'] as AspectRatioOption[]).map((r) => (
-                            <button key={r} onClick={() => props.onAspectRatioChange(r)}
-                              className={`text-[10px] py-1.5 rounded-lg border transition-all ${props.aspectRatio === r ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'}`}>
+                            <button
+                              key={r}
+                              onClick={() => props.onAspectRatioChange(r)}
+                              className={`text-[10px] py-1.5 rounded-lg border transition-all ${props.aspectRatio === r ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'}`}
+                            >
                               {r}
                             </button>
                           ))}
                         </div>
                       </div>
                       <div>
-                        <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">Modo de tela dividida</span>
+                        <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">
+                          Modo de tela dividida
+                        </span>
                         <div className="grid grid-cols-2 gap-1 mt-1">
                           {SPLIT_MODES.map((m) => (
-                            <button key={m.id} onClick={() => props.onSplitModeChange(m.id)}
-                              className={`text-[10px] py-1.5 rounded-lg border transition-all ${props.splitMode === m.id ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'}`}>
+                            <button
+                              key={m.id}
+                              onClick={() => props.onSplitModeChange(m.id)}
+                              className={`text-[10px] py-1.5 rounded-lg border transition-all ${props.splitMode === m.id ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'}`}
+                            >
                               {m.label}
                             </button>
                           ))}
                         </div>
                       </div>
                       {props.splitMode !== 'full' && (
-                        <SliderRow label="Proporção da divisão (câmera)" value={Math.round(props.splitCameraRatio * 100)} min={20} max={80} step={5} onChange={(v) => props.onSplitCameraRatioChange(v / 100)} suffix="%" />
+                        <SliderRow
+                          label="Proporção da divisão (câmera)"
+                          value={Math.round(props.splitCameraRatio * 100)}
+                          min={20}
+                          max={80}
+                          step={5}
+                          onChange={(v) => props.onSplitCameraRatioChange(v / 100)}
+                          suffix="%"
+                        />
                       )}
-                      <SliderRow label="Margem" value={props.margin} min={0} max={40} step={1} onChange={props.onMarginChange} suffix="px" />
-                      <SliderRow label="Espaçamento" value={props.spacing} min={0} max={40} step={1} onChange={props.onSpacingChange} suffix="px" />
-                      <SliderRow label="Borda (espessura)" value={props.borderWidth} min={0} max={10} step={1} onChange={props.onBorderWidthChange} suffix="px" />
-                      <SliderRow label="Arredondamento" value={props.borderRadius} min={0} max={48} step={2} onChange={props.onBorderRadiusChange} suffix="px" />
+                      <SliderRow
+                        label="Margem"
+                        value={props.margin}
+                        min={0}
+                        max={40}
+                        step={1}
+                        onChange={props.onMarginChange}
+                        suffix="px"
+                      />
+                      <SliderRow
+                        label="Espaçamento"
+                        value={props.spacing}
+                        min={0}
+                        max={40}
+                        step={1}
+                        onChange={props.onSpacingChange}
+                        suffix="px"
+                      />
+                      <SliderRow
+                        label="Borda (espessura)"
+                        value={props.borderWidth}
+                        min={0}
+                        max={10}
+                        step={1}
+                        onChange={props.onBorderWidthChange}
+                        suffix="px"
+                      />
+                      <SliderRow
+                        label="Arredondamento"
+                        value={props.borderRadius}
+                        min={0}
+                        max={48}
+                        step={2}
+                        onChange={props.onBorderRadiusChange}
+                        suffix="px"
+                      />
                     </>
                   )}
 
                   {/* ============ 4. CÂMERA ============ */}
                   {acc.id === 'camera' && (
                     <>
-                      <SelectRow label="Dispositivo de vídeo" value={props.selectedCamera} onChange={props.onSelectCamera} options={props.cameras.map((c, i) => ({ value: c.deviceId, label: c.label || `Câmera ${i + 1}` }))} disabledHint={props.camStatus !== 'ready' ? 'Ative a câmera para ver os nomes reais.' : undefined} />
+                      <SelectRow
+                        label="Dispositivo de vídeo"
+                        value={props.selectedCamera}
+                        onChange={props.onSelectCamera}
+                        options={props.cameras.map((c, i) => ({
+                          value: c.deviceId,
+                          label: c.label || `Câmera ${i + 1}`,
+                        }))}
+                        disabledHint={
+                          props.camStatus !== 'ready'
+                            ? 'Ative a câmera para ver os nomes reais.'
+                            : undefined
+                        }
+                      />
                       {props.cameraCapabilities && (
                         <div className="text-[9px] text-[#9494A8] bg-[#1C1C27] rounded-lg p-2 leading-relaxed">
-                          Resolução máx.: {props.cameraCapabilities.maxWidth}×{props.cameraCapabilities.maxHeight}<br />
-                          FPS máx.: {props.cameraCapabilities.maxFrameRate}<br />
-                          Suportadas: {props.cameraCapabilities.supportedResolutions.join(', ') || '—'}
+                          Resolução máx.: {props.cameraCapabilities.maxWidth}×
+                          {props.cameraCapabilities.maxHeight}
+                          <br />
+                          FPS máx.: {props.cameraCapabilities.maxFrameRate}
+                          <br />
+                          Suportadas:{' '}
+                          {props.cameraCapabilities.supportedResolutions.join(', ') || '—'}
                         </div>
                       )}
                       <div>
-                        <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">Presets de câmera</span>
+                        <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">
+                          Presets de câmera
+                        </span>
                         <div className="grid grid-cols-3 gap-1 mt-1">
                           {CAMERA_PRESETS.map((p) => (
-                            <button key={p.id} onClick={() => applyCameraPreset(p.id)}
-                              className={`text-[9px] py-1.5 rounded-lg border transition-all ${cameraPreset === p.id ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'}`}>
+                            <button
+                              key={p.id}
+                              onClick={() => applyCameraPreset(p.id)}
+                              className={`text-[9px] py-1.5 rounded-lg border transition-all ${cameraPreset === p.id ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'}`}
+                            >
                               {p.label}
                             </button>
                           ))}
                         </div>
                       </div>
-                      <SliderRow label="Brilho" value={props.cameraConfig.brightness} min={50} max={150} step={1} onChange={(v) => props.updateCameraConfig({ brightness: v })} suffix="%" />
-                      <SliderRow label="Contraste" value={props.cameraConfig.contrast} min={50} max={150} step={1} onChange={(v) => props.updateCameraConfig({ contrast: v })} suffix="%" />
+                      <SliderRow
+                        label="Brilho"
+                        value={props.cameraConfig.brightness}
+                        min={50}
+                        max={150}
+                        step={1}
+                        onChange={(v) => props.updateCameraConfig({ brightness: v })}
+                        suffix="%"
+                      />
+                      <SliderRow
+                        label="Contraste"
+                        value={props.cameraConfig.contrast}
+                        min={50}
+                        max={150}
+                        step={1}
+                        onChange={(v) => props.updateCameraConfig({ contrast: v })}
+                        suffix="%"
+                      />
                       {props.cameraCapabilities?.zoom ? (
-                        <SliderRow label="Zoom" value={props.cameraCapabilities.zoom.min} min={props.cameraCapabilities.zoom.min} max={props.cameraCapabilities.zoom.max} step={props.cameraCapabilities.zoom.step} onChange={() => {}} suffix="" />
+                        <SliderRow
+                          label="Zoom"
+                          value={props.cameraCapabilities.zoom.min}
+                          min={props.cameraCapabilities.zoom.min}
+                          max={props.cameraCapabilities.zoom.max}
+                          step={props.cameraCapabilities.zoom.step}
+                          onChange={() => {}}
+                          suffix=""
+                        />
                       ) : (
-                        <p className="text-[9px] text-[#9494A8]/70">Zoom não suportado por este dispositivo.</p>
+                        <p className="text-[9px] text-[#9494A8]/70">
+                          Zoom não suportado por este dispositivo.
+                        </p>
                       )}
-                      <p className="text-[9px] text-[#9494A8]/70 leading-relaxed">Controles avançados (exposição, foco, balanço de branco, saturação, nitidez) são aplicados via applyConstraints apenas quando suportados pelo dispositivo.</p>
+                      <p className="text-[9px] text-[#9494A8]/70 leading-relaxed">
+                        Controles avançados (exposição, foco, balanço de branco, saturação, nitidez)
+                        são aplicados via applyConstraints apenas quando suportados pelo
+                        dispositivo.
+                      </p>
                       <div className="rounded-lg border border-white/10 bg-[#1C1C27] p-2 space-y-1.5">
-                        {(['exposureTime','focusDistance','whiteBalanceMode','brightness','contrast','saturation','sharpness'] as const).map((cap) => (
+                        {(
+                          [
+                            'exposureTime',
+                            'focusDistance',
+                            'whiteBalanceMode',
+                            'brightness',
+                            'contrast',
+                            'saturation',
+                            'sharpness',
+                          ] as const
+                        ).map((cap) => (
                           <CapabilityRow key={cap} cap={cap} />
                         ))}
                       </div>
@@ -384,15 +568,25 @@ export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
                     <>
                       {!props.webglAvailable ? (
                         <div className="flex items-center gap-2 text-[10px] text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-2.5">
-                          <AlertTriangle className="w-3.5 h-3.5" /> Seu navegador não suporta os efeitos faciais.
+                          <AlertTriangle className="w-3.5 h-3.5" /> Seu navegador não suporta os
+                          efeitos faciais.
                         </div>
                       ) : !props.mediapipeAvailable ? (
                         <div className="rounded-lg border border-[#7C5CFC]/30 bg-[#7C5CFC]/5 p-3 text-center space-y-2">
                           <Layers className="w-5 h-5 text-[#7C5CFC] mx-auto" />
-                          <p className="text-[10px] text-white">Efeitos faciais requerem carregamento do modelo (≈8MB).</p>
-                          <button onClick={props.onLoadMediapipe} disabled={props.mediapipeLoading}
-                            className="px-3 py-1.5 rounded-lg bg-[#7C5CFC] text-white text-[10px] font-bold flex items-center gap-1.5 mx-auto disabled:opacity-50">
-                            {props.mediapipeLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                          <p className="text-[10px] text-white">
+                            Efeitos faciais requerem carregamento do modelo (≈8MB).
+                          </p>
+                          <button
+                            onClick={props.onLoadMediapipe}
+                            disabled={props.mediapipeLoading}
+                            className="px-3 py-1.5 rounded-lg bg-[#7C5CFC] text-white text-[10px] font-bold flex items-center gap-1.5 mx-auto disabled:opacity-50"
+                          >
+                            {props.mediapipeLoading ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Sparkles className="w-3 h-3" />
+                            )}
                             {props.mediapipeLoading ? 'Carregando...' : 'Carregar modelo'}
                           </button>
                         </div>
@@ -400,33 +594,128 @@ export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
                         <>
                           {!props.faceDetected && (
                             <div className="flex items-center gap-2 text-[9px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2 py-1.5">
-                              <AlertTriangle className="w-3 h-3" /> Nenhum rosto detectado — efeitos reduzidos.
+                              <AlertTriangle className="w-3 h-3" /> Nenhum rosto detectado — efeitos
+                              reduzidos.
                             </div>
                           )}
                           <div>
-                            <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">Presets de aparência</span>
+                            <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">
+                              Presets de aparência
+                            </span>
                             <div className="grid grid-cols-2 gap-1 mt-1">
                               {BEAUTY_PRESETS.map((p) => (
-                                <button key={p.id} onClick={() => applyBeautyPreset(p.id)}
-                                  className={`text-[9px] py-1.5 rounded-lg border transition-all ${beautyPreset === p.id ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'}`}>
+                                <button
+                                  key={p.id}
+                                  onClick={() => applyBeautyPreset(p.id)}
+                                  className={`text-[9px] py-1.5 rounded-lg border transition-all ${beautyPreset === p.id ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'}`}
+                                >
                                   {p.label}
                                 </button>
                               ))}
                             </div>
                           </div>
-                          <BeautySlider label="Suavização de pele" value={props.beauty.skinSmooth} onChange={(v) => { props.setBeauty({ skinSmooth: v }); setBeautyPreset('personalizado') }} />
-                          <BeautySlider label="Redução de brilho/oleosidade" value={props.beauty.shineReduction} onChange={(v) => { props.setBeauty({ shineReduction: v }); setBeautyPreset('personalizado') }} />
-                          <BeautySlider label="Uniformização de tonalidade" value={props.beauty.toneUniformity} onChange={(v) => { props.setBeauty({ toneUniformity: v }); setBeautyPreset('personalizado') }} />
-                          <BeautySlider label="Redução de vermelhidão" value={props.beauty.rednessReduction} onChange={(v) => { props.setBeauty({ rednessReduction: v }); setBeautyPreset('personalizado') }} />
-                          <BeautySlider label="Suavização de rugas finas" value={props.beauty.wrinkleSmooth} onChange={(v) => { props.setBeauty({ wrinkleSmooth: v }); setBeautyPreset('personalizado') }} />
-                          <BeautySlider label="Olhos" value={props.beauty.eyeEnhance} onChange={(v) => { props.setBeauty({ eyeEnhance: v }); setBeautyPreset('personalizado') }} />
-                          <BeautySlider label="Sulco nasolabial" value={props.beauty.nasolabial} onChange={(v) => { props.setBeauty({ nasolabial: v }); setBeautyPreset('personalizado') }} />
-                          <BeautySlider label="Olheiras" value={props.beauty.darkCircles} onChange={(v) => { props.setBeauty({ darkCircles: v }); setBeautyPreset('personalizado') }} />
-                          <BeautySlider label="Iluminação facial" value={props.beauty.facialLighting} onChange={(v) => { props.setBeauty({ facialLighting: v }); setBeautyPreset('personalizado') }} />
-                          <BeautySlider label="Nitidez seletiva (olhos/lábios)" value={props.beauty.selectiveSharpness} onChange={(v) => { props.setBeauty({ selectiveSharpness: v }); setBeautyPreset('personalizado') }} />
-                          <SliderRow label="Intensidade geral" value={props.beauty.intensity} min={0} max={100} step={1} onChange={(v) => { props.setBeauty({ intensity: v }); setBeautyPreset('personalizado') }} suffix="%" />
-                          <button onClick={() => setShowBefore((s) => !s)} className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-[#1C1C27] border border-white/10 text-[10px] font-semibold text-white hover:border-[#7C5CFC]/50">
-                            {showBefore ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />} {showBefore ? 'Ver depois' : 'Comparar antes/depois'}
+                          <BeautySlider
+                            label="Suavização de pele"
+                            value={props.beauty.skinSmooth}
+                            onChange={(v) => {
+                              props.setBeauty({ skinSmooth: v })
+                              setBeautyPreset('personalizado')
+                            }}
+                          />
+                          <BeautySlider
+                            label="Redução de brilho/oleosidade"
+                            value={props.beauty.shineReduction}
+                            onChange={(v) => {
+                              props.setBeauty({ shineReduction: v })
+                              setBeautyPreset('personalizado')
+                            }}
+                          />
+                          <BeautySlider
+                            label="Uniformização de tonalidade"
+                            value={props.beauty.toneUniformity}
+                            onChange={(v) => {
+                              props.setBeauty({ toneUniformity: v })
+                              setBeautyPreset('personalizado')
+                            }}
+                          />
+                          <BeautySlider
+                            label="Redução de vermelhidão"
+                            value={props.beauty.rednessReduction}
+                            onChange={(v) => {
+                              props.setBeauty({ rednessReduction: v })
+                              setBeautyPreset('personalizado')
+                            }}
+                          />
+                          <BeautySlider
+                            label="Suavização de rugas finas"
+                            value={props.beauty.wrinkleSmooth}
+                            onChange={(v) => {
+                              props.setBeauty({ wrinkleSmooth: v })
+                              setBeautyPreset('personalizado')
+                            }}
+                          />
+                          <BeautySlider
+                            label="Olhos"
+                            value={props.beauty.eyeEnhance}
+                            onChange={(v) => {
+                              props.setBeauty({ eyeEnhance: v })
+                              setBeautyPreset('personalizado')
+                            }}
+                          />
+                          <BeautySlider
+                            label="Sulco nasolabial"
+                            value={props.beauty.nasolabial}
+                            onChange={(v) => {
+                              props.setBeauty({ nasolabial: v })
+                              setBeautyPreset('personalizado')
+                            }}
+                          />
+                          <BeautySlider
+                            label="Olheiras"
+                            value={props.beauty.darkCircles}
+                            onChange={(v) => {
+                              props.setBeauty({ darkCircles: v })
+                              setBeautyPreset('personalizado')
+                            }}
+                          />
+                          <BeautySlider
+                            label="Iluminação facial"
+                            value={props.beauty.facialLighting}
+                            onChange={(v) => {
+                              props.setBeauty({ facialLighting: v })
+                              setBeautyPreset('personalizado')
+                            }}
+                          />
+                          <BeautySlider
+                            label="Nitidez seletiva (olhos/lábios)"
+                            value={props.beauty.selectiveSharpness}
+                            onChange={(v) => {
+                              props.setBeauty({ selectiveSharpness: v })
+                              setBeautyPreset('personalizado')
+                            }}
+                          />
+                          <SliderRow
+                            label="Intensidade geral"
+                            value={props.beauty.intensity}
+                            min={0}
+                            max={100}
+                            step={1}
+                            onChange={(v) => {
+                              props.setBeauty({ intensity: v })
+                              setBeautyPreset('personalizado')
+                            }}
+                            suffix="%"
+                          />
+                          <button
+                            onClick={() => setShowBefore((s) => !s)}
+                            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-[#1C1C27] border border-white/10 text-[10px] font-semibold text-white hover:border-[#7C5CFC]/50"
+                          >
+                            {showBefore ? (
+                              <Eye className="w-3 h-3" />
+                            ) : (
+                              <EyeOff className="w-3 h-3" />
+                            )}{' '}
+                            {showBefore ? 'Ver depois' : 'Comparar antes/depois'}
                           </button>
                         </>
                       )}
@@ -446,48 +735,117 @@ export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
                   {/* ============ 7. ÁUDIO ============ */}
                   {acc.id === 'audio' && (
                     <>
-                      <SelectRow label="Microfone" value={props.selectedMic} onChange={props.onSelectMic} options={props.mics.map((m, i) => ({ value: m.deviceId, label: m.label || `Microfone ${i + 1}` }))} disabledHint={props.camStatus !== 'ready' ? 'Ative a câmera para ver os nomes reais.' : undefined} />
+                      <SelectRow
+                        label="Microfone"
+                        value={props.selectedMic}
+                        onChange={props.onSelectMic}
+                        options={props.mics.map((m, i) => ({
+                          value: m.deviceId,
+                          label: m.label || `Microfone ${i + 1}`,
+                        }))}
+                        disabledHint={
+                          props.camStatus !== 'ready'
+                            ? 'Ative a câmera para ver os nomes reais.'
+                            : undefined
+                        }
+                      />
                       <div>
-                        <div className="flex justify-between text-[9px] text-[#9494A8]"><span>Nível (VU)</span><span className="font-mono">{props.micLevel}%</span></div>
+                        <div className="flex justify-between text-[9px] text-[#9494A8]">
+                          <span>Nível (VU)</span>
+                          <span className="font-mono">{props.micLevel}%</span>
+                        </div>
                         <div className="w-full h-2.5 bg-[#1C1C27] rounded-full overflow-hidden border border-white/10 p-0.5 mt-1">
-                          <div className="h-full bg-gradient-to-r from-emerald-500 via-yellow-400 to-red-500 rounded-full transition-all duration-75" style={{ width: `${props.micLevel}%` }} />
+                          <div
+                            className="h-full bg-gradient-to-r from-emerald-500 via-yellow-400 to-red-500 rounded-full transition-all duration-75"
+                            style={{ width: `${props.micLevel}%` }}
+                          />
                         </div>
                       </div>
-                      <SliderRow label="Volume" value={Math.round(props.audioConfig.manualGain * 100)} min={0} max={200} step={5} onChange={(v) => props.updateAudioConfig({ manualGain: v / 100 })} suffix="%" />
-                      <ToggleRow label="Redução de ruído" desc="Elimina chiados e ruídos de fundo" checked={props.audioConfig.noiseSuppression} onChange={(v) => props.updateAudioConfig({ noiseSuppression: v })} />
-                      <ToggleRow label="Cancelamento de eco" desc="Evita retorno do áudio da sala" checked={props.audioConfig.echoCancellation} onChange={(v) => props.updateAudioConfig({ echoCancellation: v })} />
-                      <ToggleRow label="Monitoramento" desc="Ouvir a si mesmo (cuidado com microfonia)" checked={false} onChange={() => toast.info('Monitoramento ativado. Use fones de ouvido.')} />
+                      <SliderRow
+                        label="Volume"
+                        value={Math.round(props.audioConfig.manualGain * 100)}
+                        min={0}
+                        max={200}
+                        step={5}
+                        onChange={(v) => props.updateAudioConfig({ manualGain: v / 100 })}
+                        suffix="%"
+                      />
+                      <ToggleRow
+                        label="Redução de ruído"
+                        desc="Elimina chiados e ruídos de fundo"
+                        checked={props.audioConfig.noiseSuppression}
+                        onChange={(v) => props.updateAudioConfig({ noiseSuppression: v })}
+                      />
+                      <ToggleRow
+                        label="Cancelamento de eco"
+                        desc="Evita retorno do áudio da sala"
+                        checked={props.audioConfig.echoCancellation}
+                        onChange={(v) => props.updateAudioConfig({ echoCancellation: v })}
+                      />
+                      <ToggleRow
+                        label="Monitoramento"
+                        desc="Ouvir a si mesmo (cuidado com microfonia)"
+                        checked={false}
+                        onChange={() => toast.info('Monitoramento ativado. Use fones de ouvido.')}
+                      />
                     </>
                   )}
 
                   {/* ============ 8. GRAVAÇÃO ============ */}
                   {acc.id === 'gravacao' && (
                     <>
-                      <SelectRow label="Formato" value={props.recordingSettings.format} onChange={(v) => props.setRecordingSettings({ format: v })} options={[
-                        { value: 'video/webm', label: 'WebM (VP8/Opus)' },
-                        { value: 'video/mp4', label: 'MP4 (se suportado)' },
-                      ]} />
-                      <SelectRow label="Qualidade" value={props.recordingSettings.quality} onChange={(v) => props.setRecordingSettings({ quality: v })} options={[
-                        { value: 'high', label: 'Alta (1080p)' },
-                        { value: 'medium', label: 'Média (720p)' },
-                        { value: 'low', label: 'Baixa (480p)' },
-                      ]} />
+                      <SelectRow
+                        label="Formato"
+                        value={props.recordingSettings.format}
+                        onChange={(v) => props.setRecordingSettings({ format: v })}
+                        options={[
+                          { value: 'video/webm', label: 'WebM (VP8/Opus)' },
+                          { value: 'video/mp4', label: 'MP4 (se suportado)' },
+                        ]}
+                      />
+                      <SelectRow
+                        label="Qualidade"
+                        value={props.recordingSettings.quality}
+                        onChange={(v) => props.setRecordingSettings({ quality: v })}
+                        options={[
+                          { value: 'high', label: 'Alta (1080p)' },
+                          { value: 'medium', label: 'Média (720p)' },
+                          { value: 'low', label: 'Baixa (480p)' },
+                        ]}
+                      />
                       <div>
-                        <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">Contagem regressiva</span>
+                        <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">
+                          Contagem regressiva
+                        </span>
                         <div className="grid grid-cols-3 gap-1 mt-1">
                           {([0, 3, 5] as const).map((v) => (
-                            <button key={v} onClick={() => props.setRecordingSettings({ countdown: v })}
-                              className={`text-[10px] py-1.5 rounded-lg border transition-all ${props.recordingSettings.countdown === v ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'}`}>
+                            <button
+                              key={v}
+                              onClick={() => props.setRecordingSettings({ countdown: v })}
+                              className={`text-[10px] py-1.5 rounded-lg border transition-all ${props.recordingSettings.countdown === v ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'}`}
+                            >
                               {v === 0 ? 'Desligado' : `${v}s`}
                             </button>
                           ))}
                         </div>
                       </div>
-                      <ToggleRow label="Salvar automaticamente" desc="Salva o take ao encerrar" checked={props.recordingSettings.autoSave} onChange={(v) => props.setRecordingSettings({ autoSave: v })} />
+                      <ToggleRow
+                        label="Salvar automaticamente"
+                        desc="Salva o take ao encerrar"
+                        checked={props.recordingSettings.autoSave}
+                        onChange={(v) => props.setRecordingSettings({ autoSave: v })}
+                      />
                       <div>
-                        <label className="text-[9px] text-[#9494A8] uppercase tracking-wider">Nome do take</label>
-                        <input type="text" value={props.recordingSettings.takeName} onChange={(e) => props.setRecordingSettings({ takeName: e.target.value })}
-                          placeholder="take-001" className="w-full mt-1 bg-[#1C1C27] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#7C5CFC]" />
+                        <label className="text-[9px] text-[#9494A8] uppercase tracking-wider">
+                          Nome do take
+                        </label>
+                        <input
+                          type="text"
+                          value={props.recordingSettings.takeName}
+                          onChange={(e) => props.setRecordingSettings({ takeName: e.target.value })}
+                          placeholder="take-001"
+                          className="w-full mt-1 bg-[#1C1C27] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#7C5CFC]"
+                        />
                       </div>
                     </>
                   )}
@@ -512,43 +870,134 @@ function StatBox({ label, value }: { label: string; value: string }) {
   )
 }
 
-function MiniBtn({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
+function MiniBtn({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode
+  label: string
+  onClick: () => void
+}) {
   return (
-    <button onClick={onClick} className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-[#1C1C27] border border-white/10 text-[9px] font-semibold text-[#9494A8] hover:text-white hover:border-[#7C5CFC]/50 transition-all">
-      {icon}{label}
+    <button
+      onClick={onClick}
+      className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-[#1C1C27] border border-white/10 text-[9px] font-semibold text-[#9494A8] hover:text-white hover:border-[#7C5CFC]/50 transition-all"
+    >
+      {icon}
+      {label}
     </button>
   )
 }
 
-function SliderRow({ label, value, min, max, step, onChange, suffix }: { label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void; suffix?: string }) {
+function SliderRow({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+  suffix,
+}: {
+  label: string
+  value: number
+  min: number
+  max: number
+  step: number
+  onChange: (v: number) => void
+  suffix?: string
+}) {
   return (
     <div>
-      <div className="flex justify-between text-[9px] text-[#9494A8]"><span>{label}</span><span className="font-mono">{value}{suffix}</span></div>
-      <Slider value={[value]} min={min} max={max} step={step} onValueChange={(v) => onChange(v[0])} />
+      <div className="flex justify-between text-[9px] text-[#9494A8]">
+        <span>{label}</span>
+        <span className="font-mono">
+          {value}
+          {suffix}
+        </span>
+      </div>
+      <Slider
+        value={[value]}
+        min={min}
+        max={max}
+        step={step}
+        onValueChange={(v) => onChange(v[0])}
+      />
     </div>
   )
 }
 
-function BeautySlider({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
-  return <SliderRow label={label} value={value} min={0} max={100} step={1} onChange={onChange} suffix="%" />
+function BeautySlider({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: number
+  onChange: (v: number) => void
+}) {
+  return (
+    <SliderRow
+      label={label}
+      value={value}
+      min={0}
+      max={100}
+      step={1}
+      onChange={onChange}
+      suffix="%"
+    />
+  )
 }
 
-function ToggleRow({ label, desc, checked, onChange }: { label: string; desc?: string; checked: boolean; onChange: (v: boolean) => void }) {
+function ToggleRow({
+  label,
+  desc,
+  checked,
+  onChange,
+}: {
+  label: string
+  desc?: string
+  checked: boolean
+  onChange: (v: boolean) => void
+}) {
   return (
     <div className="flex items-center justify-between pt-1">
-      <div><p className="text-[11px] text-white">{label}</p>{desc && <p className="text-[9px] text-[#9494A8]">{desc}</p>}</div>
+      <div>
+        <p className="text-[11px] text-white">{label}</p>
+        {desc && <p className="text-[9px] text-[#9494A8]">{desc}</p>}
+      </div>
       <Switch checked={checked} onCheckedChange={onChange} />
     </div>
   )
 }
 
-function SelectRow({ label, value, onChange, options, disabledHint }: { label: string; value: string; onChange: (v: string) => void; options: { value: string; label: string }[]; disabledHint?: string }) {
+function SelectRow({
+  label,
+  value,
+  onChange,
+  options,
+  disabledHint,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  options: { value: string; label: string }[]
+  disabledHint?: string
+}) {
   return (
     <div>
       <label className="text-[9px] text-[#9494A8] uppercase tracking-wider">{label}</label>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="w-full mt-1 bg-[#1C1C27] border border-white/10 rounded-xl p-2 text-xs text-white focus:outline-none focus:border-[#7C5CFC]">
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full mt-1 bg-[#1C1C27] border border-white/10 rounded-xl p-2 text-xs text-white focus:outline-none focus:border-[#7C5CFC]"
+      >
         {options.length === 0 && <option value="">Nenhum dispositivo detectado</option>}
-        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
       </select>
       {disabledHint && <p className="text-[8px] text-amber-300/70 mt-0.5">{disabledHint}</p>}
     </div>
@@ -569,7 +1018,9 @@ function CapabilityRow({ cap }: { cap: string }) {
   return (
     <div className="flex items-center justify-between">
       <span className="text-[9px] text-[#9494A8]">{labels[cap] || cap}</span>
-      <Badge className="text-[8px] h-4 bg-[#3A3A4A] text-[#9494A8] border-white/10">Indisponível</Badge>
+      <Badge className="text-[8px] h-4 bg-[#3A3A4A] text-[#9494A8] border-white/10">
+        Indisponível
+      </Badge>
     </div>
   )
 }

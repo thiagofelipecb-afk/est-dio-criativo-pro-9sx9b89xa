@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useCallback } from 'react'
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ScrollText,
@@ -8,7 +8,6 @@ import {
   Minimize2,
   Square,
   Settings2,
-  Eye,
   X,
   RotateCcw,
   Circle,
@@ -19,12 +18,9 @@ import {
   Columns2,
   ArrowDownToLine,
   ArrowUpFromLine,
-  Play,
   Loader2,
   AlertCircle,
   Lock,
-  Plus,
-  Scissors,
 } from 'lucide-react'
 import type { StageLayout } from '@/types/studio'
 import { useStudio } from '@/context/StudioContext'
@@ -34,14 +30,19 @@ import { BackgroundPanel } from '@/components/studio/BackgroundPanel'
 import { TitlePanel } from '@/components/studio/TitlePanel'
 import PrompterHUD from '@/components/studio/PrompterHUD'
 import { StudioStage, type StudioStageHandle } from '@/components/studio/StudioStage'
-import { DEFAULT_CAMERA_CROP, type CameraCrop, type SplitMediaLayer } from '@/lib/studio-compositor'
+import {
+  DEFAULT_CAMERA_CROP,
+  loadMediaElement,
+  type CameraCrop,
+  type SplitMediaLayer,
+  type ArtLayer,
+} from '@/lib/studio-compositor'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { MediaLibraryModal } from '@/components/MediaLibraryModal'
 import { MediaPanel } from '@/components/studio/MediaPanel'
-import { parseScript } from '@/hooks/use-script-blocks'
 import {
   ReactionStageOverlay,
   type ReactionStageOverlayHandle,
@@ -89,6 +90,9 @@ export default function Gravadora() {
     syncArtsEnabled,
     setSyncArtsEnabled,
     reactionConfig,
+    activeBlockIndex,
+    artBlockIndex,
+    getAssignmentsForBlock,
   } = useStudio()
   // PROMPT 2 — Mídias rápidas e split agora vêm da fonte canônica (mesma de
   // /midias e /biblioteca). Não usamos mais useStudio().mediaLibrary.
@@ -209,8 +213,16 @@ export default function Gravadora() {
     try {
       const saved = localStorage.getItem('lumen_recording_settings')
       if (saved) return JSON.parse(saved)
-    } catch { /* noop */ }
-    return { format: 'video/webm', quality: 'high', countdown: 3, autoSave: true, takeName: 'take-001' }
+    } catch {
+      /* noop */
+    }
+    return {
+      format: 'video/webm',
+      quality: 'high',
+      countdown: 3,
+      autoSave: true,
+      takeName: 'take-001',
+    }
   })
   useEffect(() => {
     localStorage.setItem('lumen_recording_settings', JSON.stringify(recordingSettings))
@@ -229,17 +241,34 @@ export default function Gravadora() {
   // Aparência (retoque facial) — estado local. MediaPipe/WebGL carregados
   // sob demanda; se indisponível, o painel mostra o aviso apropriado.
   const [beauty, setBeautyState] = useState({
-    skinSmooth: 0, shineReduction: 0, toneUniformity: 0, rednessReduction: 0,
-    wrinkleSmooth: 0, eyeEnhance: 0, nasolabial: 0, darkCircles: 0,
-    facialLighting: 0, selectiveSharpness: 0, intensity: 0,
+    skinSmooth: 0,
+    shineReduction: 0,
+    toneUniformity: 0,
+    rednessReduction: 0,
+    wrinkleSmooth: 0,
+    eyeEnhance: 0,
+    nasolabial: 0,
+    darkCircles: 0,
+    facialLighting: 0,
+    selectiveSharpness: 0,
+    intensity: 0,
   })
-  const setBeauty = useCallback((u: Partial<typeof beauty>) => setBeautyState((p) => ({ ...p, ...u })), [])
+  const setBeauty = useCallback(
+    (u: Partial<typeof beauty>) => setBeautyState((p) => ({ ...p, ...u })),
+    [],
+  )
   const [mediapipeAvailable, setMediapipeAvailable] = useState(false)
   const [mediapipeLoading, setMediapipeLoading] = useState(false)
   const [faceDetected, setFaceDetected] = useState(false)
-  const webglAvailable = typeof window !== 'undefined' && (() => {
-    try { return !!document.createElement('canvas').getContext('webgl') } catch { return false }
-  })()
+  const webglAvailable =
+    typeof window !== 'undefined' &&
+    (() => {
+      try {
+        return !!document.createElement('canvas').getContext('webgl')
+      } catch {
+        return false
+      }
+    })()
   const loadMediapipe = useCallback(async () => {
     setMediapipeLoading(true)
     try {
@@ -619,6 +648,92 @@ export default function Gravadora() {
     [updateStageConfig],
   )
 
+  // === Carrega o elemento de mídia (imagem/vídeo) da tela dividida ===
+  // O compositor precisa de um HTMLImageElement/HTMLVideoElement pronto para
+  // drawImage. Recarrega sempre que a URL ou o tipo muda.
+  useEffect(() => {
+    if (!splitMediaUrl) {
+      setSplitMediaEl(null)
+      return
+    }
+    let cancelled = false
+    loadMediaElement(splitMediaUrl, splitMediaType)
+      .then((el) => {
+        if (!cancelled) setSplitMediaEl(el)
+      })
+      .catch(() => {
+        if (!cancelled) setSplitMediaEl(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [splitMediaUrl, splitMediaType])
+
+  // === Arte do bloco ativo (alimenta o compositor) ===
+  // Resolve a arte do bloco atual (sincronizado com o teleprompter quando
+  // syncArtsEnabled está ligado) e carrega o HTMLImageElement correspondente.
+  const activeBlockArt = useMemo(() => {
+    const idx = syncArtsEnabled ? activeBlockIndex : artBlockIndex
+    const block = scriptBlocks[idx]
+    if (!block) return null
+    const assignments = getAssignmentsForBlock(block.id)
+    if (assignments.length === 0) return null
+    const assignment = assignments[0]
+    const asset = mediaAssets.find((a) => a.id === assignment.assetId)
+    if (!asset) return null
+    return { assignment, asset }
+  }, [
+    syncArtsEnabled,
+    activeBlockIndex,
+    artBlockIndex,
+    scriptBlocks,
+    getAssignmentsForBlock,
+    mediaAssets,
+  ])
+
+  // Imagem da arte do bloco ativo (carregada para drawImage no canvas).
+  const [artImageEl, setArtImageEl] = useState<HTMLImageElement | null>(null)
+  useEffect(() => {
+    if (!activeBlockArt) {
+      setArtImageEl(null)
+      return
+    }
+    const { asset } = activeBlockArt
+    const url = asset.publicUrl || asset.thumbnailUrl || ''
+    if (!url) {
+      setArtImageEl(null)
+      return
+    }
+    let cancelled = false
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      if (!cancelled) setArtImageEl(img)
+    }
+    img.onerror = () => {
+      if (!cancelled) setArtImageEl(null)
+    }
+    img.src = url
+    return () => {
+      cancelled = true
+    }
+  }, [activeBlockArt])
+
+  // Camada de arte consolidada para o compositor (ArtLayer).
+  const activeArtLayer: ArtLayer | null = useMemo(() => {
+    if (!activeBlockArt || !artImageEl) return null
+    const a = activeBlockArt.assignment
+    return {
+      asset: activeBlockArt.asset,
+      imageEl: artImageEl,
+      fit: a.fit,
+      positionX: a.positionX,
+      positionY: a.positionY,
+      scale: a.scale,
+      backgroundColor: a.backgroundColor,
+    }
+  }, [activeBlockArt, artImageEl])
+
   // === Módulos 5/6/7 — Fluxo de gravação via RecordingDock + PreFlightCheck ===
   // Inicia o MediaRecorder (gravação via canvas.captureStream permanece intacta).
   const startRecording = useCallback(() => {
@@ -641,7 +756,19 @@ export default function Gravadora() {
       reactionConfig.enabled && !!reactionVideoEl && reactionConfig.audioMix !== 'voice-only'
 
     try {
-      let recorderStream: MediaStream = stream
+      // === Gravação via canvas.captureStream() (compositor único) ===
+      // O vídeo gravado vem do MESMO canvas do preview — preview e arquivo são
+      // idênticos. As tracks de áudio (microfone e/ou mix de reação) são
+      // adicionadas ao stream do canvas.
+      const canvasStream = stageRef.current?.captureStream(30)
+      if (!canvasStream) {
+        setRecErrorMessage('Compositor indisponível.')
+        setRecordingState('error')
+        toast.error('Erro ao iniciar o compositor de vídeo.')
+        return
+      }
+
+      let recorderStream: MediaStream
 
       if (useReactionAudio) {
         const AC: typeof AudioContext = window.AudioContext || (window as any).webkitAudioContext
@@ -669,9 +796,16 @@ export default function Gravadora() {
           }
         }
 
+        // Vídeo do canvas + áudio mixado (mic + reação) do AudioContext.
         recorderStream = new MediaStream([
-          ...stream.getVideoTracks(),
+          ...canvasStream.getVideoTracks(),
           ...dest.stream.getAudioTracks(),
+        ])
+      } else {
+        // Vídeo do canvas + áudio do microfone (stream bruto).
+        recorderStream = new MediaStream([
+          ...canvasStream.getVideoTracks(),
+          ...stream.getAudioTracks(),
         ])
       }
 
@@ -719,7 +853,15 @@ export default function Gravadora() {
       setRecordingState('error')
       toast.error('Erro ao iniciar a gravação.')
     }
-  }, [stream, reactionConfig, recordingSettings, activeProjectId, saveRawVideo, recTimer, setIsRecording])
+  }, [
+    stream,
+    reactionConfig,
+    recordingSettings,
+    activeProjectId,
+    saveRawVideo,
+    recTimer,
+    setIsRecording,
+  ])
 
   // Solicita gravação → abre o checklist pré-gravação.
   const onRequestRecord = useCallback(() => {
@@ -829,12 +971,15 @@ export default function Gravadora() {
     toast.info(`Nível atual do microfone: ${micLevel}%`)
   }, [micLevel])
 
-  const handleFixPreFlight = useCallback((itemId: string) => {
-    setPreFlightOpen(false)
-    if (itemId === 'camera' || itemId === 'mic') {
-      handleActivateCamera()
-    }
-  }, [handleActivateCamera])
+  const handleFixPreFlight = useCallback(
+    (itemId: string) => {
+      setPreFlightOpen(false)
+      if (itemId === 'camera' || itemId === 'mic') {
+        handleActivateCamera()
+      }
+    },
+    [handleActivateCamera],
+  )
 
   const formatTimer = (sec: number) => {
     const m = Math.floor(sec / 60)
@@ -1525,121 +1670,45 @@ export default function Gravadora() {
     )
   }
 
-  // === Componente reutilizável: palco 9:16 com split screen ===
+  // === Componente reutilizável: palco 9:16 (compositor único) ===
+  // O StudioStage é a ÚNICA fonte de verdade visual: fundo, câmera, split,
+  // arte, reação e título são desenhados no MESMO canvas. A gravação usa
+  // canvas.captureStream() — preview e arquivo gravado são idênticos.
+  // O <video> oculto da reação (ReactionStageOverlay) continua montado fora
+  // do palco visual para alimentar o compositor e o AudioContext de mixagem.
   const renderStage = () => {
-    const camFilter = `brightness(${cameraConfig.brightness}%) contrast(${cameraConfig.contrast}%) blur(${
-      cameraConfig.beautySmooth > 0 ? cameraConfig.beautySmooth / 50 : 0
-    }px)`
-
     return (
       <div className="relative aspect-[9/16] h-full max-h-[80vh] rounded-2xl overflow-hidden border border-white/10 shadow-2xl bg-[#14141C]">
-        <BackgroundRenderer config={backgroundConfig} />
-
-        {isSplit ? (
-          <div className="absolute inset-0 z-10 flex flex-col">
-            {/* Determina a ordem das fatias conforme o layout */}
-            {layout === 'split-bottom' ? (
-              <>
-                {/* Mídia em cima */}
-                <div
-                  className="w-full relative overflow-hidden bg-[#0B0B10]"
-                  style={{ flex: `0 0 ${(1 - splitCameraRatio) * 100}%` }}
-                >
-                  {splitMediaUrl ? (
-                    splitMediaType === 'video' ? (
-                      <video
-                        src={splitMediaUrl}
-                        className="w-full h-full object-cover"
-                        autoPlay
-                        loop
-                        muted
-                        playsInline
-                      />
-                    ) : (
-                      <img src={splitMediaUrl} alt="Mídia" className="w-full h-full object-cover" />
-                    )
-                  ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center text-[#9494A8] gap-1.5 p-3 text-center">
-                      <ImageIcon className="w-6 h-6 opacity-50" />
-                      <span className="text-[10px]">Selecione uma mídia na aba "Mídias"</span>
-                    </div>
-                  )}
-                  <div className="absolute inset-x-0 bottom-0 h-px bg-black/60" />
-                </div>
-                {/* Câmera embaixo */}
-                <div className="w-full relative overflow-hidden bg-black" style={{ flex: 1 }}>
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="w-full h-full object-cover"
-                    style={{ filter: camFilter }}
-                  />
-                </div>
-              </>
-            ) : (
-              <>
-                {/* Câmera em cima (split-top / split legacy) */}
-                <div
-                  className="w-full relative overflow-hidden bg-black"
-                  style={{ flex: `0 0 ${splitCameraRatio * 100}%` }}
-                >
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="w-full h-full object-cover"
-                    style={{ filter: camFilter }}
-                  />
-                  <div className="absolute inset-x-0 bottom-0 h-px bg-black/60" />
-                </div>
-                {/* Mídia embaixo */}
-                <div className="w-full relative overflow-hidden bg-[#0B0B10]" style={{ flex: 1 }}>
-                  {splitMediaUrl ? (
-                    splitMediaType === 'video' ? (
-                      <video
-                        src={splitMediaUrl}
-                        className="w-full h-full object-cover"
-                        autoPlay
-                        loop
-                        muted
-                        playsInline
-                      />
-                    ) : (
-                      <img src={splitMediaUrl} alt="Mídia" className="w-full h-full object-cover" />
-                    )
-                  ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center text-[#9494A8] gap-1.5 p-3 text-center">
-                      <ImageIcon className="w-6 h-6 opacity-50" />
-                      <span className="text-[10px]">Selecione uma mídia na aba "Mídias"</span>
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        ) : (
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="w-full h-full object-cover relative z-10"
-            style={{ filter: camFilter }}
-          />
-        )}
-
-        {/* PROMPT 3 — Overlay de artes do bloco atual (sincronizado com o teleprompter). */}
-        <BlockArtStageOverlay layout={layout} splitCameraRatio={splitCameraRatio} />
-
-        {/* Vídeo de reação sobreposto ao palco. */}
-        <ReactionStageOverlay ref={reactionOverlayRef} isRecording={isRecording} />
-
-        <TitleOverlay
-          config={titleConfig}
-          onChange={(cfg) => setTitleConfig({ ...titleConfig, ...cfg })}
+        <StudioStage
+          ref={stageRef}
+          aspect="9:16"
+          layout={layout}
+          background={backgroundConfig}
+          camera={cameraConfig}
+          cameraCrop={cameraCrop}
+          cameraVideo={hiddenVideoRef.current}
+          split={
+            isSplit && splitMediaUrl
+              ? { url: splitMediaUrl, type: splitMediaType, cameraRatio: splitCameraRatio }
+              : null
+          }
+          splitMediaEl={splitMediaEl}
+          art={activeArtLayer}
+          reaction={
+            reactionConfig.enabled && reactionOverlayRef.current?.video
+              ? {
+                  video: reactionOverlayRef.current.video,
+                  scale: reactionConfig.scale,
+                  position: reactionConfig.position,
+                  borderRadius: reactionConfig.borderRadius,
+                  borderWidth: reactionConfig.borderWidth,
+                  borderColor: reactionConfig.borderColor,
+                }
+              : null
+          }
+          title={titleConfig.enabled ? titleConfig : null}
+          showGuides={!isRecording}
+          className="w-full h-full"
         />
 
         {renderCameraGate()}
@@ -1800,7 +1869,9 @@ export default function Gravadora() {
           {/* Contagem regressiva central (Módulo 7) */}
           {countdownOverlay !== null && (
             <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-none">
-              <span className="text-9xl font-extrabold text-white animate-ping-slow">{countdownOverlay}</span>
+              <span className="text-9xl font-extrabold text-white animate-ping-slow">
+                {countdownOverlay}
+              </span>
             </div>
           )}
 
@@ -1838,7 +1909,10 @@ export default function Gravadora() {
             onBorderWidthChange={setBorderWidthVal}
             cameras={cameras}
             selectedCamera={selectedCamera}
-            onSelectCamera={(id) => { setSelectedCamera(id); saveDevicePreference(id, selectedMic) }}
+            onSelectCamera={(id) => {
+              setSelectedCamera(id)
+              saveDevicePreference(id, selectedMic)
+            }}
             cameraCapabilities={cameraCapabilities}
             cameraConfig={cameraConfig}
             updateCameraConfig={updateCameraConfig}
@@ -1852,7 +1926,10 @@ export default function Gravadora() {
             onLoadMediapipe={loadMediapipe}
             mics={mics}
             selectedMic={selectedMic}
-            onSelectMic={(id) => { setSelectedMic(id); saveDevicePreference(selectedCamera, id) }}
+            onSelectMic={(id) => {
+              setSelectedMic(id)
+              saveDevicePreference(selectedCamera, id)
+            }}
             audioConfig={audioConfig}
             updateAudioConfig={updateAudioConfig}
             micLevel={micLevel}

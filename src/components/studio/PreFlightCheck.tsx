@@ -67,8 +67,8 @@ export function PreFlightCheck({
             Checklist pré-gravação
           </DialogTitle>
           <DialogDescription className="text-[11px] text-[#9494A8]">
-            Verificamos tudo antes de gravar. Itens em vermelho bloqueiam; em
-            amarelo são apenas avisos.
+            Verificamos tudo antes de gravar. Itens em vermelho bloqueiam; em amarelo são apenas
+            avisos.
           </DialogDescription>
         </DialogHeader>
 
@@ -119,9 +119,7 @@ export function PreFlightCheck({
                   </span>
                 </div>
                 {item.detail && (
-                  <p className="text-[10px] text-[#9494A8] leading-relaxed mt-0.5">
-                    {item.detail}
-                  </p>
+                  <p className="text-[10px] text-[#9494A8] leading-relaxed mt-0.5">{item.detail}</p>
                 )}
               </div>
               {item.status === 'block' && onFix && (

@@ -62,8 +62,16 @@ export interface RecordingDockProps {
 const COLOR_MAP: Record<string, { dot: string; text: string; bg: string }> = {
   red: { dot: 'bg-red-500', text: 'text-red-400', bg: 'bg-red-500/10 border-red-500/30' },
   amber: { dot: 'bg-amber-500', text: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/30' },
-  emerald: { dot: 'bg-emerald-500', text: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30' },
-  violet: { dot: 'bg-violet-500', text: 'text-violet-300', bg: 'bg-violet-500/10 border-violet-500/30' },
+  emerald: {
+    dot: 'bg-emerald-500',
+    text: 'text-emerald-400',
+    bg: 'bg-emerald-500/10 border-emerald-500/30',
+  },
+  violet: {
+    dot: 'bg-violet-500',
+    text: 'text-violet-300',
+    bg: 'bg-violet-500/10 border-violet-500/30',
+  },
   slate: { dot: 'bg-slate-500', text: 'text-slate-400', bg: 'bg-slate-500/10 border-slate-500/30' },
 }
 
@@ -142,19 +150,19 @@ export function RecordingDock(props: RecordingDockProps) {
 
       {/* Contagem */}
       <div className="flex items-center bg-[#1C1C27] border border-white/10 rounded-lg h-9 overflow-hidden">
-        {([
-          { v: 0, label: 'Off' },
-          { v: 3, label: '3s' },
-          { v: 5, label: '5s' },
-        ] as { v: 3 | 5 | 0; label: string }[]).map((opt) => (
+        {(
+          [
+            { v: 0, label: 'Off' },
+            { v: 3, label: '3s' },
+            { v: 5, label: '5s' },
+          ] as { v: 3 | 5 | 0; label: string }[]
+        ).map((opt) => (
           <button
             key={opt.v}
             onClick={() => onCountdownChange(opt.v)}
             disabled={!enabled.countdown}
             className={`px-2 h-full text-[10px] font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-              countdown === opt.v
-                ? 'bg-[#7C5CFC] text-white'
-                : 'text-[#9494A8] hover:text-white'
+              countdown === opt.v ? 'bg-[#7C5CFC] text-white' : 'text-[#9494A8] hover:text-white'
             }`}
             title={`Contagem ${opt.label}`}
           >
@@ -248,19 +256,23 @@ export function RecordingDock(props: RecordingDockProps) {
         ) : (
           <span className={`w-2 h-2 rounded-full ${color.dot} ${isRec ? 'animate-pulse' : ''}`} />
         )}
-        <span className={`text-[10px] font-bold ${color.text}`}>
-          {recordingStateLabel(state)}
-        </span>
+        <span className={`text-[10px] font-bold ${color.text}`}>{recordingStateLabel(state)}</span>
       </div>
 
       {/* Erro / take salvo (tooltip inline curto) */}
       {state === 'error' && errorMessage && (
-        <span className="hidden lg:block text-[10px] text-red-300 max-w-[200px] truncate" title={errorMessage}>
+        <span
+          className="hidden lg:block text-[10px] text-red-300 max-w-[200px] truncate"
+          title={errorMessage}
+        >
           {errorMessage}
         </span>
       )}
       {state === 'saved' && lastTakeName && (
-        <span className="hidden lg:block text-[10px] text-emerald-300 max-w-[180px] truncate" title={lastTakeName}>
+        <span
+          className="hidden lg:block text-[10px] text-emerald-300 max-w-[180px] truncate"
+          title={lastTakeName}
+        >
           {lastTakeName}
         </span>
       )}

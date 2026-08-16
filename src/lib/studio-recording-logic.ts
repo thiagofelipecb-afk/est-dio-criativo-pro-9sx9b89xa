@@ -102,32 +102,128 @@ export function dockButtonsEnabled(state: RecordingState): {
 } {
   switch (state) {
     case 'idle':
-      return { cameraToggle: true, micToggle: true, test: true, countdown: true, record: false, pause: false, stop: false, marker: false }
+      return {
+        cameraToggle: true,
+        micToggle: true,
+        test: true,
+        countdown: true,
+        record: false,
+        pause: false,
+        stop: false,
+        marker: false,
+      }
     case 'requesting-permissions':
-      return { cameraToggle: false, micToggle: false, test: false, countdown: false, record: false, pause: false, stop: false, marker: false }
+      return {
+        cameraToggle: false,
+        micToggle: false,
+        test: false,
+        countdown: false,
+        record: false,
+        pause: false,
+        stop: false,
+        marker: false,
+      }
     case 'camera-ready':
-      return { cameraToggle: true, micToggle: true, test: true, countdown: true, record: true, pause: false, stop: false, marker: false }
+      return {
+        cameraToggle: true,
+        micToggle: true,
+        test: true,
+        countdown: true,
+        record: true,
+        pause: false,
+        stop: false,
+        marker: false,
+      }
     case 'countdown':
-      return { cameraToggle: false, micToggle: false, test: false, countdown: false, record: false, pause: false, stop: true, marker: false }
+      return {
+        cameraToggle: false,
+        micToggle: false,
+        test: false,
+        countdown: false,
+        record: false,
+        pause: false,
+        stop: true,
+        marker: false,
+      }
     case 'recording':
-      return { cameraToggle: false, micToggle: false, test: false, countdown: false, record: false, pause: true, stop: true, marker: true }
+      return {
+        cameraToggle: false,
+        micToggle: false,
+        test: false,
+        countdown: false,
+        record: false,
+        pause: true,
+        stop: true,
+        marker: true,
+      }
     case 'paused':
-      return { cameraToggle: false, micToggle: false, test: false, countdown: false, record: true, pause: false, stop: true, marker: false }
+      return {
+        cameraToggle: false,
+        micToggle: false,
+        test: false,
+        countdown: false,
+        record: true,
+        pause: false,
+        stop: true,
+        marker: false,
+      }
     case 'stopping':
     case 'processing':
-      return { cameraToggle: false, micToggle: false, test: false, countdown: false, record: false, pause: false, stop: false, marker: false }
+      return {
+        cameraToggle: false,
+        micToggle: false,
+        test: false,
+        countdown: false,
+        record: false,
+        pause: false,
+        stop: false,
+        marker: false,
+      }
     case 'saved':
-      return { cameraToggle: true, micToggle: true, test: true, countdown: true, record: true, pause: false, stop: false, marker: false }
+      return {
+        cameraToggle: true,
+        micToggle: true,
+        test: true,
+        countdown: true,
+        record: true,
+        pause: false,
+        stop: false,
+        marker: false,
+      }
     case 'error':
-      return { cameraToggle: true, micToggle: true, test: false, countdown: false, record: false, pause: false, stop: false, marker: false }
+      return {
+        cameraToggle: true,
+        micToggle: true,
+        test: false,
+        countdown: false,
+        record: false,
+        pause: false,
+        stop: false,
+        marker: false,
+      }
     default:
-      return { cameraToggle: false, micToggle: false, test: false, countdown: false, record: false, pause: false, stop: false, marker: false }
+      return {
+        cameraToggle: false,
+        micToggle: false,
+        test: false,
+        countdown: false,
+        record: false,
+        pause: false,
+        stop: false,
+        marker: false,
+      }
   }
 }
 
 /** Retorna true se a gravação está ativa (não pode trocar dispositivo, etc). */
 export function isActivelyRecording(state: RecordingState): boolean {
-  return state === 'recording' || state === 'paused' || state === 'countdown' || state === 'stopping' || state === 'processing'
+  return (
+    state === 'recording' ||
+    state === 'paused' ||
+    state === 'countdown' ||
+    state === 'stopping' ||
+    state === 'processing'
+  )
 }
 
 /* =============================================================================
@@ -331,12 +427,24 @@ export interface CameraPreset {
 
 export const CAMERA_PRESETS: CameraPreset[] = [
   { id: 'natural', label: 'Natural', brightness: 100, contrast: 100, beautySmooth: 40 },
-  { id: 'webcam-melhorada', label: 'Webcam Melhorada', brightness: 108, contrast: 108, beautySmooth: 55 },
+  {
+    id: 'webcam-melhorada',
+    label: 'Webcam Melhorada',
+    brightness: 108,
+    contrast: 108,
+    beautySmooth: 55,
+  },
   { id: 'estudio', label: 'Estúdio', brightness: 115, contrast: 105, beautySmooth: 45 },
   { id: 'luz-baixa', label: 'Luz Baixa', brightness: 130, contrast: 95, beautySmooth: 35 },
   { id: 'luz-fria', label: 'Luz Fria', brightness: 100, contrast: 110, beautySmooth: 40 },
   { id: 'luz-quente', label: 'Luz Quente', brightness: 105, contrast: 98, beautySmooth: 45 },
-  { id: 'alto-contraste', label: 'Alto Contraste', brightness: 100, contrast: 135, beautySmooth: 30 },
+  {
+    id: 'alto-contraste',
+    label: 'Alto Contraste',
+    brightness: 100,
+    contrast: 135,
+    beautySmooth: 30,
+  },
   { id: 'suave', label: 'Suave', brightness: 105, contrast: 92, beautySmooth: 70 },
   { id: 'personalizado', label: 'Personalizado', brightness: 100, contrast: 100, beautySmooth: 40 },
 ]
@@ -367,13 +475,111 @@ export interface BeautyPreset {
 }
 
 export const BEAUTY_PRESETS: BeautyPreset[] = [
-  { id: 'off', label: 'Desligado', skinSmooth: 0, shineReduction: 0, toneUniformity: 0, rednessReduction: 0, wrinkleSmooth: 0, eyeEnhance: 0, nasolabial: 0, darkCircles: 0, facialLighting: 0, selectiveSharpness: 0, intensity: 0 },
-  { id: 'natural', label: 'Natural (recomendado)', skinSmooth: 35, shineReduction: 30, toneUniformity: 20, rednessReduction: 15, wrinkleSmooth: 15, eyeEnhance: 20, nasolabial: 10, darkCircles: 20, facialLighting: 15, selectiveSharpness: 25, intensity: 40 },
-  { id: 'pele-suave', label: 'Pele Suave', skinSmooth: 60, shineReduction: 35, toneUniformity: 30, rednessReduction: 20, wrinkleSmooth: 30, eyeEnhance: 15, nasolabial: 20, darkCircles: 25, facialLighting: 10, selectiveSharpness: 20, intensity: 55 },
-  { id: 'controle-brilho', label: 'Controle de Brilho', skinSmooth: 30, shineReduction: 70, toneUniformity: 25, rednessReduction: 20, wrinkleSmooth: 15, eyeEnhance: 15, nasolabial: 10, darkCircles: 20, facialLighting: 20, selectiveSharpness: 20, intensity: 45 },
-  { id: 'estudio', label: 'Estúdio', skinSmooth: 40, shineReduction: 40, toneUniformity: 35, rednessReduction: 25, wrinkleSmooth: 20, eyeEnhance: 25, nasolabial: 15, darkCircles: 25, facialLighting: 30, selectiveSharpness: 30, intensity: 50 },
-  { id: 'pronto-camera', label: 'Pronto para Câmera', skinSmooth: 50, shineReduction: 50, toneUniformity: 40, rednessReduction: 30, wrinkleSmooth: 25, eyeEnhance: 30, nasolabial: 20, darkCircles: 30, facialLighting: 35, selectiveSharpness: 35, intensity: 65 },
-  { id: 'personalizado', label: 'Personalizado', skinSmooth: 35, shineReduction: 30, toneUniformity: 20, rednessReduction: 15, wrinkleSmooth: 15, eyeEnhance: 20, nasolabial: 10, darkCircles: 20, facialLighting: 15, selectiveSharpness: 25, intensity: 40 },
+  {
+    id: 'off',
+    label: 'Desligado',
+    skinSmooth: 0,
+    shineReduction: 0,
+    toneUniformity: 0,
+    rednessReduction: 0,
+    wrinkleSmooth: 0,
+    eyeEnhance: 0,
+    nasolabial: 0,
+    darkCircles: 0,
+    facialLighting: 0,
+    selectiveSharpness: 0,
+    intensity: 0,
+  },
+  {
+    id: 'natural',
+    label: 'Natural (recomendado)',
+    skinSmooth: 35,
+    shineReduction: 30,
+    toneUniformity: 20,
+    rednessReduction: 15,
+    wrinkleSmooth: 15,
+    eyeEnhance: 20,
+    nasolabial: 10,
+    darkCircles: 20,
+    facialLighting: 15,
+    selectiveSharpness: 25,
+    intensity: 40,
+  },
+  {
+    id: 'pele-suave',
+    label: 'Pele Suave',
+    skinSmooth: 60,
+    shineReduction: 35,
+    toneUniformity: 30,
+    rednessReduction: 20,
+    wrinkleSmooth: 30,
+    eyeEnhance: 15,
+    nasolabial: 20,
+    darkCircles: 25,
+    facialLighting: 10,
+    selectiveSharpness: 20,
+    intensity: 55,
+  },
+  {
+    id: 'controle-brilho',
+    label: 'Controle de Brilho',
+    skinSmooth: 30,
+    shineReduction: 70,
+    toneUniformity: 25,
+    rednessReduction: 20,
+    wrinkleSmooth: 15,
+    eyeEnhance: 15,
+    nasolabial: 10,
+    darkCircles: 20,
+    facialLighting: 20,
+    selectiveSharpness: 20,
+    intensity: 45,
+  },
+  {
+    id: 'estudio',
+    label: 'Estúdio',
+    skinSmooth: 40,
+    shineReduction: 40,
+    toneUniformity: 35,
+    rednessReduction: 25,
+    wrinkleSmooth: 20,
+    eyeEnhance: 25,
+    nasolabial: 15,
+    darkCircles: 25,
+    facialLighting: 30,
+    selectiveSharpness: 30,
+    intensity: 50,
+  },
+  {
+    id: 'pronto-camera',
+    label: 'Pronto para Câmera',
+    skinSmooth: 50,
+    shineReduction: 50,
+    toneUniformity: 40,
+    rednessReduction: 30,
+    wrinkleSmooth: 25,
+    eyeEnhance: 30,
+    nasolabial: 20,
+    darkCircles: 30,
+    facialLighting: 35,
+    selectiveSharpness: 35,
+    intensity: 65,
+  },
+  {
+    id: 'personalizado',
+    label: 'Personalizado',
+    skinSmooth: 35,
+    shineReduction: 30,
+    toneUniformity: 20,
+    rednessReduction: 15,
+    wrinkleSmooth: 15,
+    eyeEnhance: 20,
+    nasolabial: 10,
+    darkCircles: 20,
+    facialLighting: 15,
+    selectiveSharpness: 25,
+    intensity: 40,
+  },
 ]
 
 export type AspectRatioOption = '9:16' | '16:9' | '1:1' | '4:5'
@@ -400,7 +606,12 @@ export function estimateScriptStats(text: string): {
 } {
   const words = text.trim().split(/\s+/).filter(Boolean).length
   const durationSeconds = Math.max(0, Math.ceil((words / 150) * 60))
-  const blocks = text.trim() ? text.trim().split(/\n{2,}/).filter(Boolean).length : 0
+  const blocks = text.trim()
+    ? text
+        .trim()
+        .split(/\n{2,}/)
+        .filter(Boolean).length
+    : 0
   return { words, durationSeconds, blocks }
 }
 
@@ -436,7 +647,10 @@ export function deterministicSplit(text: string, targetSeconds: number): ScriptB
     id: 'blk-' + Date.now().toString(36) + '-' + idx,
     text: t.trim(),
     status: 'pending',
-    estimatedSeconds: Math.max(1, Math.ceil((t.trim().split(/\s+/).filter(Boolean).length / 150) * 60)),
+    estimatedSeconds: Math.max(
+      1,
+      Math.ceil((t.trim().split(/\s+/).filter(Boolean).length / 150) * 60),
+    ),
   })
 
   // One sentence per block.
@@ -449,7 +663,10 @@ export function deterministicSplit(text: string, targetSeconds: number): ScriptB
   }
 
   const targetWords = Math.max(1, Math.round((targetSeconds / 60) * 150))
-  const paragraphs = clean.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean)
+  const paragraphs = clean
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean)
   const blocks: ScriptBlock[] = []
   let idx = 0
 
@@ -460,7 +677,10 @@ export function deterministicSplit(text: string, targetSeconds: number): ScriptB
       continue
     }
     // Divide o parágrafo por frases, agrupando até targetWords.
-    const sentences = para.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean)
+    const sentences = para
+      .split(/(?<=[.!?])\s+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
     let bucket: string[] = []
     let bucketWords = 0
     for (const sentence of sentences) {
