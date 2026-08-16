@@ -98,6 +98,7 @@ export default function EditorVideo() {
     getTimelineState,
     setTimelineState,
     loadRawVideo,
+    stageConfig,
   } = useStudio()
 
   /* ═══════════════════════════════════════════════════════════════════════
@@ -434,6 +435,10 @@ export default function EditorVideo() {
         brollByBlock,
         reaction,
         backgroundBlur,
+        stageLayout: stageConfig.layout,
+        splitMediaUrl: stageConfig.splitMediaUrl,
+        splitMediaType: stageConfig.splitMediaType,
+        splitCameraRatio: stageConfig.splitCameraRatio,
         projectName: currentProject?.title || 'projeto',
         onProgress: (p) => setExportProgress(p),
         shouldCancel: () => cancelExportRef.current,
@@ -500,6 +505,7 @@ export default function EditorVideo() {
     restoredArts,
     restoredBRoll,
     backgroundBlur,
+    stageConfig,
     currentProject,
     id,
     updateProject,

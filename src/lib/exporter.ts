@@ -14,6 +14,7 @@ import type {
   ExportResult,
   ReactionVideo,
   ScriptBlock,
+  StageLayout,
   TimelineState,
   TitleConfig,
 } from '@/types/studio'
@@ -55,6 +56,18 @@ export interface ExportOptions {
   fps?: number
   /** Desfoque de fundo aplicado ao vídeo (0 a 20px). Padrão 0 (sem blur). */
   backgroundBlur?: number
+  /**
+   * NOVO (split screen) — Layout do palco da gravação. Quando é 'split-top'
+   * ou 'split-bottom', o vídeo bruto ocupa apenas uma fatia vertical do
+   * canvas e a mídia secundária ocupa a outra fatia.
+   */
+  stageLayout?: StageLayout
+  /** NOVO (split screen) — URL da mídia (imagem/vídeo) da outra metade. */
+  splitMediaUrl?: string
+  /** NOVO (split screen) — Tipo da mídia da outra metade. */
+  splitMediaType?: 'image' | 'video'
+  /** NOVO (split screen) — Proporção (0–1) da altura da câmera. Padrão 0.6. */
+  splitCameraRatio?: number
   /** Nome base do projeto para o arquivo. */
   projectName: string
   /** Callback de progresso. */
@@ -205,6 +218,7 @@ async function drawBackground(
 }
 
 /** Desenha o frame do vídeo bruto com enquadramento cover. */
+/** Desenha o frame do vídeo bruto com enquadramento cover em um retângulo. */
 function drawVideoCover(
   ctx: CanvasRenderingContext2D,
   video: HTMLVideoElement,
@@ -226,6 +240,36 @@ function drawVideoCover(
     ctx.translate(w, 0)
     ctx.scale(-1, 1)
     ctx.drawImage(video, w - dx - dw, dy, dw, dh)
+  } else {
+    ctx.drawImage(video, dx, dy, dw, dh)
+  }
+  ctx.restore()
+}
+
+/** Desenha o frame do vídeo bruto em cover dentro de um retângulo arbitrário. */
+function drawVideoCoverRect(
+  ctx: CanvasRenderingContext2D,
+  video: HTMLVideoElement,
+  rect: { x: number; y: number; w: number; h: number },
+  mirror: boolean,
+): void {
+  const vw = video.videoWidth
+  const vh = video.videoHeight
+  if (!vw || !vh) return
+  const scale = Math.max(rect.w / vw, rect.h / vh)
+  const dw = vw * scale
+  const dh = vh * scale
+  const dx = rect.x + (rect.w - dw) / 2
+  const dy = rect.y + (rect.h - dh) / 2
+  ctx.save()
+  if (mirror) {
+    // Espelha horizontalmente dentro do retângulo (origem no canto sup. esq.).
+    ctx.translate(rect.x + rect.w, rect.y)
+    ctx.scale(-1, 1)
+    // Após a transformação, x=0 corresponde a rect.x+rect.w; desenhamos o
+    // vídeo espelhado dentro do retângulo.
+    const mx = rect.w - (dx - rect.x) - dw
+    ctx.drawImage(video, mx, dy - rect.y, dw, dh)
   } else {
     ctx.drawImage(video, dx, dy, dw, dh)
   }
@@ -312,6 +356,72 @@ function drawReaction(
   ctx.lineWidth = 4
   ctx.strokeRect(x, y, boxW, boxH)
   ctx.restore()
+}
+
+/**
+ * NOVO (split screen) — Calcula os retângulos (área da câmera e área da mídia
+ * secundária) dentro do canvas 1080×1920 conforme o layout dividido.
+ * Retorna null quando o layout NÃO é dividido.
+ */
+function computeSplitRects(
+  layout: StageLayout | undefined,
+  ratio: number | undefined,
+  w: number,
+  h: number,
+): {
+  camera: { x: number; y: number; w: number; h: number }
+  media: { x: number; y: number; w: number; h: number }
+} | null {
+  const isSplit = layout === 'split-top' || layout === 'split-bottom' || layout === 'split'
+  if (!isSplit) return null
+  const r = Math.min(0.9, Math.max(0.2, ratio ?? 0.6))
+  const camH = Math.round(h * r)
+  const medH = h - camH
+  if (layout === 'split-bottom') {
+    // mídia em cima, câmera embaixo
+    return {
+      media: { x: 0, y: 0, w, h: medH },
+      camera: { x: 0, y: medH, w, h: camH },
+    }
+  }
+  // split-top (e legado 'split'): câmera em cima, mídia embaixo
+  return {
+    camera: { x: 0, y: 0, w, h: camH },
+    media: { x: 0, y: camH, w, h: medH },
+  }
+}
+
+/** Desenha uma imagem com cover dentro de um retângulo. */
+function drawImageCover(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+) {
+  const iw = img.naturalWidth || img.width
+  const ih = img.naturalHeight || img.height
+  if (!iw || !ih) return
+  const scale = Math.max(w / iw, h / ih)
+  const dw = iw * scale
+  const dh = ih * scale
+  const dx = x + (w - dw) / 2
+  const dy = y + (h - dh) / 2
+  ctx.drawImage(img, dx, dy, dw, dh)
+}
+
+/** NOVO (split screen) — Desenha a mídia secundária (imagem) na metade não-câmera. */
+function drawSplitMediaImage(
+  ctx: CanvasRenderingContext2D,
+  rect: { x: number; y: number; w: number; h: number },
+  img: HTMLImageElement | null,
+) {
+  ctx.save()
+  ctx.fillStyle = '#0B0B10'
+  ctx.fillRect(rect.x, rect.y, rect.w, rect.h)
+  ctx.restore()
+  if (img) drawImageCover(ctx, img, rect.x, rect.y, rect.w, rect.h)
 }
 
 /** Desenha o título conforme a configuração. */
@@ -547,10 +657,15 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
     reaction,
     fps = 30,
     backgroundBlur = 0,
+    stageLayout,
+    splitMediaUrl,
+    splitMediaType,
+    splitCameraRatio,
     projectName,
     onProgress,
     shouldCancel,
   } = opts
+  const splitRects = computeSplitRects(stageLayout, splitCameraRatio, EXPORT_W, EXPORT_H)
 
   const emit = (p: ExportProgress) => onProgress?.(p)
 
@@ -593,6 +708,15 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
       cachedBgImage = await loadImageElement(background.imageDataUrl)
     } catch {
       cachedBgImage = null
+    }
+  }
+  // Pré-carrega a mídia secundária do split screen (apenas imagem).
+  let cachedSplitImage: HTMLImageElement | null = null
+  if (splitRects && splitMediaType === 'image' && splitMediaUrl) {
+    try {
+      cachedSplitImage = await loadImageElement(splitMediaUrl)
+    } catch {
+      cachedSplitImage = null
     }
   }
 
@@ -779,15 +903,36 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
 
       // Desenha o frame.
       drawBackground(ctx, background, EXPORT_W, EXPORT_H, videoEl, cachedBgImage)
-      // Desfoque de fundo (backgroundBlur): aplica ctx.filter ao desenhar o
-      // vídeo sobre o fundo. Não afeta fundo/título/overlays desenhados depois.
-      if (backgroundBlur > 0) {
+
+      if (splitRects) {
+        // Layout dividido: câmera numa fatia + mídia noutra fatia.
+        // Desenha a mídia secundária (imagem estática) na metade não-câmera.
+        drawSplitMediaImage(ctx, splitRects.media, cachedSplitImage)
+        // Desenha o vídeo da câmera (com espelho) na fatia da câmera.
+        if (backgroundBlur > 0) {
+          ctx.save()
+          ctx.filter = `blur(${backgroundBlur}px)`
+          drawVideoCoverRect(ctx, videoEl, splitRects.camera, true)
+          ctx.restore()
+        } else {
+          drawVideoCoverRect(ctx, videoEl, splitRects.camera, true)
+        }
+        // Linha divisória sutil.
         ctx.save()
-        ctx.filter = `blur(${backgroundBlur}px)`
-        drawVideoCover(ctx, videoEl, EXPORT_W, EXPORT_H, 0, true)
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'
+        const divY = splitRects.camera.y + splitRects.camera.h
+        ctx.fillRect(0, divY - 1, EXPORT_W, 2)
         ctx.restore()
       } else {
-        drawVideoCover(ctx, videoEl, EXPORT_W, EXPORT_H, 0, true)
+        // Layout cheio: vídeo cobre todo o canvas.
+        if (backgroundBlur > 0) {
+          ctx.save()
+          ctx.filter = `blur(${backgroundBlur}px)`
+          drawVideoCover(ctx, videoEl, EXPORT_W, EXPORT_H, 0, true)
+          ctx.restore()
+        } else {
+          drawVideoCover(ctx, videoEl, EXPORT_W, EXPORT_H, 0, true)
+        }
       }
       const activeBlock = findActiveBlock(blocks, rawTime)
       if (activeBlock) {

@@ -166,8 +166,14 @@ export interface AISuggestion {
    Tipos aditivos. Nenhum tipo existente foi removido ou alterado.
    =========================================================================== */
 
-/** Layout do palco: câmera em cima + parte inferior reservada, ou câmera cheia. */
-export type StageLayout = 'split' | 'full'
+/**
+ * Layout do palco.
+ * - 'full'       → câmera em tela cheia (legacy).
+ * - 'split-top'  → câmera em cima (~60%) + mídia embaixo (~40%).
+ * - 'split-bottom' → mídia em cima (~40%) + câmera embaixo (~60%).
+ * O valor legado 'split' é tratado como 'split-top' na Gravadora.
+ */
+export type StageLayout = 'split' | 'full' | 'split-top' | 'split-bottom'
 
 /** Modo da parte inferior do layout dividido (FASE 3 usará mais modos). */
 export type LowerPanelMode = 'none' | 'arts' | 'reaction' | 'board' | 'broll'
@@ -210,6 +216,20 @@ export interface StageConfig {
    * NUNCA afeta a resolução de saída (1080×1920) nem o MediaRecorder/áudio.
    */
   performanceMode?: 'auto' | 'quality' | 'performance'
+  /**
+   * NOVO (split screen) — Mídia exibida na "outra metade" quando o layout é
+   * 'split-top' ou 'split-bottom'. Pode ser uma imagem estática, vídeo ou
+   * B-roll da biblioteca de mídias. Quando ausente, a metade secundária fica
+   * com um placeholder neutro.
+   */
+  splitMediaUrl?: string
+  /** Tipo da mídia dividida: 'image' | 'video'. */
+  splitMediaType?: 'image' | 'video'
+  /**
+   * Proporção (0–1) da altura ocupada pela CÂMERA no layout dividido.
+   * Padrão 0.6 (60%). A outra metade ocupa o restante.
+   */
+  splitCameraRatio?: number
 }
 
 /** Cadeia de captação de áudio. */

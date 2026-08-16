@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ScrollText,
@@ -14,7 +14,16 @@ import {
   Circle,
   FileVideo,
   Smartphone,
+  Video as VideoIcon,
+  Image as ImageIcon,
+  Columns2,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Play,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react'
+import type { StageLayout } from '@/types/studio'
 import { useStudio } from '@/context/StudioContext'
 import { ScriptPanel } from '@/components/ScriptPanel'
 import { BackgroundPanel } from '@/components/studio/BackgroundPanel'
@@ -26,6 +35,7 @@ import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
+import { MediaLibraryModal } from '@/components/MediaLibraryModal'
 import { toast } from 'sonner'
 
 export default function Gravadora() {
@@ -52,6 +62,9 @@ export default function Gravadora() {
     setTitleConfig,
     scriptBlocks,
     gravadoraScript,
+    stageConfig,
+    updateStageConfig,
+    mediaLibrary,
   } = useStudio()
 
   // Tab selecionada no painel de configuração
@@ -63,8 +76,21 @@ export default function Gravadora() {
   const [selectedCamera, setSelectedCamera] = useState<string>('')
   const [selectedMic, setSelectedMic] = useState<string>('')
 
+  // === Câmera: permissão explícita do usuário ===
+  // Estados do fluxo de permissão:
+  //  'idle'      → botão "Ativar Câmera" visível no centro do palco
+  //  'requesting' → "Conectando..." (chamou getUserMedia)
+  //  'ready'     → stream ativo, preview ao vivo
+  //  'denied'    → permissão negada
+  //  'error'     → outro erro de hardware/dispositivo
+  const [camStatus, setCamStatus] = useState<'idle' | 'requesting' | 'ready' | 'denied' | 'error'>(
+    'idle',
+  )
+  const [camError, setCamError] = useState<string>('')
+
   // Stream da Câmera e Canvas
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [recTimer, setRecTimer] = useState(0)
   const recIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -76,106 +102,202 @@ export default function Gravadora() {
   const audioContextRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
 
-  // Dispositivos
-  useEffect(() => {
-    async function initDevices() {
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices()
-        const videoDevs = devices.filter((d) => d.kind === 'videoinput')
-        const audioDevs = devices.filter((d) => d.kind === 'audioinput')
+  /**
+   * Tenta enumerar dispositivos. Sem permissão prévia, os labels chegam vazios
+   * (""), o que é esperado e NÃO é erro — apenas significa que ainda não
+   * chamamos getUserMedia. Retornamos os devices mesmo sem label para que o
+   * <select> tenha a quantidade certa de opções.
+   */
+  const refreshDevices = useCallback(async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      const videoDevs = devices.filter((d) => d.kind === 'videoinput')
+      const audioDevs = devices.filter((d) => d.kind === 'audioinput')
 
-        setCameras(videoDevs)
-        setMics(audioDevs)
-
-        const saved = loadDevicePreference()
-        if (saved.cameraId && videoDevs.some((d) => d.deviceId === saved.cameraId)) {
-          setSelectedCamera(saved.cameraId)
-        } else if (videoDevs.length > 0) {
-          setSelectedCamera(videoDevs[0].deviceId)
-        }
-
-        if (saved.micId && audioDevs.some((d) => d.deviceId === saved.micId)) {
-          setSelectedMic(saved.micId)
-        } else if (audioDevs.length > 0) {
-          setSelectedMic(audioDevs[0].deviceId)
-        }
-      } catch (err) {
-        console.error('Erro ao listar dispositivos:', err)
-      }
+      setCameras(videoDevs)
+      setMics(audioDevs)
+      return { videoDevs, audioDevs }
+    } catch (err) {
+      console.error('Erro ao listar dispositivos:', err)
+      return { videoDevs: [], audioDevs: [] }
     }
-    initDevices()
-  }, [loadDevicePreference])
+  }, [])
 
-  // Iniciar Stream
+  // Enumeração inicial (sem permissão — labels virão vazios até "Ativar Câmera").
   useEffect(() => {
-    let currentStream: MediaStream | null = null
-
-    async function startStream() {
-      try {
-        if (!selectedCamera) return
-
-        const constraints: MediaStreamConstraints = {
-          video: {
-            deviceId: selectedCamera ? { exact: selectedCamera } : undefined,
-            width: { ideal: 1080 },
-            height: { ideal: 1920 },
-          },
-          audio: selectedMic
-            ? {
-                deviceId: { exact: selectedMic },
-                echoCancellation: audioConfig.echoCancellation,
-                noiseSuppression: audioConfig.noiseSuppression,
-                autoGainControl: audioConfig.autoGainControl,
-              }
-            : false,
-        }
-
-        const mediaStream = await navigator.mediaDevices.getUserMedia(constraints)
-        currentStream = mediaStream
-        setStream(mediaStream)
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = mediaStream
-        }
-
-        // Setup Analyser de Áudio
-        if (selectedMic && mediaStream.getAudioTracks().length > 0) {
-          const AC = window.AudioContext || (window as any).webkitAudioContext
-          const ac = new AC()
-          audioContextRef.current = ac
-          const source = ac.createMediaStreamSource(mediaStream)
-          const analyser = ac.createAnalyser()
-          analyser.fftSize = 64
-          source.connect(analyser)
-          analyserRef.current = analyser
-
-          const dataArray = new Uint8Array(analyser.frequencyBinCount)
-          const updateMeter = () => {
-            if (!analyserRef.current) return
-            analyser.getByteFrequencyData(dataArray)
-            const sum = dataArray.reduce((acc, val) => acc + val, 0)
-            const avg = sum / dataArray.length
-            setMicLevel(Math.min(100, Math.round((avg / 128) * 100)))
-            requestAnimationFrame(updateMeter)
-          }
-          updateMeter()
-        }
-      } catch (e) {
-        console.warn('Erro ao acessar webcam:', e)
-      }
-    }
-
-    startStream()
-
+    refreshDevices()
+    const onDevChange = () => refreshDevices()
+    navigator.mediaDevices?.addEventListener?.('devicechange', onDevChange)
     return () => {
-      if (currentStream) {
-        currentStream.getTracks().forEach((t) => t.stop())
+      navigator.mediaDevices?.removeEventListener?.('devicechange', onDevChange)
+    }
+  }, [refreshDevices])
+
+  /** Configura o medidor de áudio (AnalyserNode) a partir de um stream. */
+  const setupAudioAnalyser = useCallback((mediaStream: MediaStream) => {
+    if (mediaStream.getAudioTracks().length === 0) return
+    try {
+      const AC = window.AudioContext || (window as any).webkitAudioContext
+      const ac = new AC()
+      audioContextRef.current = ac
+      const source = ac.createMediaStreamSource(mediaStream)
+      const analyser = ac.createAnalyser()
+      analyser.fftSize = 64
+      source.connect(analyser)
+      analyserRef.current = analyser
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount)
+      const updateMeter = () => {
+        if (!analyserRef.current) return
+        analyser.getByteFrequencyData(dataArray)
+        const sum = dataArray.reduce((acc, val) => acc + val, 0)
+        const avg = sum / dataArray.length
+        setMicLevel(Math.min(100, Math.round((avg / 128) * 100)))
+        requestAnimationFrame(updateMeter)
+      }
+      updateMeter()
+    } catch {
+      /* sem áudio — não bloqueia */
+    }
+  }, [])
+
+  /** Inicia o stream a partir de um deviceId (ou default). */
+  const startStream = useCallback(
+    async (camId?: string, micId?: string) => {
+      const cam = camId || selectedCamera
+      const mic = micId || selectedMic
+
+      const constraints: MediaStreamConstraints = {
+        video: {
+          deviceId: cam ? { exact: cam } : undefined,
+          width: { ideal: 1080 },
+          height: { ideal: 1920 },
+        },
+        audio: mic
+          ? {
+              deviceId: { exact: mic },
+              echoCancellation: audioConfig.echoCancellation,
+              noiseSuppression: audioConfig.noiseSuppression,
+              autoGainControl: audioConfig.autoGainControl,
+            }
+          : false,
+      }
+
+      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints)
+
+      // Para o stream anterior se existir.
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop())
+      }
+
+      streamRef.current = mediaStream
+      setStream(mediaStream)
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream
+      }
+
+      setupAudioAnalyser(mediaStream)
+      return mediaStream
+    },
+    [selectedCamera, selectedMic, audioConfig, setupAudioAnalyser],
+  )
+
+  /**
+   * "Ativar Câmera" — clique explícito do usuário.
+   * 1. Chama getUserMedia (dispara o diálogo de permissão do navegador).
+   * 2. Com permissão concedida, chama enumerateDevices() novamente para
+   *    popular cameras/mics com labels reais.
+   * 3. Define selectedCamera/selectedMic e inicia o stream.
+   * 4. Em caso de negação, mostra mensagem clara.
+   */
+  const handleActivateCamera = useCallback(async () => {
+    setCamStatus('requesting')
+    setCamError('')
+    try {
+      // 1. getUserMedia primeiro (dispara o diálogo de permissão).
+      const probe = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1080 }, height: { ideal: 1920 } },
+        audio: {
+          echoCancellation: audioConfig.echoCancellation,
+          noiseSuppression: audioConfig.noiseSuppression,
+          autoGainControl: audioConfig.autoGainControl,
+        },
+      })
+      // Permissão concedida — para o stream de probe, vamos recriar com o device certo.
+      probe.getTracks().forEach((t) => t.stop())
+
+      // 2. Re-enumerar dispositivos AGORA com labels reais.
+      const saved = loadDevicePreference()
+      const { videoDevs, audioDevs } = await refreshDevices()
+
+      const camId =
+        (saved.cameraId && videoDevs.find((d) => d.deviceId === saved.cameraId)?.deviceId) ||
+        videoDevs[0]?.deviceId ||
+        ''
+      const micId =
+        (saved.micId && audioDevs.find((d) => d.deviceId === saved.micId)?.deviceId) ||
+        audioDevs[0]?.deviceId ||
+        ''
+
+      if (camId) setSelectedCamera(camId)
+      if (micId) setSelectedMic(micId)
+
+      // 3. Inicia o stream real com o dispositivo escolhido.
+      await startStream(camId, micId)
+      setCamStatus('ready')
+      toast.success('Câmera conectada com sucesso!')
+    } catch (e: any) {
+      const name = e?.name || ''
+      if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+        setCamStatus('denied')
+        setCamError('Permissão de câmera negada. Vá nas configurações do navegador para liberar.')
+      } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+        setCamStatus('error')
+        setCamError('Nenhuma câmera ou microfone compatível foi encontrado.')
+      } else if (name === 'NotReadableError') {
+        setCamStatus('error')
+        setCamError('A câmera está em uso por outro aplicativo. Feche-o e tente novamente.')
+      } else {
+        setCamStatus('error')
+        setCamError(e?.message || 'Não foi possível acessar a câmera.')
+      }
+    }
+  }, [audioConfig, loadDevicePreference, refreshDevices, startStream])
+
+  // Reinicia o stream quando o usuário troca de dispositivo (depois de ativar).
+  useEffect(() => {
+    if (camStatus !== 'ready') return
+    let cancelled = false
+    async function restart() {
+      try {
+        await startStream()
+      } catch (e) {
+        if (!cancelled) console.warn('Erro ao reiniciar stream:', e)
+      }
+    }
+    restart()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCamera, selectedMic])
+
+  // Cleanup do stream ao desmontar.
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop())
       }
       if (audioContextRef.current) {
-        audioContextRef.current.close()
+        try {
+          audioContextRef.current.close()
+        } catch {
+          /* noop */
+        }
       }
     }
-  }, [selectedCamera, selectedMic, audioConfig.noiseSuppression, audioConfig.echoCancellation])
+  }, [])
 
   // Timer de Gravação
   useEffect(() => {
@@ -214,6 +336,21 @@ export default function Gravadora() {
     return () => window.removeEventListener('keydown', onKey)
   }, [isFocusMode, setIsFocusMode])
 
+  // === Split screen: layout + mídia da outra metade ===
+  const layout = stageConfig.layout
+  const isSplit = layout === 'split-top' || layout === 'split-bottom' || layout === 'split'
+  const splitMediaUrl = stageConfig.splitMediaUrl
+  const splitMediaType: 'image' | 'video' = stageConfig.splitMediaType || 'image'
+  const splitCameraRatio =
+    typeof stageConfig.splitCameraRatio === 'number' ? stageConfig.splitCameraRatio : 0.6
+
+  const [mediaModalOpen, setMediaModalOpen] = useState(false)
+
+  const setLayout = useCallback(
+    (next: StageLayout) => updateStageConfig({ layout: next }),
+    [updateStageConfig],
+  )
+
   const handleToggleRecord = () => {
     if (isRecording) {
       // Parar Gravação
@@ -225,7 +362,7 @@ export default function Gravadora() {
     } else {
       // Iniciar Gravação
       if (!stream) {
-        toast.error('Câmera não conectada.')
+        toast.error('Câmera não conectada. Clique em "Ativar Câmera" primeiro.')
         return
       }
       recordedChunksRef.current = []
@@ -499,6 +636,128 @@ export default function Gravadora() {
           <p className="text-xs text-[#9494A8]">
             Insira cortes, imagens e sobreposições diretamente durante a gravação do seu take.
           </p>
+
+          {/* === Split Screen: mídia da outra metade === */}
+          <div className="rounded-xl border border-[#7C5CFC]/30 bg-[#7C5CFC]/5 p-3 space-y-3">
+            <div className="flex items-center gap-1.5">
+              <Columns2 className="w-3.5 h-3.5 text-[#22D3EE]" />
+              <span className="text-[11px] font-bold text-white uppercase tracking-wider">
+                Mídia da Tela Dividida
+              </span>
+            </div>
+            <p className="text-[10px] text-[#9494A8] leading-relaxed">
+              Selecione a imagem ou vídeo que ocupa a outra metade quando o layout é "Câmera em
+              Cima" ou "Câmera em Baixo".
+            </p>
+
+            {splitMediaUrl ? (
+              <div className="space-y-2">
+                <div className="relative rounded-lg overflow-hidden border border-white/10 bg-black h-28">
+                  {splitMediaType === 'video' ? (
+                    <video
+                      src={splitMediaUrl}
+                      className="w-full h-full object-cover"
+                      muted
+                      loop
+                      autoPlay
+                      playsInline
+                    />
+                  ) : (
+                    <img
+                      src={splitMediaUrl}
+                      alt="Mídia dividida"
+                      className="w-full h-full object-cover"
+                    />
+                  )}
+                  <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/70 text-[9px] font-semibold text-white uppercase flex items-center gap-1">
+                    {splitMediaType === 'video' ? (
+                      <VideoIcon className="w-3 h-3 text-cyan-400" />
+                    ) : (
+                      <ImageIcon className="w-3 h-3 text-amber-400" />
+                    )}
+                    {splitMediaType}
+                  </span>
+                </div>
+                <button
+                  onClick={() =>
+                    updateStageConfig({ splitMediaUrl: undefined, splitMediaType: 'image' })
+                  }
+                  className="w-full py-1.5 rounded-lg bg-red-500/15 border border-red-500/30 hover:bg-red-500/25 text-[10px] font-semibold text-red-300 transition-all"
+                >
+                  Remover mídia
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-4 border-2 border-dashed border-white/10 rounded-lg gap-2">
+                <ImageIcon className="w-6 h-6 text-[#9494A8]/50" />
+                <p className="text-[10px] text-[#9494A8]">Nenhuma mídia selecionada</p>
+              </div>
+            )}
+
+            <button
+              onClick={() => setMediaModalOpen(true)}
+              className="w-full py-2 rounded-lg bg-[#7C5CFC] hover:bg-[#6A48E0] text-[11px] font-semibold text-white flex items-center justify-center gap-1.5 transition-all"
+            >
+              <FileVideo className="w-3.5 h-3.5" /> Selecionar da Biblioteca
+            </button>
+
+            <div className="space-y-1 pt-1">
+              <span className="text-[10px] text-[#9494A8] uppercase tracking-wider">
+                Mídias rápidas
+              </span>
+              <div className="grid grid-cols-2 gap-1.5 max-h-32 overflow-y-auto">
+                {mediaLibrary
+                  .filter((m) => m.type === 'image' || m.type === 'video')
+                  .slice(0, 6)
+                  .map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() =>
+                        updateStageConfig({
+                          splitMediaUrl: m.url,
+                          splitMediaType: m.type as 'image' | 'video',
+                        })
+                      }
+                      className={`relative rounded-md overflow-hidden border h-16 transition-all ${
+                        splitMediaUrl === m.url
+                          ? 'border-[#22D3EE]'
+                          : 'border-white/10 hover:border-[#7C5CFC]/50'
+                      }`}
+                      title={m.title}
+                    >
+                      <img src={m.url} alt={m.title} className="w-full h-full object-cover" />
+                      <span className="absolute bottom-0 inset-x-0 bg-black/70 text-[8px] text-white px-1 py-0.5 truncate text-left">
+                        {m.title}
+                      </span>
+                    </button>
+                  ))}
+                {mediaLibrary.filter((m) => m.type === 'image' || m.type === 'video').length ===
+                  0 && (
+                  <p className="col-span-2 text-[10px] text-[#9494A8]/70 text-center py-2">
+                    Nenhuma mídia na biblioteca ainda.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-1 pt-2 border-t border-white/5">
+              <div className="flex justify-between text-[10px] text-[#9494A8]">
+                <span>Proporção da Câmera</span>
+                <span className="font-mono">{Math.round(splitCameraRatio * 100)}%</span>
+              </div>
+              <Slider
+                value={[Math.round(splitCameraRatio * 100)]}
+                min={30}
+                max={80}
+                step={5}
+                onValueChange={(v) => updateStageConfig({ splitCameraRatio: v[0] / 100 })}
+              />
+              <p className="text-[9px] text-[#9494A8]/70">
+                Altura da câmera no layout dividido. O restante é ocupado pela mídia.
+              </p>
+            </div>
+          </div>
+
           <button
             onClick={() => navigate('/midias')}
             className="w-full py-2.5 rounded-xl bg-[#1C1C27] border border-white/10 hover:border-[#7C5CFC] text-xs font-semibold text-white flex items-center justify-center gap-2 transition-all"
@@ -533,14 +792,21 @@ export default function Gravadora() {
                   setSelectedCamera(e.target.value)
                   saveDevicePreference(e.target.value, selectedMic)
                 }}
-                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2 text-xs text-white focus:outline-none focus:border-[#7C5CFC]"
+                disabled={camStatus !== 'ready'}
+                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2 text-xs text-white focus:outline-none focus:border-[#7C5CFC] disabled:opacity-60"
               >
+                {cameras.length === 0 && <option value="">Nenhum dispositivo detectado</option>}
                 {cameras.map((c) => (
                   <option key={c.deviceId} value={c.deviceId}>
                     {c.label || `Câmera ${c.deviceId.substring(0, 5)}`}
                   </option>
                 ))}
               </select>
+              {camStatus !== 'ready' && (
+                <p className="text-[9px] text-amber-300/80 leading-relaxed">
+                  Clique em "Ativar Câmera" no palco para listar os dispositivos com nome real.
+                </p>
+              )}
             </div>
 
             <div className="space-y-1 pt-2 border-t border-white/5">
@@ -627,14 +893,21 @@ export default function Gravadora() {
                   setSelectedMic(e.target.value)
                   saveDevicePreference(selectedCamera, e.target.value)
                 }}
-                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2 text-xs text-white focus:outline-none focus:border-[#7C5CFC]"
+                disabled={camStatus !== 'ready'}
+                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2 text-xs text-white focus:outline-none focus:border-[#7C5CFC] disabled:opacity-60"
               >
+                {mics.length === 0 && <option value="">Nenhum microfone detectado</option>}
                 {mics.map((m) => (
                   <option key={m.deviceId} value={m.deviceId}>
                     {m.label || `Microfone ${m.deviceId.substring(0, 5)}`}
                   </option>
                 ))}
               </select>
+              {camStatus !== 'ready' && (
+                <p className="text-[9px] text-amber-300/80 leading-relaxed">
+                  Ative a câmera para liberar a seleção de microfone.
+                </p>
+              )}
             </div>
 
             <div className="space-y-1">
@@ -676,6 +949,219 @@ export default function Gravadora() {
       </div>
     </Tabs>
   )
+
+  // === Componente reutilizável: overlay "Ativar Câmera" / erro ===
+  const renderCameraGate = () => {
+    if (camStatus === 'ready') return null
+    return (
+      <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-[#0B0B10]/95 backdrop-blur-sm text-center px-4">
+        {camStatus === 'idle' && (
+          <>
+            <div className="w-20 h-20 rounded-3xl bg-[#7C5CFC]/15 border border-[#7C5CFC]/30 flex items-center justify-center mb-4">
+              <Camera className="w-10 h-10 text-[#7C5CFC]" />
+            </div>
+            <h3 className="text-base font-bold text-white mb-1">Câmera desativada</h3>
+            <p className="text-xs text-[#9494A8] mb-5 max-w-[260px] leading-relaxed">
+              O navegador exige sua autorização para acessar a câmera e o microfone. Clique abaixo
+              para ativar.
+            </p>
+            <button
+              onClick={handleActivateCamera}
+              className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-[#7C5CFC] to-[#22D3EE] text-white text-sm font-bold shadow-lg shadow-[#7C5CFC]/40 hover:scale-105 transition-all"
+            >
+              <Camera className="w-4 h-4" /> Ativar Câmera
+            </button>
+          </>
+        )}
+        {camStatus === 'requesting' && (
+          <>
+            <Loader2 className="w-10 h-10 text-[#7C5CFC] animate-spin mb-4" />
+            <h3 className="text-base font-bold text-white mb-1">Conectando...</h3>
+            <p className="text-xs text-[#9494A8]">Aguardando a permissão do navegador.</p>
+          </>
+        )}
+        {(camStatus === 'denied' || camStatus === 'error') && (
+          <>
+            <div className="w-20 h-20 rounded-3xl bg-red-500/10 border border-red-500/30 flex items-center justify-center mb-4">
+              <AlertCircle className="w-10 h-10 text-red-400" />
+            </div>
+            <h3 className="text-base font-bold text-white mb-1">
+              {camStatus === 'denied' ? 'Permissão negada' : 'Erro de câmera'}
+            </h3>
+            <p className="text-xs text-[#9494A8] mb-5 max-w-[280px] leading-relaxed">{camError}</p>
+            <button
+              onClick={handleActivateCamera}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-[#1C1C27] border border-white/10 hover:border-[#7C5CFC] text-white text-xs font-bold transition-all"
+            >
+              <RotateCcw className="w-4 h-4" /> Tentar novamente
+            </button>
+          </>
+        )}
+      </div>
+    )
+  }
+
+  // === Componente reutilizável: seletor de layout no palco ===
+  const renderLayoutSelector = (compact = false) => {
+    const options: { id: StageLayout; label: string; icon: React.ReactNode }[] = [
+      { id: 'full', label: 'Câmera Cheia', icon: <Camera className="w-3.5 h-3.5" /> },
+      {
+        id: 'split-top',
+        label: 'Câmera em Cima',
+        icon: <ArrowDownToLine className="w-3.5 h-3.5" />,
+      },
+      {
+        id: 'split-bottom',
+        label: 'Câmera em Baixo',
+        icon: <ArrowUpFromLine className="w-3.5 h-3.5" />,
+      },
+    ]
+    return (
+      <div
+        className={`flex items-center gap-1 bg-[#14141C]/90 backdrop-blur-md border border-white/10 rounded-full p-1 ${
+          compact ? 'scale-90' : ''
+        }`}
+      >
+        {options.map((o) => {
+          const active =
+            (o.id === 'full' && !isSplit) ||
+            (o.id === 'split-top' && (layout === 'split-top' || layout === 'split')) ||
+            (o.id === 'split-bottom' && layout === 'split-bottom')
+          return (
+            <button
+              key={o.id}
+              onClick={() => setLayout(o.id)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-semibold transition-all ${
+                active
+                  ? 'bg-[#7C5CFC] text-white shadow'
+                  : 'text-[#9494A8] hover:text-white hover:bg-white/5'
+              }`}
+              title={o.label}
+            >
+              {o.icon}
+              <span className="hidden sm:inline">{o.label}</span>
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
+
+  // === Componente reutilizável: palco 9:16 com split screen ===
+  const renderStage = () => {
+    const camFilter = `brightness(${cameraConfig.brightness}%) contrast(${cameraConfig.contrast}%) blur(${
+      cameraConfig.beautySmooth > 0 ? cameraConfig.beautySmooth / 50 : 0
+    }px)`
+
+    return (
+      <div className="relative aspect-[9/16] h-full max-h-[80vh] rounded-2xl overflow-hidden border border-white/10 shadow-2xl bg-[#14141C]">
+        <BackgroundRenderer config={backgroundConfig} />
+
+        {isSplit ? (
+          <div className="absolute inset-0 z-10 flex flex-col">
+            {/* Determina a ordem das fatias conforme o layout */}
+            {layout === 'split-bottom' ? (
+              <>
+                {/* Mídia em cima */}
+                <div
+                  className="w-full relative overflow-hidden bg-[#0B0B10]"
+                  style={{ flex: `0 0 ${(1 - splitCameraRatio) * 100}%` }}
+                >
+                  {splitMediaUrl ? (
+                    splitMediaType === 'video' ? (
+                      <video
+                        src={splitMediaUrl}
+                        className="w-full h-full object-cover"
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                      />
+                    ) : (
+                      <img src={splitMediaUrl} alt="Mídia" className="w-full h-full object-cover" />
+                    )
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center text-[#9494A8] gap-1.5 p-3 text-center">
+                      <ImageIcon className="w-6 h-6 opacity-50" />
+                      <span className="text-[10px]">Selecione uma mídia na aba "Mídias"</span>
+                    </div>
+                  )}
+                  <div className="absolute inset-x-0 bottom-0 h-px bg-black/60" />
+                </div>
+                {/* Câmera embaixo */}
+                <div className="w-full relative overflow-hidden bg-black" style={{ flex: 1 }}>
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                    style={{ filter: camFilter }}
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Câmera em cima (split-top / split legacy) */}
+                <div
+                  className="w-full relative overflow-hidden bg-black"
+                  style={{ flex: `0 0 ${splitCameraRatio * 100}%` }}
+                >
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                    style={{ filter: camFilter }}
+                  />
+                  <div className="absolute inset-x-0 bottom-0 h-px bg-black/60" />
+                </div>
+                {/* Mídia embaixo */}
+                <div className="w-full relative overflow-hidden bg-[#0B0B10]" style={{ flex: 1 }}>
+                  {splitMediaUrl ? (
+                    splitMediaType === 'video' ? (
+                      <video
+                        src={splitMediaUrl}
+                        className="w-full h-full object-cover"
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                      />
+                    ) : (
+                      <img src={splitMediaUrl} alt="Mídia" className="w-full h-full object-cover" />
+                    )
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center text-[#9494A8] gap-1.5 p-3 text-center">
+                      <ImageIcon className="w-6 h-6 opacity-50" />
+                      <span className="text-[10px]">Selecione uma mídia na aba "Mídias"</span>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        ) : (
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className="w-full h-full object-cover relative z-10"
+            style={{ filter: camFilter }}
+          />
+        )}
+
+        <TitleOverlay
+          config={titleConfig}
+          onChange={(cfg) => setTitleConfig({ ...titleConfig, ...cfg })}
+        />
+
+        {renderCameraGate()}
+      </div>
+    )
+  }
 
   // MODO FOCO TOTAL
   if (isFocusMode) {
@@ -724,34 +1210,18 @@ export default function Gravadora() {
           </div>
         </div>
 
-        {/* Palco Central 9:16 */}
-        <div className="flex-1 flex items-center justify-center my-4 overflow-hidden">
-          <div className="relative aspect-[9/16] h-full max-h-[82vh] rounded-3xl overflow-hidden border-2 border-white/20 shadow-2xl bg-[#0B0B10]">
-            <BackgroundRenderer config={backgroundConfig} />
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-cover relative z-10"
-              style={{
-                filter: `brightness(${cameraConfig.brightness}%) contrast(${cameraConfig.contrast}%) blur(${
-                  cameraConfig.beautySmooth > 0 ? cameraConfig.beautySmooth / 50 : 0
-                }px)`,
-              }}
-            />
-            <TitleOverlay
-              config={titleConfig}
-              onChange={(cfg) => setTitleConfig({ ...titleConfig, ...cfg })}
-            />
-          </div>
+        {/* Palco Central 9:16 + seletor de layout */}
+        <div className="flex-1 flex flex-col items-center justify-center my-4 overflow-hidden gap-3">
+          {renderStage()}
+          {renderLayoutSelector(true)}
         </div>
 
         {/* Footer Minimalista com Botão REC Flutuante */}
         <div className="relative z-50 flex items-center justify-center pb-2">
           <button
             onClick={handleToggleRecord}
-            className={`flex items-center gap-3 px-8 py-4 rounded-full text-base font-extrabold shadow-2xl transition-all transform hover:scale-105 ${
+            disabled={camStatus !== 'ready'}
+            className={`flex items-center gap-3 px-8 py-4 rounded-full text-base font-extrabold shadow-2xl transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 ${
               isRecording
                 ? 'bg-red-600 text-white shadow-red-600/50 animate-pulse'
                 : 'bg-gradient-to-r from-[#7C5CFC] to-[#22D3EE] text-white shadow-[#7C5CFC]/50'
@@ -838,36 +1308,21 @@ export default function Gravadora() {
       {/* Main Container Dual-Column Layout */}
       <div className="flex-1 flex min-h-0 overflow-hidden relative">
         {/* Esquerda (62% Desktop / Full Mobile): Palco & Canvas 9:16 */}
-        <div className="flex-1 lg:w-[62%] flex flex-col items-center justify-center p-4 bg-[#0B0B10] relative overflow-hidden">
-          {/* Enquadramento do Palco */}
-          <div className="relative aspect-[9/16] h-full max-h-[80vh] rounded-2xl overflow-hidden border border-white/10 shadow-2xl bg-[#14141C]">
-            <BackgroundRenderer config={backgroundConfig} />
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-cover relative z-10"
-              style={{
-                filter: `brightness(${cameraConfig.brightness}%) contrast(${cameraConfig.contrast}%) blur(${
-                  cameraConfig.beautySmooth > 0 ? cameraConfig.beautySmooth / 50 : 0
-                }px)`,
-              }}
-            />
-            <TitleOverlay
-              config={titleConfig}
-              onChange={(cfg) => setTitleConfig({ ...titleConfig, ...cfg })}
-            />
-          </div>
+        <div className="flex-1 lg:w-[62%] flex flex-col items-center justify-center p-4 bg-[#0B0B10] relative overflow-hidden gap-3">
+          {/* Palco 9:16 com split screen */}
+          {renderStage()}
 
-          {/* Controls Flutuantes no Canvas */}
-          <div className="mt-3 flex items-center gap-4 bg-[#14141C]/80 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/10 text-xs text-[#9494A8]">
-            <span className="flex items-center gap-1.5">
-              <Mic className="w-3.5 h-3.5 text-[#22D3EE]" />
-              <span className="font-mono">{micLevel}%</span>
-            </span>
-            <span>•</span>
-            <span>Câmera Principal (1080p)</span>
+          {/* Seletor de layout + Controls Flutuantes no Canvas */}
+          <div className="flex items-center gap-3 flex-wrap justify-center">
+            {renderLayoutSelector()}
+            <div className="flex items-center gap-4 bg-[#14141C]/80 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/10 text-xs text-[#9494A8]">
+              <span className="flex items-center gap-1.5">
+                <Mic className="w-3.5 h-3.5 text-[#22D3EE]" />
+                <span className="font-mono">{micLevel}%</span>
+              </span>
+              <span>•</span>
+              <span>Câmera Principal (1080p)</span>
+            </div>
           </div>
         </div>
 
@@ -898,6 +1353,21 @@ export default function Gravadora() {
           </Sheet>
         </div>
       </div>
+
+      <MediaLibraryModal
+        open={mediaModalOpen}
+        onOpenChange={setMediaModalOpen}
+        categoryFilter="all"
+        onSelect={(item) => {
+          if (item && (item.type === 'image' || item.type === 'video') && item.url) {
+            updateStageConfig({
+              splitMediaUrl: item.url,
+              splitMediaType: item.type,
+            })
+            toast.success(`Mídia "${item.title}" selecionada para tela dividida.`)
+          }
+        }}
+      />
     </div>
   )
 }

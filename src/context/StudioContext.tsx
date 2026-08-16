@@ -48,7 +48,7 @@ const DEFAULT_TITLE_CONFIG: TitleConfig = {
 
 /** Defaults LUMEN — Palco/canvas 1080×1920 (persistido em lumen_gravadora_stage). */
 const DEFAULT_STAGE_CONFIG: StageConfig = {
-  layout: 'split',
+  layout: 'full',
   lowerPanelMode: 'none',
   cameraCover: 1,
   guides: { enabled: true, buttons: true, caption: true },
@@ -56,6 +56,8 @@ const DEFAULT_STAGE_CONFIG: StageConfig = {
   focusMode: false,
   cameraScale: 1,
   showGuides: false,
+  splitCameraRatio: 0.6,
+  splitMediaType: 'image',
 }
 
 /** Config de Câmera/Filtros técnicos */
