@@ -80,6 +80,8 @@ import {
   effectsToCssFilter,
   loadEditorState,
   saveEditorState,
+  editorKey,
+  type CaptionTrack,
 } from '@/components/studio/editor-types'
 import {
   createVideoExporter,
@@ -114,6 +116,10 @@ export default function EditorVideo() {
     setTimelineState,
     saveRawVideo,
     loadRawVideo,
+    backgroundConfig,
+    setBackgroundConfig,
+    titleConfig,
+    setTitleConfig,
   } = useStudio()
 
   const project = id ? getProjectById(id) : undefined
@@ -586,6 +592,83 @@ export default function EditorVideo() {
     (s) => currentTime >= s.startTime && currentTime <= s.endTime,
   )
 
+  /* ── Estado do inspetor: ajustes / efeitos / áudio / legendas (persistido por projectId) */
+  const [adjustments, setAdjustments] = useState<AdjustmentsState>(() =>
+    id
+      ? loadEditorState<AdjustmentsState>(id, 'adjustments', DEFAULT_ADJUSTMENTS)
+      : DEFAULT_ADJUSTMENTS,
+  )
+  const [effects, setEffects] = useState<EffectsState>(() =>
+    id ? loadEditorState<EffectsState>(id, 'effects', DEFAULT_EFFECTS) : DEFAULT_EFFECTS,
+  )
+  const [editorAudio, setEditorAudio] = useState<EditorAudioState>(() =>
+    id
+      ? loadEditorState<EditorAudioState>(id, 'audio', DEFAULT_EDITOR_AUDIO)
+      : DEFAULT_EDITOR_AUDIO,
+  )
+  // Legendas profissionais (CaptionTrack) — lidas do localStorage do CaptionPanel.
+  const [captionTrack, setCaptionTrack] = useState<CaptionTrack | null>(() => {
+    if (!id) return null
+    try {
+      const raw = localStorage.getItem(editorKey(id, 'captions'))
+      return raw ? (JSON.parse(raw) as CaptionTrack) : null
+    } catch {
+      return null
+    }
+  })
+
+  // Recarrega ao trocar de projeto
+  useEffect(() => {
+    if (!id) return
+    setAdjustments(loadEditorState<AdjustmentsState>(id, 'adjustments', DEFAULT_ADJUSTMENTS))
+    setEffects(loadEditorState<EffectsState>(id, 'effects', DEFAULT_EFFECTS))
+    setEditorAudio(loadEditorState<EditorAudioState>(id, 'audio', DEFAULT_EDITOR_AUDIO))
+    try {
+      const raw = localStorage.getItem(editorKey(id, 'captions'))
+      setCaptionTrack(raw ? (JSON.parse(raw) as CaptionTrack) : null)
+    } catch {
+      setCaptionTrack(null)
+    }
+
+    // Restauração de estado ao reabrir projeto: carrega backgroundConfig,
+    // titleConfig e legendas do snapshot (se houver).
+    const snapshot = loadProjectSnapshot(id)
+    if (snapshot) {
+      if (snapshot.background) setBackgroundConfig(snapshot.background)
+      if (snapshot.titleConfig) setTitleConfig(snapshot.titleConfig)
+    }
+    // Sincroniza legendas do localStorage (chave do CaptionPanel) sempre que
+    // o storage mudar — permite que edições no CaptionPanel reflitam na exportação.
+    const captionsKey = editorKey(id, 'captions')
+    const syncCaptions = () => {
+      try {
+        const raw = localStorage.getItem(captionsKey)
+        if (raw) setCaptionTrack(JSON.parse(raw) as CaptionTrack)
+      } catch {
+        /* noop */
+      }
+    }
+    syncCaptions()
+    window.addEventListener('storage', syncCaptions)
+    return () => window.removeEventListener('storage', syncCaptions)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
+
+  // CSS filter combinado (ajustes + efeitos) aplicado ao <video>
+  const videoFilterCss = useMemo(() => {
+    const adj = adjustmentsToCssFilter(adjustments)
+    const fx = effectsToCssFilter(effects)
+    return [adj, fx].filter(Boolean).join(' ')
+  }, [adjustments, effects])
+
+  // Aplica volume/mute do AudioPanel no <video> (sincroniza com player)
+  useEffect(() => {
+    const v = playerVideoRef.current
+    if (!v) return
+    v.volume = editorAudio.muted ? 0 : Math.max(0, Math.min(1, editorAudio.voiceVolume / 100))
+    v.muted = editorAudio.muted
+  }, [editorAudio.voiceVolume, editorAudio.muted])
+
   /* ── Aviso antes de sair + autosave ────────────────────────────────────── */
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   useEffect(() => {
@@ -617,23 +700,8 @@ export default function EditorVideo() {
             scriptText: project.scriptText || '',
             artsByBlock: {},
             brollByBlock: {},
-            background: { type: 'none', segmentationEnabled: false },
-            titleConfig: {
-              enabled: false,
-              text: '',
-              font: 'Anton',
-              fontSize: 64,
-              width: 80,
-              color: '#FFFFFF',
-              bgEnabled: false,
-              bgColor: 'transparent',
-              alignment: 'center',
-              position: 'middle',
-              normalizedX: 0.5,
-              normalizedY: 0.5,
-              duration: 'full',
-              durationSeconds: 5,
-            },
+            background: backgroundConfig,
+            titleConfig,
             audio: {
               inputDeviceId: '',
               noiseSuppression: true,
@@ -653,7 +721,7 @@ export default function EditorVideo() {
     }, 1000)
     return () => clearInterval(iv)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timelineState, hasUnsavedChanges, id, realDuration])
+  }, [timelineState, hasUnsavedChanges, id, realDuration, backgroundConfig, titleConfig])
 
   const handleManualSave = useCallback(() => {
     if (!id) return
@@ -686,27 +754,22 @@ export default function EditorVideo() {
     setExportResult(null)
     setExportProgress({ phase: 'preparing', percent: 0, message: 'Preparando...' })
     try {
+      // Antes de exportar, sincroniza as legendas do localStorage (caso o
+      // CaptionPanel tenha alterado desde a última leitura).
+      let captionsToExport: CaptionTrack | null = captionTrack
+      try {
+        const raw = localStorage.getItem(editorKey(id || 'temp', 'captions'))
+        if (raw) captionsToExport = JSON.parse(raw) as CaptionTrack
+      } catch {
+        /* noop */
+      }
+
       const handle = createVideoExporter({
         rawVideoUrl: mediaUrl,
         rawVideoDuration: safeDuration,
         timeline: timelineState,
-        background: { type: 'none', segmentationEnabled: false },
-        title: {
-          enabled: false,
-          text: '',
-          font: 'Anton',
-          fontSize: 64,
-          width: 80,
-          color: '#FFFFFF',
-          bgEnabled: false,
-          bgColor: 'transparent',
-          alignment: 'center',
-          position: 'middle',
-          normalizedX: 0.5,
-          normalizedY: 0.5,
-          duration: 'full',
-          durationSeconds: 5,
-        },
+        background: backgroundConfig,
+        title: titleConfig,
         blocks: [],
         artsByBlock: {},
         brollByBlock: {},
@@ -714,6 +777,10 @@ export default function EditorVideo() {
         projectName: project?.title || 'projeto',
         onProgress: (p) => setExportProgress(p),
         shouldCancel: () => cancelExportRef.current,
+        captions: captionsToExport,
+        adjustments,
+        effects,
+        editorAudio,
       })
       exporterHandleRef.current = handle
       const result = await handle.promise
@@ -753,7 +820,21 @@ export default function EditorVideo() {
     } finally {
       exporterHandleRef.current = null
     }
-  }, [mediaUrl, hasMedia, safeDuration, timelineState, project?.title, id, updateProject])
+  }, [
+    mediaUrl,
+    hasMedia,
+    safeDuration,
+    timelineState,
+    project?.title,
+    id,
+    updateProject,
+    backgroundConfig,
+    titleConfig,
+    captionTrack,
+    adjustments,
+    effects,
+    editorAudio,
+  ])
 
   const handleCancelExport = useCallback(() => {
     cancelExportRef.current = true
@@ -794,44 +875,6 @@ export default function EditorVideo() {
   const [timelineZoom, setTimelineZoom] = useState(25)
 
   void historyTick
-
-  /* ── Estado do inspetor: ajustes / efeitos / áudio (persistido por projectId) */
-  const [adjustments, setAdjustments] = useState<AdjustmentsState>(() =>
-    id
-      ? loadEditorState<AdjustmentsState>(id, 'adjustments', DEFAULT_ADJUSTMENTS)
-      : DEFAULT_ADJUSTMENTS,
-  )
-  const [effects, setEffects] = useState<EffectsState>(() =>
-    id ? loadEditorState<EffectsState>(id, 'effects', DEFAULT_EFFECTS) : DEFAULT_EFFECTS,
-  )
-  const [editorAudio, setEditorAudio] = useState<EditorAudioState>(() =>
-    id
-      ? loadEditorState<EditorAudioState>(id, 'audio', DEFAULT_EDITOR_AUDIO)
-      : DEFAULT_EDITOR_AUDIO,
-  )
-
-  // Recarrega ao trocar de projeto
-  useEffect(() => {
-    if (!id) return
-    setAdjustments(loadEditorState<AdjustmentsState>(id, 'adjustments', DEFAULT_ADJUSTMENTS))
-    setEffects(loadEditorState<EffectsState>(id, 'effects', DEFAULT_EFFECTS))
-    setEditorAudio(loadEditorState<EditorAudioState>(id, 'audio', DEFAULT_EDITOR_AUDIO))
-  }, [id])
-
-  // CSS filter combinado (ajustes + efeitos) aplicado ao <video>
-  const videoFilterCss = useMemo(() => {
-    const adj = adjustmentsToCssFilter(adjustments)
-    const fx = effectsToCssFilter(effects)
-    return [adj, fx].filter(Boolean).join(' ')
-  }, [adjustments, effects])
-
-  // Aplica volume/mute do AudioPanel no <video> (sincroniza com player)
-  useEffect(() => {
-    const v = playerVideoRef.current
-    if (!v) return
-    v.volume = editorAudio.muted ? 0 : Math.max(0, Math.min(1, editorAudio.voiceVolume / 100))
-    v.muted = editorAudio.muted
-  }, [editorAudio.voiceVolume, editorAudio.muted])
 
   /* ═══════════════════════════════════════════════════════════════════════
      ESTADO VAZIO — sem mídia carregada

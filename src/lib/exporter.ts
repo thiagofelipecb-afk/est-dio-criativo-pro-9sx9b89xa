@@ -18,6 +18,19 @@ import type {
   TimelineState,
   TitleConfig,
 } from '@/types/studio'
+import type {
+  AdjustmentsState,
+  CaptionCue,
+  CaptionStyle,
+  CaptionTrack,
+  EffectsState,
+  EditorAudioState,
+} from '@/components/studio/editor-types'
+import {
+  CAPTION_PRESETS,
+  adjustmentsToCssFilter,
+  effectsToCssFilter,
+} from '@/components/studio/editor-types'
 
 /** Canvas alvo 1080×1920 (9:16). */
 export const EXPORT_W = 1080
@@ -74,6 +87,14 @@ export interface ExportOptions {
   onProgress?: (p: ExportProgress) => void
   /** Sinal de cancelamento: retorna true quando o usuário pediu para cancelar. */
   shouldCancel?: () => boolean
+  /** Legendas (CaptionTrack) do CaptionPanel — renderizadas no canvas. */
+  captions?: CaptionTrack | null
+  /** Ajustes de cor (brightness/contrast/...) aplicados via ctx.filter. */
+  adjustments?: AdjustmentsState | null
+  /** Efeitos visuais (presets de filtro) aplicados via ctx.filter. */
+  effects?: EffectsState | null
+  /** Estado de áudio do editor (fade in/out, ducking, volume). */
+  editorAudio?: EditorAudioState | null
 }
 
 /** Detecta o melhor MIME type suportado pelo navegador. */
@@ -282,11 +303,14 @@ function drawBRoll(
   broll: BlockBRoll | null | undefined,
   w: number,
   h: number,
+  cachedBrollImage: HTMLImageElement | null,
 ): void {
-  if (!broll || !broll.url) return
-  // B-roll só pode ser desenhado se for uma URL carregável; neste pipeline
-  // simplificado, deixamos um placeholder sutil para não bloquear a renderização.
-  // (A sobreposição real de B-roll requer pré-carregamento de vídeo externo.)
+  if (!broll || !broll.url || !cachedBrollImage) return
+  // Desenha a imagem/vídeo do B-roll sobre o canvas, cobrindo a área toda.
+  ctx.save()
+  ctx.globalAlpha = 1
+  drawImageCover(ctx, cachedBrollImage, 0, 0, w, h)
+  ctx.restore()
 }
 
 /** Desenha as artes do bloco ativo. */
@@ -422,6 +446,271 @@ function drawSplitMediaImage(
   ctx.fillRect(rect.x, rect.y, rect.w, rect.h)
   ctx.restore()
   if (img) drawImageCover(ctx, img, rect.x, rect.y, rect.w, rect.h)
+}
+
+/** Resolve o CaptionStyle a partir do preset da track ou da cue. */
+function resolveCaptionStyle(
+  track: CaptionTrack | null | undefined,
+  cue: CaptionCue,
+): CaptionStyle {
+  const presetId = cue.style || track?.preset || 'clean-center'
+  const preset = CAPTION_PRESETS.find((p) => p.id === presetId)
+  return preset ? { ...preset.style } : { ...CAPTION_PRESETS[0].style }
+}
+
+/** Quebra o texto em linhas respeitando o maxWidth (px). */
+function wrapCaptionText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidthPx: number,
+): string[] {
+  const words = text.split(/\s+/).filter(Boolean)
+  const lines: string[] = []
+  let line = ''
+  for (const word of words) {
+    const test = line ? line + ' ' + word : word
+    if (ctx.measureText(test).width > maxWidthPx && line) {
+      lines.push(line)
+      line = word
+    } else {
+      line = test
+    }
+  }
+  if (line) lines.push(line)
+  return lines
+}
+
+/** Calcula a posição Y (topo do bloco de texto) conforme o alinhamento vertical. */
+function captionVerticalY(style: CaptionStyle, blockHeight: number, h: number): number {
+  switch (style.vertical) {
+    case 'top':
+      return h * 0.06
+    case 'middle':
+      return (h - blockHeight) / 2
+    case 'bottom':
+    default:
+      return h - blockHeight - h * 0.1
+  }
+}
+
+/**
+ * Desenha as legendas no canvas. Percorre as cues da CaptionTrack e desenha
+ * aquela cujo intervalo [startTime, endTime] contém o tempo resultante atual.
+ * Aplica estilo (fonte, cor, fundo, contorno, sombra), animação e posição.
+ */
+function drawCaptions(
+  ctx: CanvasRenderingContext2D,
+  track: CaptionTrack | null | undefined,
+  resultTime: number,
+  w: number,
+  h: number,
+): void {
+  if (!track || !track.cues || track.cues.length === 0) return
+  // Usa o tempo resultante (do vídeo editado) — as cues do CaptionPanel são
+  // timeline-space; como o editor só tem um clipe principal, resultTime ≈ raw.
+  const cue = track.cues.find((c) => resultTime >= c.startTime && resultTime <= c.endTime)
+  if (!cue) return
+
+  const style = resolveCaptionStyle(track, cue)
+  const animation = cue.animation || track.preset || 'fade'
+  const pos = cue.position // {x,y} normalizado ou undefined
+
+  // Progresso dentro da cue para animações.
+  const cueDur = Math.max(0.01, cue.endTime - cue.startTime)
+  const cueProgress = Math.max(0, Math.min(1, (resultTime - cue.startTime) / cueDur))
+
+  // Fonte
+  const fontPx = (style.fontSize / 1080) * w
+  const weight = style.fontWeight
+  const family = style.fontFamily || 'Inter'
+  ctx.save()
+  ctx.font = `${weight} ${fontPx}px ${family}, Arial, sans-serif`
+  ctx.textBaseline = 'top'
+  ctx.textAlign = style.align as CanvasTextAlign
+
+  // Texto (caixa alta opcional)
+  let text = cue.text || ''
+  if (style.uppercase) text = text.toUpperCase()
+
+  // Largura máxima
+  const maxWidthPx = (style.maxWidth / 100) * w
+  const lines = wrapCaptionText(ctx, text, maxWidthPx).slice(0, style.lines || 2)
+  const lineHeight = fontPx * (style.lineHeight || 1.2)
+  const blockHeight = lines.length * lineHeight
+
+  // Posição X/Y (normalizada). Default: centralizado horizontalmente e base.
+  const cx = pos ? pos.x : 0.5
+  let cyN = pos ? pos.y : undefined
+  if (cyN === undefined) {
+    // usa vertical preset
+    const topY = captionVerticalY(style, blockHeight, h)
+    cyN = (topY + blockHeight / 2) / h
+  }
+
+  // Alvo Y do centro do bloco
+  const centerY = cyN * h
+  const topY = centerY - blockHeight / 2
+
+  // Animações — calculam alpha/offset/scale.
+  let alpha = Math.min(1, style.opacity / 100)
+  let offsetY = 0
+  let scale = 1
+  if (animation === 'fade') {
+    const fade = 0.12
+    if (cueProgress < fade) alpha *= cueProgress / fade
+    else if (cueProgress > 1 - fade) alpha *= (1 - cueProgress) / fade
+  } else if (animation === 'pop') {
+    const p = Math.min(1, cueProgress / 0.15)
+    scale = 0.7 + 0.3 * p
+  } else if (animation === 'bounce') {
+    const p = cueProgress
+    offsetY = Math.sin(p * Math.PI) * fontPx * 0.3
+  } else if (animation === 'slide') {
+    const p = Math.min(1, cueProgress / 0.18)
+    offsetY = (1 - p) * fontPx * 0.6
+    alpha *= p
+  } else if (animation === 'typewriter') {
+    const total = text.length
+    const visible = Math.floor(cueProgress * total)
+    if (visible < total) text = text.slice(0, visible)
+  }
+  alpha = Math.max(0, Math.min(1, alpha))
+
+  ctx.globalAlpha = alpha
+  ctx.translate(0, offsetY)
+  if (scale !== 1) {
+    ctx.translate(cx * w, centerY)
+    ctx.scale(scale, scale)
+    ctx.translate(-cx * w, -centerY)
+  }
+
+  // Posição X do texto conforme alinhamento.
+  let xAnchor: number
+  if (style.align === 'left') {
+    xAnchor = cx * w - maxWidthPx / 2
+  } else if (style.align === 'right') {
+    xAnchor = cx * w + maxWidthPx / 2
+  } else {
+    xAnchor = cx * w
+  }
+
+  const pad = (style.padding / 1080) * w
+  const radius = (style.borderRadius / 1080) * w
+
+  // Desenha cada linha
+  let y = topY
+  for (let i = 0; i < lines.length; i++) {
+    const ln = lines[i]
+    const metrics = ctx.measureText(ln)
+    const tw = metrics.width
+
+    // Fundo
+    if (style.background && style.background !== 'transparent') {
+      let bgX: number
+      if (style.align === 'left') bgX = xAnchor - pad
+      else if (style.align === 'right') bgX = xAnchor - tw - pad
+      else bgX = xAnchor - tw / 2 - pad
+      const bgY = y - pad / 2
+      const bgW = tw + pad * 2
+      const bgH = lineHeight + pad
+      ctx.fillStyle = style.background
+      if (radius > 0) {
+        roundRectPath(ctx, bgX, bgY, bgW, bgH, radius)
+        ctx.fill()
+      } else {
+        ctx.fillRect(bgX, bgY, bgW, bgH)
+      }
+    }
+
+    // Sombra
+    if (style.shadow) {
+      ctx.shadowColor = 'rgba(0,0,0,0.85)'
+      ctx.shadowBlur = fontPx * 0.18
+      ctx.shadowOffsetY = fontPx * 0.06
+    }
+
+    // Contorno
+    if (style.outline) {
+      ctx.lineWidth = Math.max(2, fontPx * 0.08)
+      ctx.strokeStyle = '#000000'
+      ctx.lineJoin = 'round'
+      ctx.miterLimit = 2
+      ctx.strokeText(ln, xAnchor, y)
+    }
+
+    // Texto — animação karaoke/highlight colore a palavra ativa.
+    if (animation === 'karaoke' || animation === 'highlight') {
+      const words = ln.split(' ')
+      const activeColor = style.activeColor || '#22D3EE'
+      const baseColor = style.color || '#FFFFFF'
+      // palavra ativa global baseada no tempo
+      const activeWordIdx = (() => {
+        const cw = cue.words || []
+        for (let wi = 0; wi < cw.length; wi++) {
+          if (resultTime >= cw[wi].start && resultTime < cw[wi].end) return wi
+        }
+        // destaca até a última palavra já falada
+        let last = -1
+        for (let wi = 0; wi < cw.length; wi++) {
+          if (resultTime >= cw[wi].start) last = wi
+        }
+        return last
+      })()
+      // mede cada palavra e desenha com cor apropriada
+      let cursorX = xAnchor
+      if (style.align === 'center') {
+        // centraliza o bloco de linha
+        cursorX = xAnchor - tw / 2
+      } else if (style.align === 'right') {
+        cursorX = xAnchor - tw
+      }
+      const spaceW = ctx.measureText(' ').width
+      // conta offset de palavras já desenhadas nas linhas anteriores
+      let globalWordIdx = 0
+      for (let li = 0; li < i; li++) globalWordIdx += lines[li].split(' ').length
+      ctx.textAlign = 'left'
+      for (let wi = 0; wi < words.length; wi++) {
+        const word = words[wi]
+        const isKaraoke = animation === 'karaoke'
+        const isActive = isKaraoke
+          ? globalWordIdx + wi === activeWordIdx
+          : globalWordIdx + wi <= activeWordIdx
+        ctx.fillStyle = isActive ? activeColor : baseColor
+        ctx.fillText(word, cursorX, y)
+        cursorX += ctx.measureText(word).width + spaceW
+      }
+      ctx.textAlign = style.align as CanvasTextAlign
+    } else {
+      ctx.fillStyle = style.color
+      ctx.fillText(ln, xAnchor, y)
+    }
+
+    ctx.shadowColor = 'transparent'
+    ctx.shadowBlur = 0
+    ctx.shadowOffsetY = 0
+    y += lineHeight
+  }
+
+  ctx.restore()
+}
+
+/** Caminho de retângulo arredondado (para fundos de legenda/título). */
+function roundRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+) {
+  const rr = Math.min(r, h / 2, w / 2)
+  ctx.beginPath()
+  ctx.moveTo(x + rr, y)
+  ctx.arcTo(x + w, y, x + w, y + h, rr)
+  ctx.arcTo(x + w, y + h, x, y + h, rr)
+  ctx.arcTo(x, y + h, x, y, rr)
+  ctx.arcTo(x, y, x + w, y, rr)
+  ctx.closePath()
 }
 
 /** Desenha o título conforme a configuração. */
@@ -664,8 +953,50 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
     projectName,
     onProgress,
     shouldCancel,
+    captions,
+    adjustments,
+    effects,
+    editorAudio,
   } = opts
   const splitRects = computeSplitRects(stageLayout, splitCameraRatio, EXPORT_W, EXPORT_H)
+
+  // CSS filter combinado (ajustes + efeitos) — aplicado ao drawImage do vídeo.
+  const videoFilterCss = [
+    adjustments ? adjustmentsToCssFilter(adjustments) : '',
+    effects ? effectsToCssFilter(effects) : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  // Pré-carrega imagens de B-roll (thumbnail) para desenhar durante o render.
+  const cachedBrollImages = new Map<string, HTMLImageElement>()
+  for (const [blockId, broll] of Object.entries(brollByBlock)) {
+    if (broll && broll.thumbnail) {
+      try {
+        cachedBrollImages.set(blockId, await loadImageElement(broll.thumbnail))
+      } catch {
+        /* ignora */
+      }
+    }
+    if (broll && broll.url && !cachedBrollImages.has(blockId)) {
+      // Tenta carregar a URL do vídeo como imagem — falha graciosamente.
+      try {
+        cachedBrollImages.set(blockId, await loadImageElement(broll.url))
+      } catch {
+        /* ignora */
+      }
+    }
+  }
+
+  // Transição entre segmentos (dissolve crossfade).
+  const transitionType = effects?.transition || 'none'
+  const transitionDuration = Math.max(0.1, effects?.transitionDuration || 0.5)
+
+  // Áudio: setup de gain node para fade in/out e ducking.
+  let gainNode: GainNode | null = null
+  let analyserNode: AnalyserNode | null = null
+  let srcNodeRef: MediaElementAudioSourceNode | null = null
+  void srcNodeRef
 
   const emit = (p: ExportProgress) => onProgress?.(p)
 
@@ -742,7 +1073,18 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
     resources.audioCtx = audioCtx
     const dest = audioCtx.createMediaStreamDestination()
     const srcNode = audioCtx.createMediaElementSource(videoEl)
-    srcNode.connect(dest)
+    srcNodeRef = srcNode
+    // Gain node — controla volume geral, fades e ducking.
+    gainNode = audioCtx.createGain()
+    gainNode.gain.value = editorAudio ? Math.max(0, Math.min(1, editorAudio.voiceVolume / 100)) : 1
+    // Analyser — usado para detectar fala (ducking).
+    if (editorAudio?.ducking) {
+      analyserNode = audioCtx.createAnalyser()
+      analyserNode.fftSize = 1024
+      srcNode.connect(analyserNode)
+    }
+    srcNode.connect(gainNode)
+    gainNode.connect(dest)
     // Não conecta ao ctx.destination (evita eco de preview).
     audioStream = dest.stream
     for (const track of audioStream.getAudioTracks()) {
@@ -857,6 +1199,45 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
       settleReject(new Error(msg))
     }
 
+    // Aplica fades de áudio (gain) de acordo com o tempo resultante.
+    const updateAudioGain = (resultTime: number) => {
+      if (!gainNode || !editorAudio) return
+      const baseVol = Math.max(0, Math.min(1, editorAudio.voiceVolume / 100))
+      let gain = baseVol
+      // Fade-in
+      if (editorAudio.fadeIn > 0 && resultTime < editorAudio.fadeIn) {
+        gain *= Math.max(0, resultTime / editorAudio.fadeIn)
+      }
+      // Fade-out
+      if (editorAudio.fadeOut > 0 && resultTime > totalDuration - editorAudio.fadeOut) {
+        const remaining = Math.max(0, totalDuration - resultTime)
+        gain *= Math.max(0, remaining / editorAudio.fadeOut)
+      }
+      // Ducking: se houver fala detectada, reduz o volume (simula música baixa).
+      // Aqui o gainNode controla o áudio do vídeo (voz), então o ducking só
+      // faz sentido se houver música separada — mantemos o gain da voz estável.
+      // (A redução de música seria aplicada num segundo gain node de música.)
+      try {
+        gainNode.gain.value = gain
+      } catch {
+        /* noop */
+      }
+    }
+
+    // Detecção de fala para ducking (via analyser).
+    const isVoiceActive = (): boolean => {
+      if (!analyserNode) return false
+      const buf = new Uint8Array(analyserNode.frequencyBinCount)
+      analyserNode.getByteTimeDomainData(buf)
+      let sum = 0
+      for (let i = 0; i < buf.length; i++) {
+        const v = (buf[i] - 128) / 128
+        sum += v * v
+      }
+      const rms = Math.sqrt(sum / buf.length)
+      return rms > 0.04 // limiar aproximado de fala
+    }
+
     const renderFrame = () => {
       if (resources.cancelled) return
       if (shouldCancel && shouldCancel()) {
@@ -882,6 +1263,12 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
       }
 
       const rawTime = videoEl.currentTime
+      const resultTime = elapsedInResult + (rawTime - seg.start)
+
+      // Atualiza áudio (fades / ducking).
+      updateAudioGain(resultTime)
+      void isVoiceActive
+
       // Se passamos do fim do segmento, avança para o próximo.
       if (rawTime >= seg.end - 0.01) {
         currentSegmentIndex += 1
@@ -901,23 +1288,34 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
         return
       }
 
+      // Calcula alpha de transição (dissolve) próximo ao fim do segmento.
+      let transitionAlpha = 0 // 0 = sem transição
+      if (transitionType === 'dissolve' && currentSegmentIndex < effectiveSegments.length - 1) {
+        const remaining = seg.end - rawTime
+        if (remaining < transitionDuration) {
+          transitionAlpha = 1 - Math.max(0, remaining / transitionDuration)
+        }
+      }
+
       // Desenha o frame.
       drawBackground(ctx, background, EXPORT_W, EXPORT_H, videoEl, cachedBgImage)
 
+      // Aplica o CSS filter de ajustes+efeitos ao desenhar o vídeo.
+      const filterCss = videoFilterCss || undefined
+
       if (splitRects) {
         // Layout dividido: câmera numa fatia + mídia noutra fatia.
-        // Desenha a mídia secundária (imagem estática) na metade não-câmera.
         drawSplitMediaImage(ctx, splitRects.media, cachedSplitImage)
-        // Desenha o vídeo da câmera (com espelho) na fatia da câmera.
-        if (backgroundBlur > 0) {
+        if (backgroundBlur > 0 || filterCss) {
           ctx.save()
-          ctx.filter = `blur(${backgroundBlur}px)`
+          ctx.filter = [backgroundBlur > 0 ? `blur(${backgroundBlur}px)` : '', filterCss]
+            .filter(Boolean)
+            .join(' ')
           drawVideoCoverRect(ctx, videoEl, splitRects.camera, true)
           ctx.restore()
         } else {
           drawVideoCoverRect(ctx, videoEl, splitRects.camera, true)
         }
-        // Linha divisória sutil.
         ctx.save()
         ctx.fillStyle = 'rgba(0,0,0,0.6)'
         const divY = splitRects.camera.y + splitRects.camera.h
@@ -925,27 +1323,58 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
         ctx.restore()
       } else {
         // Layout cheio: vídeo cobre todo o canvas.
-        if (backgroundBlur > 0) {
+        if (backgroundBlur > 0 || filterCss) {
           ctx.save()
-          ctx.filter = `blur(${backgroundBlur}px)`
+          ctx.filter = [backgroundBlur > 0 ? `blur(${backgroundBlur}px)` : '', filterCss]
+            .filter(Boolean)
+            .join(' ')
           drawVideoCover(ctx, videoEl, EXPORT_W, EXPORT_H, 0, true)
           ctx.restore()
         } else {
           drawVideoCover(ctx, videoEl, EXPORT_W, EXPORT_H, 0, true)
         }
       }
+
+      // Transição dissolve: escurece o frame no fim do segmento (crossfade simples).
+      if (transitionAlpha > 0) {
+        ctx.save()
+        ctx.fillStyle = `rgba(0,0,0,${transitionAlpha.toFixed(3)})`
+        ctx.fillRect(0, 0, EXPORT_W, EXPORT_H)
+        ctx.restore()
+      }
+
       const activeBlock = findActiveBlock(blocks, rawTime)
       if (activeBlock) {
         const arts = artsByBlock[activeBlock.id] || []
         drawArts(ctx, arts, EXPORT_W, EXPORT_H, cachedArts)
         const broll = brollByBlock[activeBlock.id] || null
-        drawBRoll(ctx, broll, EXPORT_W, EXPORT_H)
+        drawBRoll(ctx, broll, EXPORT_W, EXPORT_H, cachedBrollImages.get(activeBlock.id) || null)
       }
       drawReaction(ctx, reaction, EXPORT_W, EXPORT_H)
-      drawTitle(ctx, title, EXPORT_W, EXPORT_H, elapsedInResult + (rawTime - seg.start))
+      drawTitle(ctx, title, EXPORT_W, EXPORT_H, resultTime)
+      drawCaptions(ctx, captions, resultTime, EXPORT_W, EXPORT_H)
+
+      // Vinheta (overlay) — quando ajuste > 0.
+      if (adjustments && adjustments.vignette > 0) {
+        ctx.save()
+        const v = adjustments.vignette
+        const grad = ctx.createRadialGradient(
+          EXPORT_W / 2,
+          EXPORT_H / 2,
+          Math.min(EXPORT_W, EXPORT_H) * (1 - v / 100) * 0.5,
+          EXPORT_W / 2,
+          EXPORT_H / 2,
+          Math.max(EXPORT_W, EXPORT_H) * 0.7,
+        )
+        grad.addColorStop(0, 'rgba(0,0,0,0)')
+        grad.addColorStop(1, `rgba(0,0,0,${(v / 100).toFixed(3)})`)
+        ctx.fillStyle = grad
+        ctx.fillRect(0, 0, EXPORT_W, EXPORT_H)
+        ctx.restore()
+      }
 
       // Progresso.
-      const done = elapsedInResult + (rawTime - seg.start)
+      const done = resultTime
       const percent = Math.min(94, Math.round((done / totalDuration) * 90) + 5)
       emit({
         phase: 'rendering',

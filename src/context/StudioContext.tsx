@@ -223,37 +223,9 @@ export interface BrandOSContext {
   generatedAt: string | null
 }
 
-const DEFAULT_PROJECTS: Project[] = [
-  {
-    id: 'proj-1',
-    title: '5 Hábitos de Criadores de Alto Impacto',
-    type: 'reel',
-    createdAt: new Date(Date.now() - 3600000 * 4).toISOString(),
-    updatedAt: new Date(Date.now() - 3600000 * 2).toISOString(),
-    duration: 48,
-    thumbnail: 'https://img.usecurling.com/p/600/1066?q=content+creator+studio&color=purple',
-    aspectRatio: '9:16',
-    resolution: '1080p',
-    status: 'ready',
-    scriptText:
-      'Descubra agora os 5 hábitos diários que todo criador profissional usa para reter 80% da audiência.',
-    clips: [
-      {
-        id: 'clip-1',
-        track: 'video',
-        name: 'Abertura Dinâmica',
-        startTime: 0,
-        duration: 14,
-        sourceUrl:
-          'https://img.usecurling.com/p/1080/1920?q=cinematic+podcaster+speaking&color=purple',
-        mediaType: 'video',
-        volume: 100,
-        filter: 'cinematic',
-      },
-    ],
-    subtitles: [],
-  },
-]
+// Sem projeto demo padrão: o editor começa vazio. Um projeto demo com clipe
+// fake (URL de imagem usada como vídeo) quebrava o contrato do editor real.
+const DEFAULT_PROJECTS: Project[] = []
 
 const DEFAULT_MEDIA: MediaItem[] = [
   {
@@ -757,24 +729,11 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       duration: projectData.duration || 30,
-      thumbnail:
-        projectData.thumbnail ||
-        'https://img.usecurling.com/p/600/1066?q=video+creator+editing&color=purple',
+      thumbnail: projectData.thumbnail || '',
       aspectRatio: projectData.aspectRatio || (projectData.type === 'youtube' ? '16:9' : '9:16'),
       resolution: projectData.resolution || '1080p',
       status: 'draft',
-      clips: projectData.clips || [
-        {
-          id: 'clip-base-' + Date.now(),
-          track: 'video',
-          name: 'Gravação Principal',
-          startTime: 0,
-          duration: 30,
-          sourceUrl: 'https://img.usecurling.com/p/1080/1920?q=content+creator+studio&color=purple',
-          mediaType: 'video',
-          volume: 100,
-        },
-      ],
+      clips: projectData.clips || [],
       subtitles: projectData.subtitles || [],
       scriptText: projectData.scriptText || '',
     }
