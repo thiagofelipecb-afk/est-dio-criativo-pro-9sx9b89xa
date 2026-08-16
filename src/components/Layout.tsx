@@ -28,6 +28,7 @@ import {
   Plus,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Bell,
   HelpCircle,
   Menu,
@@ -37,9 +38,9 @@ import {
   Film,
   ListChecks,
   Scissors,
+  User,
 } from 'lucide-react'
 import ClaraWidget from '@/components/ClaraWidget'
-import { usePlatform } from '@/context/PlatformContext'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -55,7 +56,6 @@ import { toast } from 'sonner'
 export default function Layout() {
   const { projects, activeProjectId, setActiveProjectId, setIsCreateModalOpen, isFocusMode } =
     useStudio()
-  const { hasBrandOS } = usePlatform()
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -70,6 +70,118 @@ export default function Layout() {
 
   const isGravadoraFocus = location.pathname === '/gravadora' && isFocusMode
 
+  type NavItem = {
+    label: string
+    path: string
+    icon: React.ComponentType<{ className?: string }>
+    badge?: string
+  }
+
+  type NavGroup = {
+    id: string
+    label: string
+    items: NavItem[]
+  }
+
+  // Grupo 1 — Principal (sempre visível, sem accordion)
+  const principalItems: NavItem[] = [
+    { label: 'Início', path: '/', icon: Home },
+    { label: 'Meus Projetos', path: '/projetos', icon: FolderKanban },
+  ]
+
+  // Grupo 2 — Estratégia (Módulo 1 removido: /modulo-1 redireciona para /posicionamento)
+  const estrategiaItems: NavItem[] = [
+    { label: 'Posicionamento', path: '/posicionamento', icon: Compass },
+    { label: 'OKRs Estratégicos', path: '/posicionamento/okrs', icon: ListChecks },
+    { label: 'Módulo 2 — Conteúdo', path: '/modulo-2', icon: PenSquare },
+    { label: 'Módulo 3 — Funis', path: '/funis', icon: GitBranch },
+    { label: 'Módulo 4 — Ativos', path: '/modulo-4', icon: Boxes },
+    { label: 'Módulo 5 — Escala', path: '/modulo-5', icon: Megaphone },
+    { label: 'Módulo 6 — Vendas', path: '/modulo-6', icon: Headphones },
+  ]
+
+  // Grupo 3 — Criar
+  const criarItems: NavItem[] = [
+    { label: 'Gravadora', path: '/gravadora', icon: Camera, badge: 'REC' },
+    { label: 'Auto-Clipper IA', path: '/ai-clipper', icon: Scissors },
+    { label: 'Criar Carrossel', path: '/carrossel', icon: Layers },
+    { label: 'Criar Post', path: '/criar-post', icon: FileImage },
+    { label: 'Teleprompter', path: '/teleprompter', icon: ScrollText },
+    { label: 'Agendamento', path: '/agendamento', icon: Calendar, badge: 'Auto' },
+  ]
+
+  // Grupo 4 — Biblioteca
+  const bibliotecaItems: NavItem[] = [
+    { label: 'Visão geral', path: '/biblioteca', icon: Library },
+    { label: 'Modelos', path: '/modelos', icon: Layers },
+    { label: 'Músicas', path: '/musicas', icon: Music },
+    { label: 'Mídias', path: '/midias', icon: FolderOpen },
+    { label: 'Elementos', path: '/elementos', icon: Shapes },
+  ]
+
+  // Grupo 5 — Resultados
+  const resultadosItems: NavItem[] = [
+    { label: 'Analytics', path: '/analytics', icon: BarChart3 },
+    { label: 'Métricas', path: '/metricas', icon: BarChart3 },
+  ]
+
+  // Grupo 6 — Sistema
+  const sistemaItems: NavItem[] = [
+    { label: 'Configurações', path: '/configuracoes', icon: Settings },
+    { label: 'Versão Mobile', path: '/versao-mobile', icon: Smartphone },
+    { label: 'Assessoria', path: '/assessoria', icon: Briefcase },
+    { label: 'Perfil', path: '/perfil', icon: User },
+  ]
+
+  const collapsibleGroups: NavGroup[] = [
+    { id: 'estrategia', label: 'Estratégia', items: estrategiaItems },
+    { id: 'criar', label: 'Criar', items: criarItems },
+    { id: 'biblioteca', label: 'Biblioteca', items: bibliotecaItems },
+    { id: 'resultados', label: 'Resultados', items: resultadosItems },
+    { id: 'sistema', label: 'Sistema', items: sistemaItems },
+  ]
+
+  const MENU_STORAGE_KEY = 'lumen_menu_groups'
+  const DEFAULT_OPEN_GROUPS: Record<string, boolean> = {
+    estrategia: true,
+    criar: true,
+    biblioteca: false,
+    resultados: false,
+    sistema: false,
+  }
+
+  const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>(() => {
+    if (typeof window === 'undefined') return DEFAULT_OPEN_GROUPS
+    try {
+      const stored = window.localStorage.getItem(MENU_STORAGE_KEY)
+      if (stored) return { ...DEFAULT_OPEN_GROUPS, ...JSON.parse(stored) }
+    } catch {
+      /* ignore */
+    }
+    return DEFAULT_OPEN_GROUPS
+  })
+
+  React.useEffect(() => {
+    try {
+      window.localStorage.setItem(MENU_STORAGE_KEY, JSON.stringify(openGroups))
+    } catch {
+      /* ignore */
+    }
+  }, [openGroups])
+
+  // Abre automaticamente o grupo que contém a rota ativa
+  React.useEffect(() => {
+    for (const group of collapsibleGroups) {
+      if (group.items.some((i) => location.pathname === i.path)) {
+        setOpenGroups((prev) => (prev[group.id] ? prev : { ...prev, [group.id]: true }))
+        break
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname])
+
+  const toggleGroup = (id: string) => setOpenGroups((prev) => ({ ...prev, [id]: !prev[id] }))
+
   if (isGravadoraFocus) {
     return (
       <div className="flex h-screen w-screen overflow-hidden bg-[#0B0B10] text-[#F4F4F7] font-sans">
@@ -80,61 +192,53 @@ export default function Layout() {
     )
   }
 
-  const moduleItems = [
-    {
-      label: 'Módulo 1 — Posicionamento',
-      path: '/modulo-1',
-      icon: Compass,
-      badge: hasBrandOS ? undefined : 'Pendente',
-    },
-    { label: 'Módulo 2 — Conteúdo', path: '/modulo-2', icon: PenSquare },
-    { label: 'Módulo 3 — Funis', path: '/funis', icon: GitBranch },
-    { label: 'Módulo 4 — Ativos', path: '/modulo-4', icon: Boxes },
-    { label: 'Módulo 5 — Escala', path: '/modulo-5', icon: Megaphone },
-    { label: 'Módulo 6 — Vendas', path: '/modulo-6', icon: Headphones },
-  ]
-
-  type NavItem = {
-    label: string
-    path: string
-    icon: React.ComponentType<{ className?: string }>
-    badge?: string
+  const renderItem = (item: NavItem) => {
+    const isActive = location.pathname === item.path
+    const Icon = item.icon
+    const showLabels = !isSidebarCollapsed || isMobileMenuOpen
+    return (
+      <Tooltip key={item.path} delayDuration={isSidebarCollapsed ? 100 : 1000}>
+        <TooltipTrigger asChild>
+          <Link
+            to={item.path}
+            onClick={() => setIsMobileMenuOpen(false)}
+            aria-label={item.label}
+            className={`relative flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150 ${
+              isActive
+                ? 'bg-[#1C1C27] text-white shadow-sm font-semibold'
+                : 'text-[#9494A8] hover:bg-white/5 hover:text-white'
+            }`}
+          >
+            {isActive && (
+              <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-[#7C5CFC] shadow-[0_0_8px_#7C5CFC]" />
+            )}
+            <Icon
+              className={`h-4 w-4 shrink-0 transition-transform ${
+                isActive ? 'text-[#7C5CFC] scale-105' : 'text-[#9494A8]'
+              }`}
+            />
+            {showLabels && <span className="truncate">{item.label}</span>}
+            {showLabels && item.badge && (
+              <span
+                className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                  item.badge === 'REC'
+                    ? 'bg-red-500/20 text-red-400 border border-red-500/30 animate-pulse'
+                    : 'bg-[#7C5CFC]/20 text-[#7C5CFC] border border-[#7C5CFC]/30'
+                }`}
+              >
+                {item.badge}
+              </span>
+            )}
+          </Link>
+        </TooltipTrigger>
+        {isSidebarCollapsed && !isMobileMenuOpen && (
+          <TooltipContent side="right" className="bg-[#1C1C27] text-white border-white/10 text-xs">
+            {item.label}
+          </TooltipContent>
+        )}
+      </Tooltip>
+    )
   }
-
-  const studioItems: NavItem[] = [
-    { label: 'Auto-Clipper IA', path: '/ai-clipper', icon: Scissors, badge: 'IA' },
-    { label: 'Gravadora', path: '/gravadora', icon: Camera, badge: 'REC' },
-    { label: 'Criar Carrossel', path: '/carrossel', icon: Layers },
-    { label: 'Criar Post', path: '/criar-post', icon: FileImage },
-    { label: 'Teleprompter', path: '/teleprompter', icon: ScrollText },
-    { label: 'Agendamento', path: '/agendamento', icon: Calendar, badge: 'Auto' },
-  ]
-
-  const transversalItems: NavItem[] = [
-    { label: 'Biblioteca', path: '/biblioteca', icon: Library },
-    { label: 'Analytics', path: '/analytics', icon: BarChart3 },
-    { label: 'Métricas', path: '/metricas', icon: BarChart3 },
-    { label: 'Configurações', path: '/configuracoes', icon: Settings },
-    { label: 'Versão Mobile', path: '/versao-mobile', icon: Smartphone },
-    { label: 'Assessoria', path: '/assessoria', icon: Briefcase },
-  ]
-
-  const navItems: NavItem[] = [
-    { label: 'Início', path: '/', icon: Home },
-    { label: 'Meus Projetos', path: '/projetos', icon: FolderKanban },
-    { label: 'Posicionamento', path: '/posicionamento', icon: Compass },
-    { label: 'OKRs Estratégicos', path: '/posicionamento/okrs', icon: ListChecks },
-    ...moduleItems,
-    ...studioItems,
-    ...transversalItems,
-  ]
-
-  const libraryItems: NavItem[] = [
-    { label: 'Modelos', path: '/modelos', icon: Layers },
-    { label: 'Músicas', path: '/musicas', icon: Music },
-    { label: 'Mídias', path: '/midias', icon: FolderOpen },
-    { label: 'Elementos', path: '/elementos', icon: Shapes },
-  ]
 
   const handleShowHelp = () => {
     toast.info('Central de Ajuda LUMEN Studio', {
@@ -212,104 +316,56 @@ export default function Layout() {
             </button>
           </div>
 
-          <nav className="p-2 space-y-1 overflow-y-auto max-h-[calc(100vh-160px)]">
-            {navItems.map((item) => {
-              const isActive = location.pathname === item.path
-              const Icon = item.icon
+          <nav className="p-2 space-y-2 overflow-y-auto max-h-[calc(100vh-160px)]">
+            {isSidebarCollapsed && !isMobileMenuOpen ? (
+              /* Menu recolhido (64px): somente itens do grupo Principal como ícones */
+              <div className="space-y-1">{principalItems.map(renderItem)}</div>
+            ) : (
+              <>
+                {/* Grupo 1 — Principal (sempre visível, sem accordion) */}
+                <div className="space-y-1">
+                  <div className="flex items-center px-3 text-[10px] font-semibold tracking-wider text-[#9494A8]/70 uppercase">
+                    Principal
+                  </div>
+                  {principalItems.map(renderItem)}
+                </div>
 
-              return (
-                <Tooltip key={item.path} delayDuration={isSidebarCollapsed ? 100 : 1000}>
-                  <TooltipTrigger asChild>
-                    <Link
-                      to={item.path}
-                      onClick={() => setIsMobileMenuOpen(false)}
-                      className={`relative flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150 ${
-                        isActive
-                          ? 'bg-[#1C1C27] text-white shadow-sm font-semibold'
-                          : 'text-[#9494A8] hover:bg-white/5 hover:text-white'
-                      }`}
-                    >
-                      {isActive && (
-                        <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-[#7C5CFC] shadow-[0_0_8px_#7C5CFC]" />
-                      )}
-                      <Icon
-                        className={`h-4 w-4 shrink-0 transition-transform ${
-                          isActive ? 'text-[#7C5CFC] scale-105' : 'text-[#9494A8]'
-                        }`}
-                      />
-                      {(!isSidebarCollapsed || isMobileMenuOpen) && (
-                        <span className="truncate">{item.label}</span>
-                      )}
-                      {(!isSidebarCollapsed || isMobileMenuOpen) && item.badge && (
-                        <span
-                          className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                            item.badge === 'REC'
-                              ? 'bg-red-500/20 text-red-400 border border-red-500/30 animate-pulse'
-                              : 'bg-[#7C5CFC]/20 text-[#7C5CFC] border border-[#7C5CFC]/30'
-                          }`}
-                        >
-                          {item.badge}
-                        </span>
-                      )}
-                    </Link>
-                  </TooltipTrigger>
-                  {isSidebarCollapsed && !isMobileMenuOpen && (
-                    <TooltipContent
-                      side="right"
-                      className="bg-[#1C1C27] text-white border-white/10 text-xs"
-                    >
-                      {item.label}
-                    </TooltipContent>
-                  )}
-                </Tooltip>
-              )
-            })}
-          </nav>
-
-          <div className="px-3 pt-3 pb-1">
-            {(!isSidebarCollapsed || isMobileMenuOpen) && (
-              <div className="flex items-center gap-1 text-[10px] font-semibold tracking-wider text-[#9494A8]/70 uppercase px-2 mb-1.5">
-                <Library className="w-3 h-3" />
-                <span>Bibliotecas</span>
-              </div>
-            )}
-            <div className="space-y-0.5">
-              {libraryItems.map((item) => {
-                const isActive = location.pathname === item.path
-                const Icon = item.icon
-                return (
-                  <Tooltip key={item.path} delayDuration={isSidebarCollapsed ? 100 : 1000}>
-                    <TooltipTrigger asChild>
-                      <Link
-                        to={item.path}
-                        onClick={() => setIsMobileMenuOpen(false)}
-                        className={`w-full flex items-center gap-3 px-3 py-1.5 rounded-lg text-xs transition-colors text-left ${
-                          isActive
-                            ? 'bg-[#1C1C27] text-white font-semibold'
-                            : 'text-[#9494A8] hover:bg-white/5 hover:text-white'
+                {/* Grupos recolhíveis (accordion) */}
+                {collapsibleGroups.map((group) => {
+                  const isOpen = !!openGroups[group.id]
+                  const hasActive = group.items.some((i) => location.pathname === i.path)
+                  return (
+                    <div key={group.id} className="space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => toggleGroup(group.id)}
+                        aria-expanded={isOpen}
+                        className={`group w-full flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-semibold tracking-wider uppercase transition-colors cursor-pointer ${
+                          hasActive
+                            ? 'text-[#9494A8]'
+                            : 'text-[#9494A8]/70 hover:text-[#9494A8] hover:bg-white/5'
                         }`}
                       >
-                        <Icon
-                          className={`h-3.5 w-3.5 shrink-0 ${
-                            isActive ? 'text-[#7C5CFC]' : 'text-[#9494A8]'
+                        <ChevronDown
+                          className={`w-3 h-3 shrink-0 transition-transform duration-200 ${
+                            isOpen ? 'rotate-180' : 'rotate-0'
                           }`}
                         />
-                        {(!isSidebarCollapsed || isMobileMenuOpen) && <span>{item.label}</span>}
-                      </Link>
-                    </TooltipTrigger>
-                    {isSidebarCollapsed && !isMobileMenuOpen && (
-                      <TooltipContent
-                        side="right"
-                        className="bg-[#1C1C27] text-white border-white/10 text-xs"
+                        <span>{group.label}</span>
+                      </button>
+                      <div
+                        className={`overflow-hidden transition-[max-height] duration-200 ease-out ${
+                          isOpen ? 'max-h-[640px]' : 'max-h-0'
+                        }`}
                       >
-                        Biblioteca: {item.label}
-                      </TooltipContent>
-                    )}
-                  </Tooltip>
-                )
-              })}
-            </div>
-          </div>
+                        <div className="space-y-1 pt-0.5">{group.items.map(renderItem)}</div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </>
+            )}
+          </nav>
         </div>
 
         <div className="p-2 border-t border-white/5 bg-[#0B0B10]/40">

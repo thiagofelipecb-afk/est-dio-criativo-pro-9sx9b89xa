@@ -68,7 +68,7 @@ const App = () => (
                 <Route path="/midias" element={<Midias />} />
                 <Route path="/elementos" element={<Elementos />} />
                 {/* Plataforma de Marketing e Vendas com IA */}
-                <Route path="/modulo-1" element={<Posicionamento />} />
+                <Route path="/modulo-1" element={<Navigate to="/posicionamento" replace />} />
                 <Route path="/posicionamento" element={<Posicionamento />} />
                 <Route path="/posicionamento/documento" element={<PosicionamentoDocumento />} />
                 <Route path="/posicionamento/okrs" element={<OKRs />} />
