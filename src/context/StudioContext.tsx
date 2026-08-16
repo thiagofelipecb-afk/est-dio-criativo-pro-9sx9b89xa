@@ -35,10 +35,14 @@ import type { CameraHardwareSettings } from '@/lib/camera-controls'
 /** Defaults FASE 4 — Fundo. */
 const DEFAULT_BACKGROUND_CONFIG: BackgroundConfig = {
   type: 'none',
-  blurAmount: 12,
+  blurAmount: 50,
   presetColor: '#1E3A5F',
   imageDataUrl: undefined,
   imageName: undefined,
+  imageFit: 'cover',
+  gradientColor1: '#7C5CFC',
+  gradientColor2: '#22D3EE',
+  gradientAngle: 135,
   segmentationEnabled: false,
 }
 

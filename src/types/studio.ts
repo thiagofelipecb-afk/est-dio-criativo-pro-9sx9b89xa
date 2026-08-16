@@ -535,7 +535,10 @@ export interface WhiteboardState {
    =========================================================================== */
 
 /** Tipo de fundo do canvas 9:16 da Gravadora. */
-export type BackgroundType = 'none' | 'blur' | 'preset' | 'image'
+export type BackgroundType = 'none' | 'blur' | 'preset' | 'image' | 'gradient' | 'removal'
+
+/** Modo de ajuste (object-fit) de uma imagem de fundo. */
+export type BackgroundImageFit = 'contain' | 'cover' | 'fill'
 
 /** Cor de fundo preset disponível no seletor. */
 export interface BackgroundPresetColor {
@@ -547,7 +550,11 @@ export interface BackgroundPresetColor {
 /** Configuração persistida do fundo do canvas (lumen_gravadora_fundo). */
 export interface BackgroundConfig {
   type: BackgroundType
-  /** Intensidade do desfoque (quando type='blur'): 4–25px. Padrão 12. */
+  /**
+   * Intensidade do desfoque (quando type='blur'). Legado: 4–25px.
+   * NOVO: 0–100 (percentual). Valores > 30 são tratados como px legado.
+   * Padrão 50.
+   */
   blurAmount?: number
   /** Cor selecionada nos presets (quando type='preset'). */
   presetColor?: string
@@ -555,6 +562,14 @@ export interface BackgroundConfig {
   imageDataUrl?: string
   /** Nome original do arquivo de imagem. */
   imageName?: string
+  /** Modo de ajuste da imagem de fundo (contain/cover/fill). Padrão 'cover'. */
+  imageFit?: BackgroundImageFit
+  /** Primeira cor do gradiente (quando type='gradient'). */
+  gradientColor1?: string
+  /** Segunda cor do gradiente (quando type='gradient'). */
+  gradientColor2?: string
+  /** Ângulo do gradiente em graus (0–360). Padrão 135. */
+  gradientAngle?: number
   /** Tenta remover o fundo da câmera via segmentação do navegador. */
   segmentationEnabled: boolean
 }

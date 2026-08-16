@@ -28,6 +28,11 @@ import {
   type ArtLayer,
 } from '@/lib/studio-compositor'
 import { BeautyPipeline, type BeautyRuntime } from '@/lib/beauty-pipeline'
+import {
+  SegmentationPipeline,
+  setSegmentationStatus,
+  type SegmentationStatus,
+} from '@/lib/segmentation'
 import type {
   BackgroundConfig,
   StageLayout,
@@ -128,6 +133,46 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(funct
   const processedSourceRef = useRef<CanvasImageSource | null>(null)
   const processingRef = useRef(false)
 
+  // === Pipeline de segmentação (Selfie Segmentation) ===
+  // Carregado sob demanda quando `background.segmentationEnabled` está ligado.
+  // A máscara é computada assincronamente a cada frame e repassada ao
+  // compositor como `segmentationMask` — a pessoa é recortada e desenhada
+  // sobre o fundo. Se o MediaPipe não estiver disponível, cai para o fallback
+  // (sem máscara) e o status é reportado ao BackgroundPanel.
+  const segPipelineRef = useRef<SegmentationPipeline | null>(null)
+  const segMaskRef = useRef<ImageData | null>(null)
+  const segProcessingRef = useRef(false)
+
+  // Carrega/libera o pipeline conforme o toggle de segmentação.
+  useEffect(() => {
+    const enabled = background.segmentationEnabled
+    if (enabled) {
+      if (!segPipelineRef.current) {
+        segPipelineRef.current = new SegmentationPipeline()
+        setSegmentationStatus('loading')
+      }
+      segPipelineRef.current.load().then((ok) => {
+        setSegmentationStatus(ok ? 'ready' : 'unavailable')
+      })
+    } else {
+      segPipelineRef.current?.dispose()
+      segPipelineRef.current = null
+      segMaskRef.current = null
+    }
+    return () => {
+      // Não dispõe aqui — o pipeline é estável durante a sessão; só ao
+      // desligar o toggle (ramo acima) ele é liberado.
+    }
+  }, [background.segmentationEnabled])
+
+  // Libera o pipeline ao desmontar.
+  useEffect(() => {
+    return () => {
+      segPipelineRef.current?.dispose()
+      segPipelineRef.current = null
+    }
+  }, [])
+
   useImperativeHandle(
     ref,
     (): StudioStageHandle => ({
@@ -189,6 +234,32 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(funct
           })
       }
 
+      // === Segmentação ===
+      // Computa a máscara da pessoa a cada frame (quando habilitada). O envio
+      // do frame ao MediaPipe é assíncrono; usamos a máscara mais recente.
+      const segPipeline = segPipelineRef.current
+      const segEnabled = p.background.segmentationEnabled
+      if (segPipeline && segEnabled && video && ready && !segProcessingRef.current) {
+        segProcessingRef.current = true
+        const W = canvas.width
+        const H = canvas.height
+        segPipeline
+          .processFrame(video as HTMLVideoElement, W, H)
+          .then((out) => {
+            segMaskRef.current = out.mask
+            setSegmentationStatus(out.status)
+          })
+          .catch(() => {
+            /* erro pontual — mantém a última máscara */
+          })
+          .finally(() => {
+            segProcessingRef.current = false
+          })
+      }
+      // Sem segmentação: limpa a máscara para o compositor não recortar.
+      const effectiveMask =
+        p.background.segmentationEnabled && p.background.type !== 'none' ? segMaskRef.current : null
+
       const input: CompositionInputs = {
         ctx,
         width: canvas.width,
@@ -201,6 +272,8 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(funct
         // Quando o pipeline processou, passamos o canvas WebGL; senão null
         // (o compositor usa o vídeo cru com filtros CSS globais).
         cameraSource: processedSourceRef.current,
+        // Máscara de segmentação (quando ativa) — recorta a pessoa sobre o fundo.
+        segmentationMask: effectiveMask,
         split: p.split,
         splitMediaEl: p.splitMediaEl,
         art: p.art,
