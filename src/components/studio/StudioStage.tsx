@@ -16,7 +16,7 @@
    O HUD do teleprompter NÃO faz parte deste canvas (é um portal separado).
    ========================================================================== */
 
-import React, { useEffect, useRef, forwardRef, useImperativeHandle } from 'react'
+import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react'
 import {
   drawComposition,
   ASPECT_DIMENSIONS,
@@ -31,6 +31,8 @@ import { BeautyPipeline, type BeautyRuntime } from '@/lib/beauty-pipeline'
 import {
   SegmentationPipeline,
   setSegmentationStatus,
+  getSegmentationStatus,
+  subscribeSegmentationStatus,
   type SegmentationStatus,
 } from '@/lib/segmentation'
 import type {
@@ -41,6 +43,26 @@ import type {
   BeautyConfig,
   FaceStatus,
 } from '@/types/studio'
+
+/** Texto/estilo do indicador de segmentação exibido sobre o canvas. */
+const SEG_STATUS_LABEL: Record<SegmentationStatus, { label: string; className: string }> = {
+  loading: {
+    label: 'Segmentação carregando...',
+    className: 'bg-amber-500/20 border-amber-500/40 text-amber-200',
+  },
+  ready: {
+    label: 'Fundo aplicado',
+    className: 'bg-emerald-500/20 border-emerald-500/40 text-emerald-200',
+  },
+  unavailable: {
+    label: 'Segmentação indisponível (usando fallback)',
+    className: 'bg-red-500/20 border-red-500/40 text-red-200',
+  },
+  'no-person': {
+    label: 'Rosto não detectado',
+    className: 'bg-orange-500/20 border-orange-500/40 text-orange-200',
+  },
+}
 
 export interface StudioStageHandle {
   /** Canvas usado para preview e gravação (captureStream). */
@@ -142,6 +164,18 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(funct
   const segPipelineRef = useRef<SegmentationPipeline | null>(null)
   const segMaskRef = useRef<ImageData | null>(null)
   const segProcessingRef = useRef(false)
+  // Estado da segmentação exibido no overlay do canvas (assinado ao store
+  // global de status para que o BackgroundPanel e o StudioStage fiquem em
+  // sincronia). Inicia com o status atual do store (pode ser 'loading').
+  const [segStatus, setSegStatus] = useState<SegmentationStatus>(() =>
+    getSegmentationStatus(),
+  )
+  useEffect(() => {
+    const unsub = subscribeSegmentationStatus((s) => setSegStatus(s))
+    return () => {
+      unsub()
+    }
+  }, [])
 
   // Carrega/libera o pipeline conforme o toggle de segmentação.
   useEffect(() => {
@@ -291,14 +325,31 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(funct
     }
   }, [aspect])
 
+  // Indicador de segmentação só é relevante quando há um fundo aplicado e a
+  // segmentação está habilitada (qualquer modo exceto 'none'). Em 'none' a
+  // segmentação não tem efeito visual — não exibimos o badge.
+  const showSegBadge =
+    background.segmentationEnabled && background.type !== 'none' && layout === 'full'
+
   return (
-    <canvas
-      ref={canvasRef}
-      className={className}
-      aria-label="Pré-visualização da composição da gravadora"
-      role="img"
-      style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-    />
+    <div className="relative w-full h-full">
+      <canvas
+        ref={canvasRef}
+        className={className}
+        aria-label="Pré-visualização da composição da gravadora"
+        role="img"
+        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+      />
+      {showSegBadge && (
+        <div
+          aria-live="polite"
+          className={`pointer-events-none absolute top-2 left-2 z-20 flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-semibold backdrop-blur-sm ${SEG_STATUS_LABEL[segStatus].className}`}
+        >
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-current" />
+          {SEG_STATUS_LABEL[segStatus].label}
+        </div>
+      )}
+    </div>
   )
 })
 
