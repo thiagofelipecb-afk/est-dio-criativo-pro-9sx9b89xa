@@ -1,6 +1,7 @@
+import type { ReactElement } from 'react'
 import { Sparkles, Mail, User } from 'lucide-react'
 
-const Perfil = () => {
+const Perfil = (): ReactElement => {
   return (
     <div className="flex min-h-full items-center justify-center p-6 bg-[#0B0B10]">
       <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0e0e15] p-8 shadow-2xl">
