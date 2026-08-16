@@ -22,6 +22,7 @@ import {
   Play,
   Loader2,
   AlertCircle,
+  Lock,
 } from 'lucide-react'
 import type { StageLayout } from '@/types/studio'
 import { useStudio } from '@/context/StudioContext'
@@ -87,6 +88,16 @@ export default function Gravadora() {
     'idle',
   )
   const [camError, setCamError] = useState<string>('')
+  const [camPermissionBlocked, setCamPermissionBlocked] = useState<boolean>(false)
+
+  /**
+   * Ref usada para evitar a dupla inicialização do stream: quando
+   * handleActivateCamera define selectedCamera/selectedMic e em seguida chama
+   * startStream(), o useEffect que observa esses estados dispararia uma segunda
+   * chamada a startStream(). Setamos essa ref antes de mudar os estados e a
+   * consumimos no effect para pular o restart.
+   */
+  const skipRestartRef = useRef(false)
 
   // Stream da Câmera e Canvas
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -214,6 +225,38 @@ export default function Gravadora() {
   const handleActivateCamera = useCallback(async () => {
     setCamStatus('requesting')
     setCamError('')
+    setCamPermissionBlocked(false)
+
+    // === Bug 1: checar o estado real da permissão ANTES de getUserMedia ===
+    // Quando o usuário já bloqueou a câmera em uma decisão anterior, o
+    // getUserMedia rejeita com NotAllowedError instantaneamente, sem mostrar o
+    // diálogo do navegador. Consultamos a Permissions API para detectar esse
+    // caso e mostrar instruções claras de como desbloquear.
+    try {
+      const status = await navigator.permissions.query({ name: 'camera' as PermissionName })
+      if (status.state === 'denied') {
+        setCamStatus('denied')
+        setCamPermissionBlocked(true)
+        setCamError(
+          'A câmera está bloqueada nas configurações do seu navegador. Clique no ícone de cadeado na barra de endereço, vá em "Configurações do site" e mude a câmera para "Permitir".',
+        )
+        return
+      }
+      // 'prompt' ou 'granted' → proceder com getUserMedia (diálogo normal).
+      status.onchange = () => {
+        // Se o usuário desbloquear nas configurações do navegador enquanto a
+        // mensagem de bloqueio estiver visível, volta ao estado idle.
+        if (status.state !== 'denied' && camStatus === 'denied' && camPermissionBlocked) {
+          setCamStatus('idle')
+          setCamError('')
+          setCamPermissionBlocked(false)
+        }
+      }
+    } catch {
+      // Permissions API indisponível (ex.: Firefox) — segue para getUserMedia,
+      // que mostrará o diálogo normalmente ou rejeitará com NotAllowedError.
+    }
+
     try {
       // 1. getUserMedia primeiro (dispara o diálogo de permissão).
       const probe = await navigator.mediaDevices.getUserMedia({
@@ -240,6 +283,11 @@ export default function Gravadora() {
         audioDevs[0]?.deviceId ||
         ''
 
+      // === Bug extra: evitar a dupla inicialização do stream ===
+      // Setamos a flag antes de mudar selectedCamera/selectedMic para que o
+      // useEffect que observa esses estados NÃO dispare startStream() de novo.
+      skipRestartRef.current = true
+
       if (camId) setSelectedCamera(camId)
       if (micId) setSelectedMic(micId)
 
@@ -251,7 +299,10 @@ export default function Gravadora() {
       const name = e?.name || ''
       if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
         setCamStatus('denied')
-        setCamError('Permissão de câmera negada. Vá nas configurações do navegador para liberar.')
+        setCamPermissionBlocked(true)
+        setCamError(
+          'A câmera está bloqueada nas configurações do seu navegador. Clique no ícone de cadeado na barra de endereço, vá em "Configurações do site" e mude a câmera para "Permitir".',
+        )
       } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
         setCamStatus('error')
         setCamError('Nenhuma câmera ou microfone compatível foi encontrado.')
@@ -263,11 +314,23 @@ export default function Gravadora() {
         setCamError(e?.message || 'Não foi possível acessar a câmera.')
       }
     }
-  }, [audioConfig, loadDevicePreference, refreshDevices, startStream])
+  }, [
+    audioConfig,
+    loadDevicePreference,
+    refreshDevices,
+    startStream,
+    camStatus,
+    camPermissionBlocked,
+  ])
 
   // Reinicia o stream quando o usuário troca de dispositivo (depois de ativar).
   useEffect(() => {
     if (camStatus !== 'ready') return
+    // === Bug extra: pular quando a troca foi iniciada por handleActivateCamera ===
+    if (skipRestartRef.current) {
+      skipRestartRef.current = false
+      return
+    }
     let cancelled = false
     async function restart() {
       try {
@@ -792,19 +855,19 @@ export default function Gravadora() {
                   setSelectedCamera(e.target.value)
                   saveDevicePreference(e.target.value, selectedMic)
                 }}
-                disabled={camStatus !== 'ready'}
-                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2 text-xs text-white focus:outline-none focus:border-[#7C5CFC] disabled:opacity-60"
+                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2 text-xs text-white focus:outline-none focus:border-[#7C5CFC]"
               >
                 {cameras.length === 0 && <option value="">Nenhum dispositivo detectado</option>}
-                {cameras.map((c) => (
+                {cameras.map((c, idx) => (
                   <option key={c.deviceId} value={c.deviceId}>
-                    {c.label || `Câmera ${c.deviceId.substring(0, 5)}`}
+                    {c.label || `Câmera ${idx + 1}`}
                   </option>
                 ))}
               </select>
               {camStatus !== 'ready' && (
                 <p className="text-[9px] text-amber-300/80 leading-relaxed">
-                  Clique em "Ativar Câmera" no palco para listar os dispositivos com nome real.
+                  Ative a câmera para ver os nomes reais dos dispositivos. Sua escolha será usada ao
+                  ativar.
                 </p>
               )}
             </div>
@@ -893,19 +956,19 @@ export default function Gravadora() {
                   setSelectedMic(e.target.value)
                   saveDevicePreference(selectedCamera, e.target.value)
                 }}
-                disabled={camStatus !== 'ready'}
-                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2 text-xs text-white focus:outline-none focus:border-[#7C5CFC] disabled:opacity-60"
+                className="w-full bg-[#1C1C27] border border-white/10 rounded-xl p-2 text-xs text-white focus:outline-none focus:border-[#7C5CFC]"
               >
                 {mics.length === 0 && <option value="">Nenhum microfone detectado</option>}
-                {mics.map((m) => (
+                {mics.map((m, idx) => (
                   <option key={m.deviceId} value={m.deviceId}>
-                    {m.label || `Microfone ${m.deviceId.substring(0, 5)}`}
+                    {m.label || `Microfone ${idx + 1}`}
                   </option>
                 ))}
               </select>
               {camStatus !== 'ready' && (
                 <p className="text-[9px] text-amber-300/80 leading-relaxed">
-                  Ative a câmera para liberar a seleção de microfone.
+                  Ative a câmera para ver os nomes reais dos dispositivos. Sua escolha será usada ao
+                  ativar.
                 </p>
               )}
             </div>
@@ -982,19 +1045,37 @@ export default function Gravadora() {
         )}
         {(camStatus === 'denied' || camStatus === 'error') && (
           <>
-            <div className="w-20 h-20 rounded-3xl bg-red-500/10 border border-red-500/30 flex items-center justify-center mb-4">
-              <AlertCircle className="w-10 h-10 text-red-400" />
+            <div
+              className={`w-20 h-20 rounded-3xl flex items-center justify-center mb-4 ${
+                camPermissionBlocked
+                  ? 'bg-amber-500/10 border border-amber-500/30'
+                  : 'bg-red-500/10 border border-red-500/30'
+              }`}
+            >
+              {camPermissionBlocked ? (
+                <Lock className="w-10 h-10 text-amber-400" />
+              ) : (
+                <AlertCircle className="w-10 h-10 text-red-400" />
+              )}
             </div>
             <h3 className="text-base font-bold text-white mb-1">
-              {camStatus === 'denied' ? 'Permissão negada' : 'Erro de câmera'}
+              {camStatus === 'denied'
+                ? camPermissionBlocked
+                  ? 'Câmera bloqueada'
+                  : 'Permissão negada'
+                : 'Erro de câmera'}
             </h3>
-            <p className="text-xs text-[#9494A8] mb-5 max-w-[280px] leading-relaxed">{camError}</p>
-            <button
-              onClick={handleActivateCamera}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-[#1C1C27] border border-white/10 hover:border-[#7C5CFC] text-white text-xs font-bold transition-all"
-            >
-              <RotateCcw className="w-4 h-4" /> Tentar novamente
-            </button>
+            <p className="text-xs text-[#9494A8] mb-5 max-w-[300px] leading-relaxed whitespace-pre-line">
+              {camError}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleActivateCamera}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-[#1C1C27] border border-white/10 hover:border-[#7C5CFC] text-white text-xs font-bold transition-all"
+              >
+                <RotateCcw className="w-4 h-4" /> Tentar novamente
+              </button>
+            </div>
           </>
         )}
       </div>
