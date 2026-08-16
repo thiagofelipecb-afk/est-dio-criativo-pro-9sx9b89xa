@@ -391,6 +391,40 @@ export interface ReactionVideo {
   assetId?: string
 }
 
+/** Posição do vídeo de reação (4 cantos + split). */
+export type ReactionPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'split'
+
+/** Modo de mixagem de áudio da reação na gravação. */
+export type ReactionAudioMix = 'voice-only' | 'reaction-only' | 'mix'
+
+/** Configuração completa do vídeo de reação. Persistida em `lumen_reaction_config`. */
+export interface ReactionConfig {
+  /** ID do MediaAsset (tipo video) da biblioteca canônica. */
+  assetId: string | null
+  /** Liga/desliga o overlay no palco e na gravação. */
+  enabled: boolean
+  /** Silencia o áudio do vídeo de reação no preview. */
+  muted: boolean
+  /** Volume do vídeo de reação (0–100). */
+  volume: number
+  /** Posição no canvas. */
+  position: ReactionPosition
+  /** Escala relativa ao canvas: 0.1 a 0.4 (10%–40%). Padrão 0.2. */
+  scale: number
+  /** Raio da borda em px (0–40). */
+  borderRadius: number
+  /** Espessura da borda em px (0–10). */
+  borderWidth: number
+  /** Cor da borda. */
+  borderColor: string
+  /** Offset de início em ms (seek antes de gravar). */
+  startOffsetMs: number
+  /** Faz loop do vídeo de reação. */
+  loop: boolean
+  /** Mixagem de áudio na gravação. */
+  audioMix: ReactionAudioMix
+}
+
 /** Tipos de elemento do quadro editável (estilo Excalidraw). */
 export type WhiteboardTool =
   | 'select'

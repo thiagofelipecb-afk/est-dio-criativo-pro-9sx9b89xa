@@ -40,6 +40,10 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/co
 import { MediaLibraryModal } from '@/components/MediaLibraryModal'
 import { MediaPanel } from '@/components/studio/MediaPanel'
 import { BlockArtStageOverlay } from '@/components/studio/BlockArtStageOverlay'
+import {
+  ReactionStageOverlay,
+  type ReactionStageOverlayHandle,
+} from '@/components/studio/ReactionStageOverlay'
 import { toast } from 'sonner'
 
 export default function Gravadora() {
@@ -70,6 +74,7 @@ export default function Gravadora() {
     updateStageConfig,
     syncArtsEnabled,
     setSyncArtsEnabled,
+    reactionConfig,
   } = useStudio()
   // PROMPT 2 — Mídias rápidas e split agora vêm da fonte canônica (mesma de
   // /midias e /biblioteca). Não usamos mais useStudio().mediaLibrary.
@@ -125,6 +130,10 @@ export default function Gravadora() {
   const recIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const recordedChunksRef = useRef<Blob[]>([])
+  // Ref para o overlay de reação (elemento <video> da reação).
+  const reactionOverlayRef = useRef<ReactionStageOverlayHandle | null>(null)
+  // AudioContext de mixagem criado durante a gravação (para liberar depois).
+  const mixAudioCtxRef = useRef<AudioContext | null>(null)
 
   // Medidor de Áudio
   const [micLevel, setMicLevel] = useState(0)
@@ -377,6 +386,13 @@ export default function Gravadora() {
           /* noop */
         }
       }
+      if (mixAudioCtxRef.current) {
+        try {
+          mixAudioCtxRef.current.close()
+        } catch {
+          /* noop */
+        }
+      }
     }
   }, [])
 
@@ -438,6 +454,19 @@ export default function Gravadora() {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop()
       }
+      // Pausa o vídeo de reação, se houver.
+      try {
+        reactionOverlayRef.current?.video?.pause()
+      } catch {
+        /* noop */
+      }
+      // Libera o AudioContext de mixagem.
+      try {
+        mixAudioCtxRef.current?.close()
+      } catch {
+        /* noop */
+      }
+      mixAudioCtxRef.current = null
       setIsRecording(false)
       toast.success('Gravação finalizada! Take salvo com sucesso.')
     } else {
@@ -447,8 +476,51 @@ export default function Gravadora() {
         return
       }
       recordedChunksRef.current = []
+
+      const reactionVideoEl = reactionOverlayRef.current?.video || null
+      const useReactionAudio =
+        reactionConfig.enabled && !!reactionVideoEl && reactionConfig.audioMix !== 'voice-only'
+
       try {
-        const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' })
+        let recorderStream: MediaStream = stream
+
+        if (useReactionAudio) {
+          // Mixagem de áudio via Web Audio API.
+          const AC: typeof AudioContext = window.AudioContext || (window as any).webkitAudioContext
+          const audioCtx = new AC()
+          mixAudioCtxRef.current = audioCtx
+          const dest = audioCtx.createMediaStreamDestination()
+
+          // Voz (microfone) — apenas se audioMix !== 'reaction-only'.
+          if (reactionConfig.audioMix !== 'reaction-only') {
+            try {
+              const micSource = audioCtx.createMediaStreamSource(stream)
+              micSource.connect(dest)
+            } catch {
+              /* noop */
+            }
+          }
+          // Reação — apenas se audioMix !== 'voice-only'.
+          if (reactionConfig.audioMix !== 'voice-only' && reactionVideoEl) {
+            try {
+              const reactionSource = audioCtx.createMediaElementSource(reactionVideoEl)
+              const reactionGain = audioCtx.createGain()
+              reactionGain.gain.value = Math.max(0, Math.min(1, reactionConfig.volume / 100))
+              reactionSource.connect(reactionGain)
+              reactionGain.connect(dest)
+            } catch {
+              /* noop */
+            }
+          }
+
+          // Combina vídeo do stream original + áudio mixado.
+          recorderStream = new MediaStream([
+            ...stream.getVideoTracks(),
+            ...dest.stream.getAudioTracks(),
+          ])
+        }
+
+        const recorder = new MediaRecorder(recorderStream, { mimeType: 'video/webm' })
         recorder.ondataavailable = (e) => {
           if (e.data.size > 0) recordedChunksRef.current.push(e.data)
         }
@@ -460,6 +532,24 @@ export default function Gravadora() {
         }
         recorder.start(1000)
         mediaRecorderRef.current = recorder
+
+        // Inicia o vídeo de reação do startOffsetMs.
+        if (reactionConfig.enabled && reactionVideoEl) {
+          try {
+            if (reactionConfig.startOffsetMs > 0) {
+              reactionVideoEl.currentTime = reactionConfig.startOffsetMs / 1000
+            }
+            // Durante a gravação, o vídeo de reação precisa ter áudio
+            // "tocando" (mesmo muted=false para o MediaElementSource capturar).
+            if (useReactionAudio) {
+              reactionVideoEl.muted = false
+            }
+            reactionVideoEl.play().catch(() => {})
+          } catch {
+            /* noop */
+          }
+        }
+
         setIsRecording(true)
         toast.info('Gravação iniciada...')
       } catch {
@@ -1265,6 +1355,9 @@ export default function Gravadora() {
 
         {/* PROMPT 3 — Overlay de artes do bloco atual (sincronizado com o teleprompter). */}
         <BlockArtStageOverlay layout={layout} splitCameraRatio={splitCameraRatio} />
+
+        {/* Vídeo de reação sobreposto ao palco. */}
+        <ReactionStageOverlay ref={reactionOverlayRef} isRecording={isRecording} />
 
         <TitleOverlay
           config={titleConfig}

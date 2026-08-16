@@ -18,6 +18,7 @@ import {
   TeleprompterMode,
   TeleprompterTextColor,
   BlockMediaAssignment,
+  ReactionConfig,
 } from '@/types/studio'
 import {
   loadAssets,
@@ -109,6 +110,22 @@ const DEFAULT_PROMPTER_CONFIG: PrompterConfig = {
   countdown: 3,
   reading: false,
   isScrolling: false,
+}
+
+/** Defaults — Vídeo de reação (persistido em lumen_reaction_config). */
+const DEFAULT_REACTION_CONFIG: ReactionConfig = {
+  assetId: null,
+  enabled: false,
+  muted: true,
+  volume: 80,
+  position: 'bottom-right',
+  scale: 0.2,
+  borderRadius: 8,
+  borderWidth: 2,
+  borderColor: '#7C5CFC',
+  startOffsetMs: 0,
+  loop: true,
+  audioMix: 'voice-only',
 }
 
 /** Defaults da cadeia de captação de áudio da Gravadora. */
@@ -237,6 +254,11 @@ interface StudioContextType {
   setSyncArtsEnabled: (v: boolean) => void
   artBlockIndex: number
   setArtBlockIndex: (i: number) => void
+
+  // Vídeo de reação (persistido em lumen_reaction_config)
+  reactionConfig: ReactionConfig
+  setReactionConfig: (cfg: ReactionConfig) => void
+  updateReactionConfig: (updates: Partial<ReactionConfig>) => void
 }
 
 export interface BrandOSContext {
@@ -1027,6 +1049,36 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     [activeBlockIndex],
   )
 
+  // Vídeo de reação — persistido em lumen_reaction_config.
+  const REACTION_CONFIG_KEY = 'lumen_reaction_config'
+  const [reactionConfig, setReactionConfigState] = useState<ReactionConfig>(() => {
+    try {
+      const raw = localStorage.getItem(REACTION_CONFIG_KEY)
+      if (raw) {
+        return { ...DEFAULT_REACTION_CONFIG, ...JSON.parse(raw) }
+      }
+    } catch {
+      /* noop */
+    }
+    return DEFAULT_REACTION_CONFIG
+  })
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(REACTION_CONFIG_KEY, JSON.stringify(reactionConfig))
+    } catch {
+      /* noop */
+    }
+  }, [reactionConfig])
+
+  const setReactionConfig = useCallback((cfg: ReactionConfig) => {
+    setReactionConfigState(cfg)
+  }, [])
+
+  const updateReactionConfig = useCallback((updates: Partial<ReactionConfig>) => {
+    setReactionConfigState((prev) => ({ ...prev, ...updates }))
+  }, [])
+
   const addBlockAssignment = useCallback(
     (a: Omit<BlockMediaAssignment, 'id' | 'createdAt'>): BlockMediaAssignment => {
       const rec: BlockMediaAssignment = {
@@ -1147,6 +1199,9 @@ export const StudioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setSyncArtsEnabled,
         artBlockIndex,
         setArtBlockIndex,
+        reactionConfig,
+        setReactionConfig,
+        updateReactionConfig,
       }}
     >
       {children}

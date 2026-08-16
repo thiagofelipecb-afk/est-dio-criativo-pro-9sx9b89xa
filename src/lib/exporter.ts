@@ -14,6 +14,7 @@ import type {
   ExportProgress,
   ExportResult,
   MediaAsset,
+  ReactionConfig,
   ReactionVideo,
   ScriptBlock,
   StageLayout,
@@ -67,6 +68,8 @@ export interface ExportOptions {
   brollByBlock: Record<string, BlockBRoll | null>
   /** Vídeo de reação (opcional). */
   reaction?: ReactionVideo | null
+  /** Configuração completa do vídeo de reação (novo modelo). */
+  reactionConfig?: ReactionConfig | null
   /** FPS alvo (padrão 30). */
   fps?: number
   /** Desfoque de fundo aplicado ao vídeo (0 a 20px). Padrão 0 (sem blur). */
@@ -346,16 +349,98 @@ function drawArts(
   }
 }
 
-/** Desenha o vídeo de reação em um canto. */
+/**
+ * Desenha o vídeo de reação em um canto (ou split).
+ * Aceita tanto o modelo legado (ReactionVideo) quanto o novo (ReactionConfig).
+ * O elemento <video> deve estar pré-carregado e em reprodução para que
+ * drawImage capture o frame atual.
+ */
 function drawReaction(
   ctx: CanvasRenderingContext2D,
   reaction: ReactionVideo | null | undefined,
   w: number,
   h: number,
+  reactionConfig?: ReactionConfig | null,
+  reactionVideoEl?: HTMLVideoElement | null,
 ): void {
+  // Modelo novo: ReactionConfig + elemento <video> pré-carregado.
+  if (reactionConfig && reactionConfig.enabled && reactionVideoEl) {
+    const vw = reactionVideoEl.videoWidth
+    const vh = reactionVideoEl.videoHeight
+    if (!vw || !vh) return
+    const scale = reactionConfig.scale
+    const boxW = w * scale
+    const boxH = boxW // quadrado (canto)
+    const offset = Math.round(w * 0.015) // ~16px em canvas 1080
+    let x = 0
+    let y = 0
+    switch (reactionConfig.position) {
+      case 'top-left':
+        x = offset
+        y = offset
+        break
+      case 'top-right':
+        x = w - boxW - offset
+        y = offset
+        break
+      case 'bottom-left':
+        x = offset
+        y = h - boxH - offset
+        break
+      case 'split': {
+        // Metade inferior do canvas.
+        const splitH = h * 0.5
+        ctx.save()
+        ctx.beginPath()
+        ctx.rect(0, h - splitH, w, splitH)
+        ctx.clip()
+        drawVideoCoverRect(
+          ctx,
+          reactionVideoEl,
+          {
+            x: 0,
+            y: h - splitH,
+            w,
+            h: splitH,
+          },
+          false,
+        )
+        ctx.restore()
+        return
+      }
+      case 'bottom-right':
+      default:
+        x = w - boxW - offset
+        y = h - boxH - offset
+    }
+    ctx.save()
+    // Clip com cantos arredondados.
+    const r = Math.min(reactionConfig.borderRadius, boxW / 2, boxH / 2)
+    if (r > 0) {
+      roundRectPath(ctx, x, y, boxW, boxH, r)
+      ctx.clip()
+    }
+    // Desenha o vídeo em cover dentro da caixa.
+    drawVideoCoverRect(ctx, reactionVideoEl, { x, y, w: boxW, h: boxH }, false)
+    ctx.restore()
+    // Borda (após o vídeo, sem clip).
+    if (reactionConfig.borderWidth > 0) {
+      ctx.save()
+      ctx.strokeStyle = reactionConfig.borderColor
+      ctx.lineWidth = reactionConfig.borderWidth
+      if (r > 0) {
+        roundRectPath(ctx, x, y, boxW, boxH, r)
+        ctx.stroke()
+      } else {
+        ctx.strokeRect(x, y, boxW, boxH)
+      }
+      ctx.restore()
+    }
+    return
+  }
+
+  // Modelo legado (placeholder).
   if (!reaction || !reaction.dataUrl) return
-  // A sobreposição real de reação requer pré-carregamento de vídeo; neste
-  // pipeline deixamos apenas o placeholder do canto para não bloquear.
   const sizePct = reaction.size
   const boxW = w * sizePct
   const boxH = boxW * (16 / 9)
@@ -998,6 +1083,7 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
     artsByBlock,
     brollByBlock,
     reaction,
+    reactionConfig,
     fps = 30,
     backgroundBlur = 0,
     stageLayout,
@@ -1123,6 +1209,31 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
     }
   }
 
+  // Pré-carrega o vídeo de reação (novo modelo) para drawImage frame-a-frame.
+  let reactionVideoEl: HTMLVideoElement | null = null
+  if (reactionConfig && reactionConfig.enabled && reactionConfig.assetId && mediaAssets) {
+    const reactionAsset = mediaAssets.find((m) => m.id === reactionConfig.assetId)
+    const reactionUrl = reactionAsset?.publicUrl || ''
+    if (reactionUrl) {
+      try {
+        reactionVideoEl = await loadVideoElement(reactionUrl)
+        reactionVideoEl.muted = true
+        // Seek para startOffsetMs.
+        if (reactionConfig.startOffsetMs > 0) {
+          try {
+            reactionVideoEl.currentTime = reactionConfig.startOffsetMs / 1000
+          } catch {
+            /* noop */
+          }
+        }
+        // Inicia a reprodução (muda para o frame) para o drawImage capturar.
+        reactionVideoEl.play().catch(() => {})
+      } catch {
+        reactionVideoEl = null
+      }
+    }
+  }
+
   emit({ phase: 'rendering', percent: 5, message: 'Renderizando... 5%' })
 
   const canvas = document.createElement('canvas')
@@ -1211,6 +1322,11 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
       if (rafId !== null) cancelAnimationFrame(rafId)
       try {
         recorder.stream.getTracks().forEach((t) => t.stop())
+      } catch {
+        /* noop */
+      }
+      try {
+        reactionVideoEl?.pause()
       } catch {
         /* noop */
       }
@@ -1439,7 +1555,7 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
           }
         }
       }
-      drawReaction(ctx, reaction, EXPORT_W, EXPORT_H)
+      drawReaction(ctx, reaction, EXPORT_W, EXPORT_H, reactionConfig, reactionVideoEl)
       drawTitle(ctx, title, EXPORT_W, EXPORT_H, resultTime)
       drawCaptions(ctx, captions, resultTime, EXPORT_W, EXPORT_H)
 
@@ -1479,6 +1595,18 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
     videoEl.currentTime = firstSeg.start
     videoEl.muted = false
     videoEl.volume = 1
+
+    // Inicia a reprodução do vídeo de reação junto com o vídeo bruto.
+    if (reactionVideoEl) {
+      try {
+        if (reactionConfig?.startOffsetMs && reactionConfig.startOffsetMs > 0) {
+          reactionVideoEl.currentTime = reactionConfig.startOffsetMs / 1000
+        }
+        reactionVideoEl.play().catch(() => {})
+      } catch {
+        /* noop */
+      }
+    }
 
     // Quando o seek terminar, inicia o recorder e a reprodução.
     const onSeeked = () => {

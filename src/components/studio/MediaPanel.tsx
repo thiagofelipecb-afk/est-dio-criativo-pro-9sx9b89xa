@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import { Slider } from '@/components/ui/slider'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -13,11 +13,20 @@ import {
   X,
   Layers,
   Check,
+  Play,
+  Pause,
+  SkipBack,
+  Volume2,
+  VolumeX,
+  Repeat,
+  Headphones,
+  AlertTriangle,
+  RefreshCw as SyncIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useStudio } from '@/context/StudioContext'
 import { useMediaAssets } from '@/hooks/useMediaAssets'
-import type { BlockMediaAssignment } from '@/types/studio'
+import type { BlockMediaAssignment, ReactionAudioMix, ReactionPosition } from '@/types/studio'
 
 /* ===========================================================================
    PROMPT 3 — MediaPanel com sub-tabs (Artes / Reação / Quadro / B-roll)
@@ -61,8 +70,9 @@ export function MediaPanel({ projectId }: MediaPanelProps) {
       </div>
 
       {subTab === 'artes' && <ArtesSubTab projectId={projectId} />}
+      {subTab === 'reacao' && <ReacaoSubTab />}
 
-      {subTab !== 'artes' && (
+      {(subTab === 'quadro' || subTab === 'broll') && (
         <div className="flex flex-col items-center justify-center py-12 text-center gap-2 border border-dashed border-white/10 rounded-xl">
           <Layers className="w-8 h-8 text-[#9494A8]/50" />
           <p className="text-xs font-semibold text-[#9494A8]">Em breve</p>
@@ -690,6 +700,464 @@ function SliderRow({
         step={step}
         onValueChange={(v) => onChange(v[0])}
       />
+    </div>
+  )
+}
+
+/* ===========================================================================
+   Sub-tab Reação — vídeo de reação sobreposto ao palco
+   =========================================================================== */
+
+const POSITION_OPTIONS: { id: ReactionPosition; label: string }[] = [
+  { id: 'top-left', label: '↖' },
+  { id: 'top-right', label: '↗' },
+  { id: 'bottom-left', label: '↙' },
+  { id: 'bottom-right', label: '↘' },
+  { id: 'split', label: '⬓' },
+]
+
+const AUDIO_MIX_OPTIONS: { id: ReactionAudioMix; label: string; desc: string }[] = [
+  { id: 'voice-only', label: 'Apenas voz', desc: 'Só o microfone' },
+  { id: 'reaction-only', label: 'Apenas reação', desc: 'Só o áudio do vídeo' },
+  { id: 'mix', label: 'Mixar voz + reação', desc: 'Ambos juntos' },
+]
+
+function formatDuration(ms: number | undefined): string {
+  if (!ms || !isFinite(ms)) return '--:--'
+  const total = Math.floor(ms / 1000)
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`
+}
+
+function ReacaoSubTab() {
+  const { reactionConfig, updateReactionConfig, mediaAssets, addMediaAsset } = useStudio()
+  const { addFromFile } = useMediaAssets()
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null)
+  const [showLibrary, setShowLibrary] = useState(false)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [uploading, setUploading] = useState(false)
+
+  const asset = reactionConfig.assetId
+    ? mediaAssets.find((a) => a.id === reactionConfig.assetId)
+    : null
+
+  const videoAssets = useMemo(() => mediaAssets.filter((a) => a.type === 'video'), [mediaAssets])
+
+  // Sync do preview player.
+  React.useEffect(() => {
+    const v = previewVideoRef.current
+    if (!v) return
+    v.muted = reactionConfig.muted
+    v.volume = Math.max(0, Math.min(1, reactionConfig.volume / 100))
+    v.loop = reactionConfig.loop
+  }, [reactionConfig.muted, reactionConfig.volume, reactionConfig.loop, reactionConfig.assetId])
+
+  const handleFileUpload = async (file: File) => {
+    if (!file) return
+    if (!file.type.match(/^video\/(mp4|webm)$/)) {
+      toast.error('Formato não suportado. Use MP4 ou WebM.')
+      return
+    }
+    setUploading(true)
+    try {
+      const saved = await addFromFile(file, { source: 'upload' })
+      // addFromFile já persiste via mediaService e dispara o evento; mas o
+      // StudioContext também precisa saber — addMediaAsset força o refresh.
+      addMediaAsset(saved)
+      updateReactionConfig({ assetId: saved.id, enabled: true })
+      toast.success(`Vídeo "${saved.name}" adicionado à biblioteca.`)
+    } catch (e: any) {
+      toast.error(e?.message || 'Falha ao adicionar vídeo.')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const handleSelectFromLibrary = (assetId: string) => {
+    updateReactionConfig({ assetId, enabled: true })
+    setShowLibrary(false)
+    toast.success('Vídeo de reação selecionado.')
+  }
+
+  const handleRemove = () => {
+    updateReactionConfig({ assetId: null, enabled: false })
+    toast.info('Vídeo de reação removido.')
+  }
+
+  const togglePlay = () => {
+    const v = previewVideoRef.current
+    if (!v) return
+    if (v.paused) {
+      v.play().catch(() => {})
+      setIsPlaying(true)
+    } else {
+      v.pause()
+      setIsPlaying(false)
+    }
+  }
+
+  const restart = () => {
+    const v = previewVideoRef.current
+    if (!v) return
+    v.currentTime = reactionConfig.startOffsetMs / 1000 || 0
+    v.play().catch(() => {})
+    setIsPlaying(true)
+  }
+
+  const onVideoEnded = () => setIsPlaying(false)
+
+  // --- Estado: nenhum vídeo selecionado ---
+  if (!reactionConfig.assetId) {
+    return (
+      <div className="space-y-3">
+        <div className="flex flex-col items-center justify-center py-8 text-center gap-2 border border-dashed border-white/10 rounded-xl">
+          <Film className="w-8 h-8 text-[#9494A8]/50" />
+          <p className="text-xs font-semibold text-[#9494A8]">Nenhum vídeo de reação selecionado</p>
+          <p className="text-[10px] text-[#9494A8]/60 max-w-[220px] leading-relaxed">
+            Escolha um vídeo MP4/WebM da biblioteca ou envie um novo arquivo.
+          </p>
+        </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="video/mp4,video/webm"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) handleFileUpload(f)
+            e.target.value = ''
+          }}
+        />
+
+        <div className="grid grid-cols-1 gap-2">
+          <Button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="w-full h-9 bg-[#7C5CFC] hover:bg-[#6A48E0] text-[11px] gap-1.5"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            {uploading ? 'Enviando...' : 'Enviar vídeo'}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setShowLibrary((v) => !v)}
+            className="w-full h-9 border-white/10 text-[#9494A8] hover:text-white text-[11px] gap-1.5"
+          >
+            <Film className="w-3.5 h-3.5" /> Selecionar da biblioteca
+          </Button>
+        </div>
+
+        {showLibrary && (
+          <div className="rounded-lg border border-white/10 bg-[#14141C] p-2 space-y-1.5">
+            <span className="text-[9px] text-[#9494A8]">Vídeos da biblioteca:</span>
+            {videoAssets.length === 0 ? (
+              <p className="text-[10px] text-[#9494A8]/70 text-center py-3">
+                Nenhum vídeo na biblioteca ainda.
+              </p>
+            ) : (
+              <div className="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto">
+                {videoAssets.map((a) => (
+                  <button
+                    key={a.id}
+                    onClick={() => handleSelectFromLibrary(a.id)}
+                    className="relative rounded-md overflow-hidden border border-white/5 hover:border-[#7C5CFC]/50 transition-all"
+                    title={a.name}
+                  >
+                    <div className="aspect-video bg-[#0B0B10]">
+                      <img
+                        src={a.thumbnailUrl || ''}
+                        alt={a.name}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    </div>
+                    <span className="absolute bottom-0 inset-x-0 bg-black/70 text-[8px] text-white px-1 py-0.5 truncate text-left flex items-center gap-0.5">
+                      <Film className="w-2 h-2 text-pink-400 shrink-0" />
+                      {a.name}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // --- Estado: arquivo ausente (assetId set mas asset não encontrado) ---
+  if (!asset) {
+    return (
+      <div className="space-y-3">
+        <div className="flex flex-col items-center justify-center py-8 text-center gap-2 border border-dashed border-red-500/30 rounded-xl bg-red-500/5">
+          <AlertTriangle className="w-8 h-8 text-red-400/70" />
+          <p className="text-xs font-semibold text-red-300">Arquivo ausente</p>
+          <p className="text-[10px] text-[#9494A8]/70 max-w-[220px] leading-relaxed">
+            O vídeo de reação selecionado não foi encontrado na biblioteca. Pode ter sido removido.
+          </p>
+        </div>
+        <Button
+          onClick={handleRemove}
+          variant="outline"
+          className="w-full h-8 border-red-500/30 text-red-300 hover:bg-red-500/10 text-[10px] gap-1.5"
+        >
+          <Trash2 className="w-3 h-3" /> Remover referência
+        </Button>
+      </div>
+    )
+  }
+
+  // --- Estado: formato não suportado ---
+  const supportedFormat = asset.mimeType === 'video/mp4' || asset.mimeType === 'video/webm'
+  if (!supportedFormat) {
+    return (
+      <div className="space-y-3">
+        <div className="flex flex-col items-center justify-center py-8 text-center gap-2 border border-dashed border-amber-500/30 rounded-xl bg-amber-500/5">
+          <AlertTriangle className="w-8 h-8 text-amber-400/70" />
+          <p className="text-xs font-semibold text-amber-300">Formato não suportado</p>
+          <p className="text-[10px] text-[#9494A8]/70 max-w-[220px] leading-relaxed">
+            O formato "{asset.mimeType}" não é suportado para reação. Use MP4 ou WebM.
+          </p>
+        </div>
+        <Button
+          onClick={handleRemove}
+          variant="outline"
+          className="w-full h-8 border-amber-500/30 text-amber-300 hover:bg-amber-500/10 text-[10px] gap-1.5"
+        >
+          <Trash2 className="w-3 h-3" /> Remover
+        </Button>
+      </div>
+    )
+  }
+
+  const url = asset.publicUrl || ''
+
+  // --- Estado: vídeo selecionado, controles completos ---
+  return (
+    <div className="space-y-3">
+      {/* Preview com player */}
+      <div className="relative aspect-video bg-[#0B0B10] rounded-lg border border-white/10 overflow-hidden group">
+        <video
+          ref={previewVideoRef}
+          src={url}
+          className="w-full h-full object-contain"
+          playsInline
+          onEnded={onVideoEnded}
+        />
+        {/* Controles do player */}
+        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 to-transparent p-2 flex items-center gap-2 opacity-90">
+          <button
+            onClick={togglePlay}
+            className="p-1.5 rounded-full bg-[#7C5CFC] hover:bg-[#6A48E0] text-white"
+            title={isPlaying ? 'Pausar' : 'Reproduzir'}
+          >
+            {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+          </button>
+          <button
+            onClick={restart}
+            className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white"
+            title="Voltar ao início"
+          >
+            <SkipBack className="w-3.5 h-3.5" />
+          </button>
+          <div className="flex-1" />
+          <span className="text-[9px] font-mono text-white/80">
+            {formatDuration(asset.durationMs)}
+          </span>
+        </div>
+      </div>
+
+      {/* Metadados */}
+      <div className="flex items-center gap-2 flex-wrap text-[9px] text-[#9494A8]">
+        <Badge className="text-[8px] bg-pink-500/20 text-pink-300 border-pink-500/30">
+          <Film className="w-2.5 h-2.5 mr-0.5" /> {asset.mimeType}
+        </Badge>
+        {asset.width && asset.height && (
+          <Badge className="text-[8px] bg-white/5 text-white/70 border-white/10">
+            {asset.width}×{asset.height}
+          </Badge>
+        )}
+        <Badge className="text-[8px] bg-white/5 text-white/70 border-white/10">
+          {formatBytes(asset.sizeBytes)}
+        </Badge>
+      </div>
+
+      {/* Sync toggle (enabled) */}
+      <div className="flex items-center justify-between rounded-xl border border-white/10 bg-[#1C1C27]/60 px-3 py-2">
+        <div className="flex flex-col">
+          <span className="text-[11px] font-bold text-white">Sincronizar no palco</span>
+          <span className="text-[9px] text-[#9494A8] leading-tight">
+            {reactionConfig.enabled ? 'Reação visível na gravação' : 'Reação oculta'}
+          </span>
+        </div>
+        <button
+          onClick={() => updateReactionConfig({ enabled: !reactionConfig.enabled })}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all ${
+            reactionConfig.enabled ? 'bg-[#7C5CFC] text-white' : 'bg-[#3A3A4A] text-[#9494A8]'
+          }`}
+        >
+          <SyncIcon className="w-3 h-3" />
+          {reactionConfig.enabled ? 'Ativo' : 'Inativo'}
+        </button>
+      </div>
+
+      {/* Volume + Mute + Loop */}
+      <div className="rounded-lg border border-white/10 bg-[#1C1C27]/60 p-2 space-y-2">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => updateReactionConfig({ muted: !reactionConfig.muted })}
+            className={`p-1.5 rounded-lg ${
+              reactionConfig.muted ? 'bg-red-500/20 text-red-300' : 'bg-white/10 text-white'
+            }`}
+            title={reactionConfig.muted ? 'Ativar som' : 'Silenciar'}
+          >
+            {reactionConfig.muted ? (
+              <VolumeX className="w-3.5 h-3.5" />
+            ) : (
+              <Volume2 className="w-3.5 h-3.5" />
+            )}
+          </button>
+          <button
+            onClick={() => updateReactionConfig({ loop: !reactionConfig.loop })}
+            className={`p-1.5 rounded-lg ${
+              reactionConfig.loop ? 'bg-[#7C5CFC]/20 text-[#7C5CFC]' : 'bg-white/10 text-[#9494A8]'
+            }`}
+            title="Loop"
+          >
+            <Repeat className="w-3.5 h-3.5" />
+          </button>
+          <div className="flex-1">
+            <SliderRow
+              label="Volume"
+              value={reactionConfig.volume}
+              min={0}
+              max={100}
+              step={1}
+              onChange={(v) => updateReactionConfig({ volume: v })}
+              format={(v) => `${v}%`}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Posição */}
+      <div className="space-y-1">
+        <label className="text-[9px] text-[#9494A8] uppercase tracking-wider">Posição</label>
+        <div className="grid grid-cols-5 gap-1">
+          {POSITION_OPTIONS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => updateReactionConfig({ position: p.id })}
+              className={`py-2 text-[11px] font-bold rounded-lg border transition-all ${
+                reactionConfig.position === p.id
+                  ? 'border-[#7C5CFC] bg-[#7C5CFC]/20 text-white'
+                  : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'
+              }`}
+              title={p.id}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Escala */}
+      <SliderRow
+        label="Escala"
+        value={reactionConfig.scale}
+        min={0.1}
+        max={0.4}
+        step={0.01}
+        onChange={(v) => updateReactionConfig({ scale: v })}
+        format={(v) => `${Math.round(v * 100)}%`}
+      />
+
+      {/* Bordas */}
+      <SliderRow
+        label="Cantos arredondados"
+        value={reactionConfig.borderRadius}
+        min={0}
+        max={40}
+        step={1}
+        onChange={(v) => updateReactionConfig({ borderRadius: v })}
+        format={(v) => `${v}px`}
+      />
+      <SliderRow
+        label="Espessura da borda"
+        value={reactionConfig.borderWidth}
+        min={0}
+        max={10}
+        step={1}
+        onChange={(v) => updateReactionConfig({ borderWidth: v })}
+        format={(v) => `${v}px`}
+      />
+      <div className="flex items-center justify-between gap-2">
+        <label className="text-[9px] text-[#9494A8]">Cor da borda</label>
+        <input
+          type="color"
+          value={reactionConfig.borderColor}
+          onChange={(e) => updateReactionConfig({ borderColor: e.target.value })}
+          className="w-6 h-5 rounded border border-white/10 bg-transparent cursor-pointer"
+        />
+      </div>
+
+      {/* Offset */}
+      <SliderRow
+        label="Iniciar em (offset)"
+        value={reactionConfig.startOffsetMs}
+        min={0}
+        max={5000}
+        step={100}
+        onChange={(v) => updateReactionConfig({ startOffsetMs: v })}
+        format={(v) => `${(v / 1000).toFixed(1)}s`}
+      />
+
+      {/* Mixagem de áudio */}
+      <div className="rounded-lg border border-white/10 bg-[#1C1C27]/60 p-2 space-y-2">
+        <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">Mixagem de áudio</span>
+        <div className="space-y-1">
+          {AUDIO_MIX_OPTIONS.map((opt) => (
+            <label
+              key={opt.id}
+              className="flex items-center gap-2 text-[10px] text-white cursor-pointer"
+            >
+              <input
+                type="radio"
+                name="audioMix"
+                checked={reactionConfig.audioMix === opt.id}
+                onChange={() => updateReactionConfig({ audioMix: opt.id })}
+                className="w-3 h-3 accent-[#7C5CFC]"
+              />
+              <span className="font-semibold">{opt.label}</span>
+              <span className="text-[#9494A8]">— {opt.desc}</span>
+            </label>
+          ))}
+        </div>
+        <div className="flex items-start gap-1.5 rounded-md bg-amber-500/10 border border-amber-500/20 p-1.5">
+          <Headphones className="w-3 h-3 text-amber-300 shrink-0 mt-0.5" />
+          <span className="text-[9px] text-amber-200/90 leading-relaxed">
+            Use fones de ouvido para evitar eco durante a gravação.
+          </span>
+        </div>
+      </div>
+
+      {/* Remover */}
+      <Button
+        onClick={handleRemove}
+        variant="outline"
+        className="w-full h-8 border-red-500/30 text-red-300 hover:bg-red-500/10 text-[10px] gap-1.5"
+      >
+        <Trash2 className="w-3 h-3" /> Remover vídeo de reação
+      </Button>
     </div>
   )
 }
