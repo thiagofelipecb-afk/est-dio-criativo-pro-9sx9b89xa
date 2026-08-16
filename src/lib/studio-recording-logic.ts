@@ -472,6 +472,19 @@ export interface BeautyPreset {
   facialLighting: number
   selectiveSharpness: number
   intensity: number
+  /**
+   * Ajustes de imagem (aplicados no compositor via ctx.filter) que o preset
+   * carrega. Permitem que cada preset de aparência produza uma mudança visível
+   * no preview e na gravação mesmo sem detecção facial.
+   */
+  camera: {
+    brightness: number
+    contrast: number
+    beautySmooth: number
+    saturation: number
+    temperature: number
+    smoothness: number
+  }
 }
 
 export const BEAUTY_PRESETS: BeautyPreset[] = [
@@ -489,6 +502,14 @@ export const BEAUTY_PRESETS: BeautyPreset[] = [
     facialLighting: 0,
     selectiveSharpness: 0,
     intensity: 0,
+    camera: {
+      brightness: 100,
+      contrast: 100,
+      beautySmooth: 0,
+      saturation: 100,
+      temperature: 0,
+      smoothness: 0,
+    },
   },
   {
     id: 'natural',
@@ -504,6 +525,14 @@ export const BEAUTY_PRESETS: BeautyPreset[] = [
     facialLighting: 15,
     selectiveSharpness: 25,
     intensity: 40,
+    camera: {
+      brightness: 102,
+      contrast: 102,
+      beautySmooth: 30,
+      saturation: 105,
+      temperature: 6,
+      smoothness: 10,
+    },
   },
   {
     id: 'pele-suave',
@@ -519,6 +548,14 @@ export const BEAUTY_PRESETS: BeautyPreset[] = [
     facialLighting: 10,
     selectiveSharpness: 20,
     intensity: 55,
+    camera: {
+      brightness: 101,
+      contrast: 99,
+      beautySmooth: 55,
+      saturation: 104,
+      temperature: 4,
+      smoothness: 35,
+    },
   },
   {
     id: 'controle-brilho',
@@ -534,6 +571,14 @@ export const BEAUTY_PRESETS: BeautyPreset[] = [
     facialLighting: 20,
     selectiveSharpness: 20,
     intensity: 45,
+    camera: {
+      brightness: 96,
+      contrast: 108,
+      beautySmooth: 35,
+      saturation: 100,
+      temperature: 0,
+      smoothness: 15,
+    },
   },
   {
     id: 'estudio',
@@ -549,6 +594,14 @@ export const BEAUTY_PRESETS: BeautyPreset[] = [
     facialLighting: 30,
     selectiveSharpness: 30,
     intensity: 50,
+    camera: {
+      brightness: 106,
+      contrast: 104,
+      beautySmooth: 40,
+      saturation: 108,
+      temperature: 10,
+      smoothness: 12,
+    },
   },
   {
     id: 'pronto-camera',
@@ -564,6 +617,14 @@ export const BEAUTY_PRESETS: BeautyPreset[] = [
     facialLighting: 35,
     selectiveSharpness: 35,
     intensity: 65,
+    camera: {
+      brightness: 108,
+      contrast: 106,
+      beautySmooth: 48,
+      saturation: 112,
+      temperature: 14,
+      smoothness: 18,
+    },
   },
   {
     id: 'personalizado',
@@ -579,6 +640,14 @@ export const BEAUTY_PRESETS: BeautyPreset[] = [
     facialLighting: 15,
     selectiveSharpness: 25,
     intensity: 40,
+    camera: {
+      brightness: 100,
+      contrast: 100,
+      beautySmooth: 40,
+      saturation: 100,
+      temperature: 0,
+      smoothness: 0,
+    },
   },
 ]
 

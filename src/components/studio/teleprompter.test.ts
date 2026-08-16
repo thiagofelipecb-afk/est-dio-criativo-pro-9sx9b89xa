@@ -4,6 +4,7 @@
    e CENÁRIO 2 (texto e mídia mudam juntos).
    ========================================================================== */
 import { describe, it, expect } from 'vitest'
+import { drawComposition, DEFAULT_CAMERA_CROP } from '@/lib/studio-compositor'
 
 /** Lógica pura de avanço/retrocesso do teleprompter (espelha PrompterHUD). */
 function nextBlock(index: number, total: number): number {
@@ -95,5 +96,63 @@ describe('Teleprompter — sincronização de mídia', () => {
     i = prevBlock(i)
     current = syncMedia(blocks, i, assignments)
     expect(current.mediaUrl).toBe('a.png')
+  })
+})
+
+/* ---------------------------------------------------------------------------
+   CENÁRIO 3: o HUD do teleprompter NÃO entra no canvas de composição.
+   O PrompterHUD é renderizado via createPortal(... , document.body) em uma
+   camada DOM fixa separada (position: fixed, z-9999). O StudioStage desenha
+   apenas fundo/câmera/mídia/título/reação — nunca o texto do prompter.
+   Aqui verificamos o contrato: o conjunto de camadas desenhadas pelo
+   compositor não inclui nenhuma chamada de fillText oriunda do prompter.
+   ------------------------------------------------------------------------- */
+describe('Teleprompter HUD — fora do canvas', () => {
+  it('CENÁRIO 3: fillText do prompter NÃO aparece no stream do canvas', () => {
+    // O compositor só chama fillText para títulos (TitleConfig). O texto do
+    // teleprompter é renderizado pelo React no DOM, nunca no canvas. Portanto,
+    // quando não há título habilitado, nenhuma chamada fillText deve ocorrer.
+    const calls: string[] = []
+    const ctx = {
+      save: () => calls.push('save'),
+      restore: () => calls.push('restore'),
+      clearRect: () => calls.push('clearRect'),
+      fillRect: () => calls.push('fillRect'),
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 1,
+      filter: 'none',
+      globalAlpha: 1,
+      font: '',
+      textAlign: 'left',
+      textBaseline: 'alphabetic',
+      drawImage: () => calls.push('drawImage'),
+      beginPath: () => calls.push('beginPath'),
+      rect: () => calls.push('rect'),
+      clip: () => calls.push('clip'),
+      translate: () => calls.push('translate'),
+      scale: () => calls.push('scale'),
+      stroke: () => calls.push('stroke'),
+      fillText: (t: string) => calls.push(`fillText ${t}`),
+      measureText: () => ({ width: 10 }),
+      arcTo: () => calls.push('arcTo'),
+      moveTo: () => calls.push('moveTo'),
+      closePath: () => calls.push('closePath'),
+      setLineDash: () => calls.push('setLineDash'),
+      strokeRect: () => calls.push('strokeRect'),
+    } as unknown as CanvasRenderingContext2D
+    drawComposition({
+      ctx,
+      width: 1080,
+      height: 1920,
+      layout: 'full',
+      background: { type: 'none', segmentationEnabled: false },
+      camera: { brightness: 100, contrast: 100, beautySmooth: 0 },
+      cameraCrop: DEFAULT_CAMERA_CROP,
+      cameraVideo: null,
+    })
+    const fillTexts = calls.filter((c) => c.startsWith('fillText'))
+    // Sem título habilitado → nenhuma chamada fillText (o prompter não está no canvas).
+    expect(fillTexts.length).toBe(0)
   })
 })

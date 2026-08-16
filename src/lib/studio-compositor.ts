@@ -36,11 +36,52 @@ export const ASPECT_DIMENSIONS: Record<AspectRatioId, { width: number; height: n
 export function cameraCssFilter(cam: CameraConfigLike): string {
   const b = Math.max(0, cam.brightness / 100)
   const c = Math.max(0, cam.contrast / 100)
+  const sat = Math.max(0, (cam.saturation ?? 100) / 100)
   // beautySmooth → leve desfoque bilateral simulado com blur tênue.
-  const blur = cam.beautySmooth > 0 ? (cam.beautySmooth / 100) * 0.8 : 0
-  const parts = [`brightness(${b.toFixed(3)})`, `contrast(${c.toFixed(3)})`]
+  const beautyBlur = cam.beautySmooth > 0 ? (cam.beautySmooth / 100) * 0.8 : 0
+  const smoothBlur = (cam.smoothness ?? 0) > 0 ? (cam.smoothness / 100) * 1.5 : 0
+  const blur = beautyBlur + smoothBlur
+  const parts = [
+    `brightness(${b.toFixed(3)})`,
+    `contrast(${c.toFixed(3)})`,
+    `saturate(${sat.toFixed(3)})`,
+  ]
+  // Temperatura de cor: positiva = mais quente (sepia + leve hue-rotate);
+  // negativa = mais fria (hue-rotate para o azul).
+  const temp = cam.temperature ?? 0
+  if (temp > 0) {
+    parts.push(`sepia(${(temp / 100).toFixed(3)})`)
+    parts.push(`hue-rotate(${(-temp / 2).toFixed(1)}deg)`)
+  } else if (temp < 0) {
+    parts.push(`hue-rotate(${(-temp / 2).toFixed(1)}deg)`)
+    parts.push(`saturate(${(1 + Math.abs(temp) / 200).toFixed(3)})`)
+  }
   if (blur > 0) parts.push(`blur(${blur.toFixed(2)}px)`)
   return parts.join(' ')
+}
+
+/** Desenha uma vinheta radial (overlay escuro nas bordas) sobre a área. */
+function drawVignette(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  amount: number,
+) {
+  if (amount <= 0) return
+  const cx = x + w / 2
+  const cy = y + h / 2
+  const r0 = Math.min(w, h) * 0.3
+  const r1 = Math.max(w, h) * 0.75
+  const grad = ctx.createRadialGradient(cx, cy, r0, cx, cy, r1)
+  const a = Math.max(0, Math.min(1, amount / 100))
+  grad.addColorStop(0, 'rgba(0,0,0,0)')
+  grad.addColorStop(1, `rgba(0,0,0,${a.toFixed(3)})`)
+  ctx.save()
+  ctx.fillStyle = grad
+  ctx.fillRect(x, y, w, h)
+  ctx.restore()
 }
 
 /** Enquadramento digital (crop + scale) do vídeo da câmera. */
@@ -56,6 +97,9 @@ export interface CameraCrop {
 }
 
 export const DEFAULT_CAMERA_CROP: CameraCrop = { zoom: 1, panX: 0, panY: 0, mirror: false }
+
+/** Cache de HTMLImageElement para fundos de imagem (data URLs). */
+const bgImageCache: Record<string, HTMLImageElement> = {}
 
 export interface SplitMediaLayer {
   url: string
@@ -242,8 +286,11 @@ export function drawComposition(input: CompositionInputs): void {
       drawMediaArea(ctx, input.splitMediaEl, input.split.type, 0, camH, W, mediaH, 'cover')
     }
   } else {
-    // layout cheio: câmera cobre todo o canvas sobre o fundo.
-    drawCameraArea(ctx, input, 0, 0, W, H)
+    // layout cheio. Quando há um fundo visível (cor/imagem/desfoque), a câmera
+    // é desenhada CONTIDA (letterbox) para que o fundo apareça ATRÁS da pessoa
+    // ao redor do vídeo. Com fundo 'none', a câmera preenche tudo (cover).
+    const contain = input.background.type !== 'none'
+    drawCameraArea(ctx, input, 0, 0, W, H, contain)
   }
 
   // 3) ARTE do bloco ativo (sobre a câmera, abaixo do título).
@@ -277,8 +324,20 @@ function drawBackground(
     return
   }
   if (bg.type === 'image' && bg.imageDataUrl) {
+    // Fundo de imagem: desenha a imagem cover sobre todo o canvas. A câmera
+    // (pessoa) é desenhada depois, por cima, em modo contain — visível.
+    if (!bgImageCache[bg.imageDataUrl]) {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.src = bg.imageDataUrl
+      bgImageCache[bg.imageDataUrl] = img
+    }
+    const img = bgImageCache[bg.imageDataUrl]
     ctx.fillStyle = '#000000'
     ctx.fillRect(0, 0, W, H)
+    if (img.complete && img.naturalWidth) {
+      drawMediaFit(ctx, img, 0, 0, W, H, 'cover')
+    }
     return
   }
   if (bg.type === 'blur') {
@@ -313,21 +372,47 @@ function drawCameraArea(
   dy: number,
   dw: number,
   dh: number,
+  contain = false,
 ) {
+  // Calcula a área de destino da câmera. Em modo "contain" (com fundo visível),
+  // centralizamos o vídeo preservando a proporção, deixando o fundo aparecer
+  // ao redor. Em modo "cover" (padrão, sem fundo), a câmera preenche tudo.
+  let camDx = dx
+  let camDy = dy
+  let camDw = dw
+  let camDh = dh
+  if (contain && input.cameraVideo && input.cameraVideo.videoWidth) {
+    const vw = input.cameraVideo.videoWidth
+    const vh = input.cameraVideo.videoHeight
+    const targetRatio = dw / dh
+    const srcRatio = vw / vh
+    if (srcRatio > targetRatio) {
+      // vídeo mais largo → encaixa largura, altura menor
+      camDh = dw / srcRatio
+      camDy = dy + (dh - camDh) / 2
+    } else {
+      camDw = dh * srcRatio
+      camDx = dx + (dw - camDw) / 2
+    }
+  }
   if (input.cameraVideo && input.cameraVideo.videoWidth) {
     drawCamera(
       ctx,
       input.cameraVideo,
-      dx,
-      dy,
-      dw,
-      dh,
+      camDx,
+      camDy,
+      camDw,
+      camDh,
       input.cameraCrop,
       cameraCssFilter(input.camera),
     )
   } else {
     ctx.fillStyle = '#0B0B10'
     ctx.fillRect(dx, dy, dw, dh)
+  }
+  // Vinheta opcional (após a câmera, abaixo das camadas de texto/overlay).
+  if ((input.camera.vignette ?? 0) > 0) {
+    drawVignette(ctx, dx, dy, dw, dh, input.camera.vignette ?? 0)
   }
 }
 

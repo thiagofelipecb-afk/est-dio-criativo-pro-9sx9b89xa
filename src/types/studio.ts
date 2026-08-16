@@ -839,4 +839,14 @@ export interface CameraConfigLike {
   brightness: number
   contrast: number
   beautySmooth: number
+  /** Saturação (0–200, padrão 100). Aplicada via ctx.filter `saturate()`. */
+  saturation?: number
+  /** Temperatura de cor (-50..+50, padrão 0). Negativa = fria, positiva = quente. */
+  temperature?: number
+  /** Nitidez seletiva (0–100, padrão 0). Indicador visual (sem CSS filter nativo). */
+  sharpness?: number
+  /** Suavização extra (0–100, padrão 0). Aplicada como blur adicional. */
+  smoothness?: number
+  /** Vinheta (0–100, padrão 0). Overlay radial escuro nas bordas. */
+  vignette?: number
 }

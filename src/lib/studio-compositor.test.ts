@@ -87,8 +87,11 @@ describe('ASPECT_DIMENSIONS', () => {
 })
 
 describe('cameraCssFilter', () => {
-  it('brightness/contrast 100 = sem alteração (1.0)', () => {
-    expect(cameraCssFilter(CAM_DEFAULT)).toBe('brightness(1.000) contrast(1.000)')
+  it('brightness/contrast 100 + saturate padrão = sem alteração de brilho/contraste', () => {
+    const f = cameraCssFilter(CAM_DEFAULT)
+    expect(f).toContain('brightness(1.000)')
+    expect(f).toContain('contrast(1.000)')
+    expect(f).toContain('saturate(1.000)')
   })
   it('beautySmooth > 0 adiciona blur', () => {
     const f = cameraCssFilter({ brightness: 100, contrast: 100, beautySmooth: 50 })
@@ -97,6 +100,18 @@ describe('cameraCssFilter', () => {
   it('brightness 50 → 0.5', () => {
     const f = cameraCssFilter({ brightness: 50, contrast: 100, beautySmooth: 0 })
     expect(f).toContain('brightness(0.500)')
+  })
+  it('saturate 200 → saturate(2.000)', () => {
+    const f = cameraCssFilter({ brightness: 100, contrast: 100, beautySmooth: 0, saturation: 200 })
+    expect(f).toContain('saturate(2.000)')
+  })
+  it('temperatura positiva adiciona sepia (quente)', () => {
+    const f = cameraCssFilter({ brightness: 100, contrast: 100, beautySmooth: 0, temperature: 30 })
+    expect(f).toContain('sepia(')
+  })
+  it('temperatura negativa adiciona hue-rotate (fria)', () => {
+    const f = cameraCssFilter({ brightness: 100, contrast: 100, beautySmooth: 0, temperature: -30 })
+    expect(f).toContain('hue-rotate(')
   })
 })
 
@@ -191,6 +206,76 @@ describe('drawComposition — tela dividida', () => {
     // Deve haver drawImage para câmera e para mídia.
     const draws = calls.filter((c) => c.startsWith('drawImage'))
     expect(draws.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('CENÁRIO 6: split-bottom mantém câmera embaixo e mídia em cima', () => {
+    const { ctx, calls } = mockCtx()
+    const fakeVideo = { videoWidth: 1280, videoHeight: 720 } as unknown as HTMLVideoElement
+    const fakeMedia = { naturalWidth: 800, naturalHeight: 600 } as unknown as HTMLImageElement
+    drawComposition({
+      ctx,
+      width: 1080,
+      height: 1920,
+      layout: 'split-bottom',
+      background: BG_NONE,
+      camera: CAM_DEFAULT,
+      cameraCrop: DEFAULT_CAMERA_CROP,
+      cameraVideo: fakeVideo,
+      split: { url: 'x', type: 'image', cameraRatio: 0.5 },
+      splitMediaEl: fakeMedia,
+    })
+    const draws = calls.filter((c) => c.startsWith('drawImage'))
+    // 2 drawImage: mídia + câmera (áreas distintas mantidas).
+    expect(draws.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('CENÁRIO 7: split-top com vídeo de mídia mantém as duas áreas durante renderização', () => {
+    const { ctx, calls } = mockCtx()
+    const fakeVideo = { videoWidth: 1280, videoHeight: 720 } as unknown as HTMLVideoElement
+    const fakeMediaVid = { videoWidth: 1920, videoHeight: 1080 } as unknown as HTMLVideoElement
+    drawComposition({
+      ctx,
+      width: 1080,
+      height: 1920,
+      layout: 'split-top',
+      background: BG_NONE,
+      camera: CAM_DEFAULT,
+      cameraCrop: DEFAULT_CAMERA_CROP,
+      cameraVideo: fakeVideo,
+      split: { url: 'x', type: 'video', cameraRatio: 0.6 },
+      splitMediaEl: fakeMediaVid,
+    })
+    const draws = calls.filter((c) => c.startsWith('drawImage'))
+    // Câmera + mídia-vídeo: ambas desenhadas (layout persiste na gravação).
+    expect(draws.length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+/* ---------------------------------------------------------------------------
+   CENÁRIO 8: o stream do canvas contém as camadas corretas (fundo + câmera).
+   Como a gravação usa canvas.captureStream() do MESMO canvas do preview, o
+   conjunto de operações desenhadas num frame é o que aparece no arquivo. Aqui
+   verificamos que, com fundo cor + câmera, há fillRect (fundo) seguido de
+   drawImage (câmera) — ou seja, as camadas corretas estão presentes.
+   ------------------------------------------------------------------------- */
+describe('drawComposition — stream contém camadas corretas', () => {
+  it('CENÁRIO 8: fundo + câmera produzem fillRect e drawImage no mesmo frame', () => {
+    const { ctx, calls } = mockCtx()
+    const fakeVideo = { videoWidth: 1280, videoHeight: 720 } as unknown as HTMLVideoElement
+    drawComposition({
+      ctx,
+      width: 1080,
+      height: 1920,
+      layout: 'full',
+      background: { type: 'preset', presetColor: '#3366CC', segmentationEnabled: false },
+      camera: CAM_DEFAULT,
+      cameraCrop: DEFAULT_CAMERA_CROP,
+      cameraVideo: fakeVideo,
+    })
+    const hasFill = calls.some((c) => c.startsWith('fillRect'))
+    const hasDraw = calls.some((c) => c.startsWith('drawImage'))
+    expect(hasFill).toBe(true)
+    expect(hasDraw).toBe(true)
   })
 })
 

@@ -80,9 +80,27 @@ export interface StudioAccordionPanelProps {
     zoom: { min: number; max: number; step: number } | null
     supportedResolutions: string[]
   } | null
-  cameraConfig: { brightness: number; contrast: number; beautySmooth: number }
+  cameraConfig: {
+    brightness: number
+    contrast: number
+    beautySmooth: number
+    saturation: number
+    temperature: number
+    sharpness: number
+    smoothness: number
+    vignette: number
+  }
   updateCameraConfig: (
-    u: Partial<{ brightness: number; contrast: number; beautySmooth: number }>,
+    u: Partial<{
+      brightness: number
+      contrast: number
+      beautySmooth: number
+      saturation: number
+      temperature: number
+      sharpness: number
+      smoothness: number
+      vignette: number
+    }>,
   ) => void
   camStatus: string
   // Aparência (beauty)
@@ -221,6 +239,17 @@ export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
         facialLighting: p.facialLighting,
         selectiveSharpness: p.selectiveSharpness,
         intensity: p.intensity,
+      })
+      // Aplica também os ajustes de imagem do preset (visíveis no preview e na
+      // gravação via compositor — brilho, contraste, saturação, temperatura,
+      // suavização). Preset "off" zera os ajustes.
+      props.updateCameraConfig({
+        brightness: p.camera.brightness,
+        contrast: p.camera.contrast,
+        beautySmooth: p.camera.beautySmooth,
+        saturation: p.camera.saturation,
+        temperature: p.camera.temperature,
+        smoothness: p.camera.smoothness,
       })
     }
   }
@@ -566,29 +595,169 @@ export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
                   {/* ============ 5. APARÊNCIA ============ */}
                   {acc.id === 'aparencia' && (
                     <>
-                      {!props.webglAvailable ? (
-                        <div className="flex items-center gap-2 text-[10px] text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-2.5">
-                          <AlertTriangle className="w-3.5 h-3.5" /> Seu navegador não suporta os
-                          efeitos faciais.
+                      {/* Ajustes de imagem globais — sempre disponíveis, aplicados
+                          no compositor via ctx.filter. Estes mudam VISIVELMENTE o
+                          preview e o arquivo gravado, mesmo sem detecção facial. */}
+                      <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2 text-[9px] text-emerald-200/80 leading-relaxed">
+                        Ajustes de imagem aplicados em tempo real no preview e na gravação.
+                      </div>
+
+                      <div>
+                        <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">
+                          Presets de aparência
+                        </span>
+                        <div className="grid grid-cols-2 gap-1 mt-1">
+                          {BEAUTY_PRESETS.map((p) => (
+                            <button
+                              key={p.id}
+                              onClick={() => applyBeautyPreset(p.id)}
+                              className={`text-[9px] py-1.5 rounded-lg border transition-all ${beautyPreset === p.id ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'}`}
+                            >
+                              {p.label}
+                            </button>
+                          ))}
                         </div>
-                      ) : !props.mediapipeAvailable ? (
-                        <div className="rounded-lg border border-[#7C5CFC]/30 bg-[#7C5CFC]/5 p-3 text-center space-y-2">
-                          <Layers className="w-5 h-5 text-[#7C5CFC] mx-auto" />
-                          <p className="text-[10px] text-white">
-                            Efeitos faciais requerem carregamento do modelo (≈8MB).
-                          </p>
+                      </div>
+
+                      <div className="pt-1 border-t border-white/5">
+                        <span className="text-[9px] text-[#7C5CFC] uppercase tracking-wider font-bold">
+                          Ajustes de imagem
+                        </span>
+                      </div>
+                      <SliderRow
+                        label="Brilho"
+                        value={props.cameraConfig.brightness}
+                        min={50}
+                        max={150}
+                        step={1}
+                        onChange={(v) => {
+                          props.updateCameraConfig({ brightness: v })
+                          setBeautyPreset('personalizado')
+                        }}
+                        suffix="%"
+                      />
+                      <SliderRow
+                        label="Contraste"
+                        value={props.cameraConfig.contrast}
+                        min={50}
+                        max={150}
+                        step={1}
+                        onChange={(v) => {
+                          props.updateCameraConfig({ contrast: v })
+                          setBeautyPreset('personalizado')
+                        }}
+                        suffix="%"
+                      />
+                      <SliderRow
+                        label="Saturação"
+                        value={props.cameraConfig.saturation}
+                        min={0}
+                        max={200}
+                        step={1}
+                        onChange={(v) => {
+                          props.updateCameraConfig({ saturation: v })
+                          setBeautyPreset('personalizado')
+                        }}
+                        suffix="%"
+                      />
+                      <SliderRow
+                        label="Temperatura de cor"
+                        value={props.cameraConfig.temperature}
+                        min={-50}
+                        max={50}
+                        step={1}
+                        onChange={(v) => {
+                          props.updateCameraConfig({ temperature: v })
+                          setBeautyPreset('personalizado')
+                        }}
+                        suffix=""
+                      />
+                      <SliderRow
+                        label="Suavização (blur)"
+                        value={props.cameraConfig.smoothness}
+                        min={0}
+                        max={100}
+                        step={1}
+                        onChange={(v) => {
+                          props.updateCameraConfig({ smoothness: v })
+                          setBeautyPreset('personalizado')
+                        }}
+                        suffix="%"
+                      />
+                      <SliderRow
+                        label="Suavização de pele (Beauty)"
+                        value={props.cameraConfig.beautySmooth}
+                        min={0}
+                        max={100}
+                        step={1}
+                        onChange={(v) => {
+                          props.updateCameraConfig({ beautySmooth: v })
+                          setBeautyPreset('personalizado')
+                        }}
+                        suffix="%"
+                      />
+                      <SliderRow
+                        label="Nitidez seletiva"
+                        value={props.cameraConfig.sharpness}
+                        min={0}
+                        max={100}
+                        step={1}
+                        onChange={(v) => {
+                          props.updateCameraConfig({ sharpness: v })
+                          setBeautyPreset('personalizado')
+                        }}
+                        suffix="%"
+                      />
+                      <SliderRow
+                        label="Vinheta"
+                        value={props.cameraConfig.vignette}
+                        min={0}
+                        max={100}
+                        step={1}
+                        onChange={(v) => {
+                          props.updateCameraConfig({ vignette: v })
+                          setBeautyPreset('personalizado')
+                        }}
+                        suffix="%"
+                      />
+
+                      {/* Detalhes faciais avançados — controle refinado que realça
+                          os mesmos efeitos do preset. Requer o modelo facial
+                          opcional para ser aplicado por região; sem ele, apenas os
+                          ajustes de imagem acima atuam. */}
+                      <div className="pt-2 border-t border-white/5">
+                        <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">
+                          Detalhes faciais
+                        </span>
+                        <p className="text-[8px] text-[#9494A8]/70 mt-0.5 leading-relaxed">
+                          Refinamento por região. Sem o modelo facial carregado, apenas os ajustes
+                          de imagem acima são aplicados ao vídeo.
+                        </p>
+                      </div>
+                      {!props.mediapipeAvailable ? (
+                        <div className="rounded-lg border border-white/10 bg-[#1C1C27] p-2.5 space-y-2">
+                          <div className="flex items-center gap-2 text-[9px] text-[#9494A8]">
+                            <Layers className="w-3.5 h-3.5" />
+                            <span>Modelo facial opcional (≈8MB)</span>
+                          </div>
                           <button
                             onClick={props.onLoadMediapipe}
                             disabled={props.mediapipeLoading}
-                            className="px-3 py-1.5 rounded-lg bg-[#7C5CFC] text-white text-[10px] font-bold flex items-center gap-1.5 mx-auto disabled:opacity-50"
+                            className="w-full px-3 py-1.5 rounded-lg bg-[#7C5CFC] text-white text-[10px] font-bold flex items-center justify-center gap-1.5 disabled:opacity-50"
                           >
                             {props.mediapipeLoading ? (
                               <Loader2 className="w-3 h-3 animate-spin" />
                             ) : (
                               <Sparkles className="w-3 h-3" />
                             )}
-                            {props.mediapipeLoading ? 'Carregando...' : 'Carregar modelo'}
+                            {props.mediapipeLoading ? 'Carregando...' : 'Carregar modelo facial'}
                           </button>
+                          {!props.webglAvailable && (
+                            <p className="text-[9px] text-amber-300/80 leading-relaxed">
+                              Seu navegador não suporta WebGL — apenas ajustes globais estarão
+                              disponíveis.
+                            </p>
+                          )}
                         </div>
                       ) : (
                         <>
@@ -598,22 +767,6 @@ export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
                               reduzidos.
                             </div>
                           )}
-                          <div>
-                            <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">
-                              Presets de aparência
-                            </span>
-                            <div className="grid grid-cols-2 gap-1 mt-1">
-                              {BEAUTY_PRESETS.map((p) => (
-                                <button
-                                  key={p.id}
-                                  onClick={() => applyBeautyPreset(p.id)}
-                                  className={`text-[9px] py-1.5 rounded-lg border transition-all ${beautyPreset === p.id ? 'border-[#7C5CFC] bg-[#7C5CFC]/15 text-white' : 'border-white/10 bg-[#1C1C27] text-[#9494A8] hover:text-white'}`}
-                                >
-                                  {p.label}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
                           <BeautySlider
                             label="Suavização de pele"
                             value={props.beauty.skinSmooth}

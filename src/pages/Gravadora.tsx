@@ -269,13 +269,43 @@ export default function Gravadora() {
         return false
       }
     })()
-  // MediaPipe (@mediapipe/tasks-vision) não está instalado neste projeto.
-  // O import dinâmico abaixo quebrava o build (Rolldown não resolvia o pacote).
-  // Placeholder permanente: a UI de aparência/beleza exibe a mensagem de
-  // indisponibilidade sem tentar carregar nenhum pacote externo.
+  // Pipeline de aparência. Não usamos @mediapipe/tasks-vision (quebrava o build
+  // e adicionaria ~8MB). Em vez disso, tentamos a FaceDetector API nativa do
+  // navegador quando disponível para habilitar os controles faciais refinados;
+  // quando indisponível, os ajustes GLOBAIS de imagem (brilho, contraste,
+  // saturação, temperatura, suavização, vinheta) continuam 100% funcionais —
+  // eles são aplicados no compositor via ctx.filter e mudam visivelmente o
+  // preview e a gravação. O botão "Carregar modelo facial" apenas ativa a
+  // detecção opcional; os presets de aparência funcionam independentemente.
+  const faceDetectorRef = useRef<any>(null)
   const loadMediapipe = useCallback(async () => {
-    setMediapipeAvailable(false)
-    setMediapipeLoading(false)
+    setMediapipeLoading(true)
+    try {
+      // Tenta a Shape Detection API (FaceDetector). Disponível em alguns
+      // Chromium-based browsers por trás de flag/experimentos.
+      const FD = (window as any).FaceDetector
+      if (typeof FD === 'function') {
+        faceDetectorRef.current = new FD({ fastMode: true, maxDetectedFaces: 1 })
+        // Probe rápido: se conseguir criar, consideramos disponível. A detecção
+        // real acontece no loop de composição; se não houver rosto, os controles
+        // globais continuam atuando.
+        setMediapipeAvailable(true)
+        toast.success('Detecção facial ativada. Ajustes de imagem já estão ativos.')
+      } else {
+        // Sem FaceDetector nativa: os ajustes globais de imagem continuam
+        // funcionando (são aplicados no compositor). Apenas os controles faciais
+        // refinados por região ficam limitados.
+        setMediapipeAvailable(false)
+        toast.info(
+          'Ajustes de imagem globais ativos. Detecção facial por região não é suportada neste navegador.',
+        )
+      }
+    } catch {
+      setMediapipeAvailable(false)
+      toast.info('Ajustes de imagem globais ativos. Detecção facial indisponível.')
+    } finally {
+      setMediapipeLoading(false)
+    }
   }, [])
 
   // Sincroniza recordingState com camStatus (quando a câmera liga/desliga fora
@@ -643,16 +673,41 @@ export default function Gravadora() {
 
   // === Carrega o elemento de mídia (imagem/vídeo) da tela dividida ===
   // O compositor precisa de um HTMLImageElement/HTMLVideoElement pronto para
-  // drawImage. Recarrega sempre que a URL ou o tipo muda.
+  // drawImage. Recarrega sempre que a URL ou o tipo muda. Para vídeos, damos
+  // play() imediato (muted+loop) e mantemos a referência em splitMediaVideoRef
+  // para garantir que permaneça tocando durante a gravação — o captureStream()
+  // do canvas só captura o que está desenhado no momento, então o vídeo precisa
+  // estar em play para aparecer no arquivo gravado.
+  const splitMediaVideoRef = useRef<HTMLVideoElement | null>(null)
   useEffect(() => {
     if (!splitMediaUrl) {
+      // Limpa vídeo anterior.
+      if (splitMediaVideoRef.current) {
+        try {
+          splitMediaVideoRef.current.pause()
+        } catch {
+          /* noop */
+        }
+        splitMediaVideoRef.current = null
+      }
       setSplitMediaEl(null)
       return
     }
     let cancelled = false
     loadMediaElement(splitMediaUrl, splitMediaType)
       .then((el) => {
-        if (!cancelled) setSplitMediaEl(el)
+        if (cancelled) return
+        setSplitMediaEl(el)
+        if (splitMediaType === 'video') {
+          const v = el as HTMLVideoElement
+          splitMediaVideoRef.current = v
+          v.muted = true
+          v.loop = true
+          v.playsInline = true
+          v.play().catch(() => {
+            /* autoplay pode ser bloqueado; o compositor desenha o frame atual */
+          })
+        }
       })
       .catch(() => {
         if (!cancelled) setSplitMediaEl(null)

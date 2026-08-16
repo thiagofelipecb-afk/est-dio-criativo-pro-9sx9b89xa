@@ -1,7 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useStudio } from '@/context/StudioContext'
-import { Play, Pause, RotateCcw, X, ChevronUp, ChevronDown, Eye, EyeOff } from 'lucide-react'
+import {
+  Play,
+  Pause,
+  RotateCcw,
+  X,
+  ChevronUp,
+  ChevronDown,
+  Eye,
+  EyeOff,
+  Settings2,
+} from 'lucide-react'
+
+/** Converte um hex (#RRGGBB) para rgba com alpha 0..1. */
+function hexToRgba(hex: string, alpha: number): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
+  if (!m) return `rgba(11,11,16,${alpha})`
+  const n = parseInt(m[1], 16)
+  const r = (n >> 16) & 255
+  const g = (n >> 8) & 255
+  const b = n & 255
+  return `rgba(${r},${g},${b},${alpha})`
+}
 
 /* ───────────────────────────────────────────────────────────────────────────
    PrompterHUD — Teleprompter overlay da Gravadora
@@ -45,6 +66,7 @@ export default function PrompterHUD() {
   const [isPaused, setIsPaused] = useState(false)
   const [countdown, setCountdown] = useState<number | null>(null)
   const [minimized, setMinimized] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const [mounted, setMounted] = useState(false)
 
@@ -132,6 +154,10 @@ export default function PrompterHUD() {
         setMinimized(true)
         updatePrompterConfig({ reading: false })
         setIsPaused(false)
+      } else if (k === 't') {
+        // Atalho T: ocultar/minimizar o HUD (alternar).
+        e.preventDefault()
+        setMinimized((m) => !m)
       } else if (k === 'f') {
         e.preventDefault()
         setIsFocusMode(!isFocusMode)
@@ -163,6 +189,13 @@ export default function PrompterHUD() {
   if (!mounted) return null
 
   // Container fixo no topo da janela, centralizado, z-9999, fora do canvas.
+  // Posicionado PRÓXIMO à câmera, sem sobrepor o cabeçalho (top: 14px) nem os
+  // botões da Gravadora. É uma camada de leitura independente do painel de
+  // configuração — nunca entra no canvas de composição.
+  const hudWidth = Math.max(
+    320,
+    Math.min(prompterConfig.width, typeof window !== 'undefined' ? window.innerWidth - 24 : 1200),
+  )
   return createPortal(
     <div
       aria-label="Teleprompter HUD"
@@ -170,21 +203,23 @@ export default function PrompterHUD() {
       className="fixed left-1/2 -translate-x-1/2 z-[9999] pointer-events-auto"
       style={{
         top: 14,
-        width: 'min(860px, calc(100vw - 24px))',
+        width: hudWidth,
       }}
     >
       {minimized ? (
         <button
           onClick={() => setMinimized(false)}
           className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/70 backdrop-blur-md border border-white/15 text-xs text-white shadow-2xl hover:bg-black/80"
-          title="Mostrar teleprompter"
+          title="Mostrar teleprompter (T)"
         >
           <Eye className="w-3.5 h-3.5 text-[#22D3EE]" /> Mostrar Teleprompter
         </button>
       ) : (
         <div
           className="relative rounded-2xl border border-white/10 shadow-2xl backdrop-blur-md overflow-hidden transition-all"
-          style={{ backgroundColor: `rgba(11, 11, 16, ${prompterConfig.bgOpacity / 100})` }}
+          style={{
+            backgroundColor: hexToRgba(prompterConfig.bgColor, prompterConfig.bgOpacity / 100),
+          }}
         >
           {/* Máscara de fade nas bordas superior/inferior */}
           <div
@@ -201,10 +236,13 @@ export default function PrompterHUD() {
           ) : (
             <div
               ref={scrollRef}
-              className={`relative z-0 max-h-[150px] overflow-y-auto px-6 py-3 text-center transition-all ${
+              className={`relative z-0 overflow-y-auto px-6 py-3 text-center transition-all ${
                 prompterConfig.mirror ? 'scale-x-[-1]' : ''
               }`}
-              style={{ transform: `translateX(${prompterConfig.lensOffset}px)` }}
+              style={{
+                transform: `translateX(${prompterConfig.lensOffset}px)`,
+                maxHeight: prompterConfig.height,
+              }}
             >
               {prompterConfig.mode === 'blocks' ? (
                 <div className="space-y-1">
@@ -323,7 +361,7 @@ export default function PrompterHUD() {
               <button
                 onClick={() => setMinimized(true)}
                 className="p-1 rounded text-white hover:bg-white/10"
-                title="Minimizar (Esc)"
+                title="Minimizar (T / Esc)"
               >
                 <EyeOff className="w-3.5 h-3.5" />
               </button>
@@ -349,6 +387,16 @@ export default function PrompterHUD() {
               </button>
 
               <button
+                onClick={() => setShowSettings((s) => !s)}
+                className={`p-1 rounded hover:bg-white/10 ${
+                  showSettings ? 'text-[#22D3EE]' : 'text-white'
+                }`}
+                title="Ajustes do teleprompter"
+              >
+                <Settings2 className="w-3.5 h-3.5" />
+              </button>
+
+              <button
                 onClick={() => {
                   updatePrompterConfig({ reading: false })
                   setIsPaused(false)
@@ -360,6 +408,117 @@ export default function PrompterHUD() {
               </button>
             </div>
           </div>
+
+          {/* Painel de ajustes do teleprompter (largura, altura, fonte, cores,
+              espelhamento). Camada independente — NÃO entra no canvas. */}
+          {showSettings && (
+            <div className="relative z-30 border-t border-white/10 bg-black/80 backdrop-blur-md px-4 py-3 space-y-2.5">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                <label className="block">
+                  <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">
+                    Largura
+                  </span>
+                  <input
+                    type="range"
+                    min={320}
+                    max={1400}
+                    step={10}
+                    value={prompterConfig.width}
+                    onChange={(e) => updatePrompterConfig({ width: Number(e.target.value) })}
+                    className="w-full accent-[#7C5CFC]"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">Altura</span>
+                  <input
+                    type="range"
+                    min={80}
+                    max={400}
+                    step={10}
+                    value={prompterConfig.height}
+                    onChange={(e) => updatePrompterConfig({ height: Number(e.target.value) })}
+                    className="w-full accent-[#7C5CFC]"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">
+                    Fonte ({prompterConfig.fontSize}px)
+                  </span>
+                  <input
+                    type="range"
+                    min={18}
+                    max={96}
+                    step={1}
+                    value={prompterConfig.fontSize}
+                    onChange={(e) => updatePrompterConfig({ fontSize: Number(e.target.value) })}
+                    className="w-full accent-[#7C5CFC]"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">
+                    Opacidade fundo ({prompterConfig.bgOpacity}%)
+                  </span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={prompterConfig.bgOpacity}
+                    onChange={(e) => updatePrompterConfig({ bgOpacity: Number(e.target.value) })}
+                    className="w-full accent-[#7C5CFC]"
+                  />
+                </label>
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                <label className="block">
+                  <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">
+                    Cor do texto
+                  </span>
+                  <div className="flex gap-1 mt-1">
+                    {(['white', 'green', 'yellow'] as const).map((c) => (
+                      <button
+                        key={c}
+                        onClick={() => updatePrompterConfig({ color: c })}
+                        className={`w-6 h-6 rounded-full border-2 ${
+                          prompterConfig.color === c ? 'border-[#7C5CFC]' : 'border-white/20'
+                        }`}
+                        style={{ backgroundColor: COLORS[c] }}
+                        title={c}
+                      />
+                    ))}
+                  </div>
+                </label>
+                <label className="block">
+                  <span className="text-[9px] text-[#9494A8] uppercase tracking-wider">
+                    Cor do fundo
+                  </span>
+                  <input
+                    type="color"
+                    value={prompterConfig.bgColor}
+                    onChange={(e) => updatePrompterConfig({ bgColor: e.target.value })}
+                    className="w-full h-7 mt-1 rounded bg-transparent border border-white/10 cursor-pointer"
+                  />
+                </label>
+              </div>
+              <div className="flex items-center justify-between pt-1">
+                <label className="flex items-center gap-2 text-[10px] text-white cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={prompterConfig.mirror}
+                    onChange={(e) => updatePrompterConfig({ mirror: e.target.checked })}
+                    className="accent-[#7C5CFC]"
+                  />
+                  Espelhar texto
+                </label>
+                <button
+                  onClick={() => setShowSettings(false)}
+                  className="text-[10px] text-[#9494A8] hover:text-white"
+                >
+                  Fechar ajustes
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>,

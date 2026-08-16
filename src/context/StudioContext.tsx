@@ -77,12 +77,27 @@ export interface CameraConfig {
   brightness: number
   contrast: number
   beautySmooth: number
+  /** Saturação (0–200, padrão 100). */
+  saturation: number
+  /** Temperatura de cor (-50..+50, padrão 0). */
+  temperature: number
+  /** Nitidez seletiva (0–100, padrão 0). */
+  sharpness: number
+  /** Suavização extra (0–100, padrão 0). */
+  smoothness: number
+  /** Vinheta (0–100, padrão 0). */
+  vignette: number
 }
 
 const DEFAULT_CAMERA_CONFIG: CameraConfig = {
   brightness: 100,
   contrast: 100,
   beautySmooth: 40,
+  saturation: 100,
+  temperature: 0,
+  sharpness: 0,
+  smoothness: 0,
+  vignette: 0,
 }
 
 /** Config do Teleprompter */
@@ -97,6 +112,12 @@ export interface PrompterConfig {
   countdown: 3 | 5 | 10
   reading: boolean
   isScrolling: boolean
+  /** Largura do HUD em px (padrão 860). */
+  width: number
+  /** Altura máxima da área de leitura em px (padrão 150). */
+  height: number
+  /** Cor de fundo (hex). Aplicada com a opacidade definida em bgOpacity. */
+  bgColor: string
 }
 
 const DEFAULT_PROMPTER_CONFIG: PrompterConfig = {
@@ -110,6 +131,9 @@ const DEFAULT_PROMPTER_CONFIG: PrompterConfig = {
   countdown: 3,
   reading: false,
   isScrolling: false,
+  width: 860,
+  height: 150,
+  bgColor: '#0B0B10',
 }
 
 /** Defaults — Vídeo de reação (persistido em lumen_reaction_config). */
