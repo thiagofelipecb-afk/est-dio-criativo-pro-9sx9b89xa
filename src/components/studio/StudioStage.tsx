@@ -17,6 +17,7 @@
    ========================================================================== */
 
 import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react'
+import { toast } from 'sonner'
 import {
   drawComposition,
   ASPECT_DIMENSIONS,
@@ -167,11 +168,18 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(funct
   // Estado da segmentação exibido no overlay do canvas (assinado ao store
   // global de status para que o BackgroundPanel e o StudioStage fiquem em
   // sincronia). Inicia com o status atual do store (pode ser 'loading').
-  const [segStatus, setSegStatus] = useState<SegmentationStatus>(() =>
-    getSegmentationStatus(),
-  )
+  const [segStatus, setSegStatus] = useState<SegmentationStatus>(() => getSegmentationStatus())
   useEffect(() => {
-    const unsub = subscribeSegmentationStatus((s) => setSegStatus(s))
+    const unsub = subscribeSegmentationStatus((s) => {
+      setSegStatus(s)
+      // Aviso NÃO-bloqueante quando a segmentação falha ou o rosto some.
+      // A pessoa nunca desaparece — o compositor cai para o fundo original.
+      if (s === 'unavailable') {
+        toast.warning('Segmentação indisponível — usando fundo original', { id: 'seg-unavail' })
+      } else if (s === 'no-person') {
+        toast.warning('Nenhum rosto detectado — usando fundo original', { id: 'seg-noperson' })
+      }
+    })
     return () => {
       unsub()
     }

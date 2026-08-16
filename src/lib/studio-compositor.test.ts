@@ -49,6 +49,19 @@ function mockCtx() {
     setLineDash: () => calls.push('setLineDash'),
     strokeRect: (x: number, y: number, w: number, h: number) =>
       calls.push(`strokeRect ${x},${y},${w},${h}`),
+    createLinearGradient: () => ({
+      addColorStop: () => calls.push('addColorStop'),
+    }),
+    createRadialGradient: () => ({
+      addColorStop: () => calls.push('addColorStop'),
+    }),
+    getImageData: (x: number, y: number, w: number, h: number) => ({
+      data: new Uint8ClampedArray(w * h * 4),
+      width: w,
+      height: h,
+    }),
+    putImageData: () => calls.push('putImageData'),
+    globalCompositeOperation: 'source-over',
   } as unknown as CanvasRenderingContext2D
   return { ctx, calls }
 }
@@ -341,5 +354,141 @@ describe('drawComposition — título', () => {
       },
     })
     expect(calls.some((c) => c.startsWith('fillText'))).toBe(false)
+  })
+})
+
+/* ---------------------------------------------------------------------------
+   v0.0.75 — Testes de applyBackground (cor, gradiente, imagem, desfoque,
+   remoção). Validam que o fundo é pintado como camada mais baixa e que a
+   pessoa (câmera) é desenhada DEPOIS, garantindo que nunca desaparece.
+   ------------------------------------------------------------------------- */
+describe('drawComposition — applyBackground por modo', () => {
+  it('cor sólida pinta presetColor como camada de fundo', () => {
+    const { ctx, calls } = mockCtx()
+    const c = ctx as unknown as { fillStyle: string }
+    drawComposition({
+      ctx,
+      width: 1080,
+      height: 1920,
+      layout: 'full',
+      background: { type: 'preset', presetColor: '#1E3A5F', segmentationEnabled: false },
+      camera: CAM_DEFAULT,
+      cameraCrop: DEFAULT_CAMERA_CROP,
+      cameraVideo: null,
+    })
+    expect(c.fillStyle).toBe('#1E3A5F')
+    // Pelo menos um fillRect cobrindo todo o canvas (fundo).
+    expect(calls.some((x) => x.startsWith('fillRect 0,0,1080,1920'))).toBe(true)
+  })
+
+  it('gradiente cria linearGradient e preenche o canvas', () => {
+    const { ctx, calls } = mockCtx()
+    drawComposition({
+      ctx,
+      width: 1080,
+      height: 1920,
+      layout: 'full',
+      background: {
+        type: 'gradient',
+        gradientColor1: '#7C5CFC',
+        gradientColor2: '#22D3EE',
+        gradientAngle: 135,
+        segmentationEnabled: false,
+      },
+      camera: CAM_DEFAULT,
+      cameraCrop: DEFAULT_CAMERA_CROP,
+      cameraVideo: null,
+    })
+    // createLinearGradient → addColorStop (2 cores) → fillRect.
+    expect(calls.some((x) => x === 'addColorStop')).toBe(true)
+    expect(calls.some((x) => x.startsWith('fillRect 0,0,1080,1920'))).toBe(true)
+  })
+
+  it('desfoque (blur) desenha o vídeo da câmera desfocado como fundo', () => {
+    const { ctx, calls } = mockCtx()
+    const fakeVideo = { videoWidth: 1280, videoHeight: 720 } as unknown as HTMLVideoElement
+    drawComposition({
+      ctx,
+      width: 1080,
+      height: 1920,
+      layout: 'full',
+      background: { type: 'blur', blurAmount: 50, segmentationEnabled: false },
+      camera: CAM_DEFAULT,
+      cameraCrop: DEFAULT_CAMERA_CROP,
+      cameraVideo: fakeVideo,
+    })
+    // Ao menos 1 drawImage do vídeo (fundo desfocado).
+    const draws = calls.filter((c) => c.startsWith('drawImage'))
+    expect(draws.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('remoção de fundo pinta cor sólida (preto) e a pessoa é desenhada por cima', () => {
+    const { ctx, calls } = mockCtx()
+    const fakeVideo = { videoWidth: 1280, videoHeight: 720 } as unknown as HTMLVideoElement
+    drawComposition({
+      ctx,
+      width: 1080,
+      height: 1920,
+      layout: 'full',
+      background: { type: 'removal', segmentationEnabled: false, presetColor: '#000000' },
+      camera: CAM_DEFAULT,
+      cameraCrop: DEFAULT_CAMERA_CROP,
+      cameraVideo: fakeVideo,
+    })
+    // Fundo preto preenchido.
+    expect(calls.some((c) => c.startsWith('fillRect 0,0,1080,1920'))).toBe(true)
+    // Câmera desenhada por cima (pessoa visível mesmo sem máscara).
+    expect(calls.some((c) => c.startsWith('drawImage'))).toBe(true)
+  })
+
+  it('máscara de segmentação presente → pessoa recortada via destination-in', () => {
+    const { ctx, calls } = mockCtx()
+    const fakeVideo = { videoWidth: 1280, videoHeight: 720 } as unknown as HTMLVideoElement
+    // Máscara binária 2×2 totalmente branca (pessoa).
+    const maskData = new Uint8ClampedArray(16)
+    for (let i = 0; i < maskData.length; i += 4) {
+      maskData[i] = 255
+      maskData[i + 1] = 255
+      maskData[i + 2] = 255
+      maskData[i + 3] = 255
+    }
+    const mask = new ImageData(maskData, 2, 2)
+    drawComposition({
+      ctx,
+      width: 1080,
+      height: 1920,
+      layout: 'full',
+      background: { type: 'preset', presetColor: '#FF2D55', segmentationEnabled: true },
+      camera: CAM_DEFAULT,
+      cameraCrop: DEFAULT_CAMERA_CROP,
+      cameraVideo: fakeVideo,
+      segmentationMask: mask,
+    })
+    // globalCompositeOperation deve ter sido setada para destination-in.
+    const c = ctx as unknown as { globalCompositeOperation: string }
+    expect(c.globalCompositeOperation).toBe('destination-in')
+    // Fundo rosa pintado + pessoa mascarada desenhada.
+    expect(calls.some((x) => x.startsWith('drawImage'))).toBe(true)
+  })
+
+  it('máscara vazia/inválida (null) → câmera completa (sem segmentação)', () => {
+    const { ctx, calls } = mockCtx()
+    const fakeVideo = { videoWidth: 1280, videoHeight: 720 } as unknown as HTMLVideoElement
+    drawComposition({
+      ctx,
+      width: 1080,
+      height: 1920,
+      layout: 'full',
+      background: { type: 'preset', presetColor: '#FF2D55', segmentationEnabled: true },
+      camera: CAM_DEFAULT,
+      cameraCrop: DEFAULT_CAMERA_CROP,
+      cameraVideo: fakeVideo,
+      segmentationMask: null, // máscara ausente → fallback
+    })
+    // A câmera é desenhada (pessoa nunca desaparece).
+    expect(calls.some((x) => x.startsWith('drawImage'))).toBe(true)
+    // destination-in NÃO deve ter sido aplicado (sem máscara).
+    const c = ctx as unknown as { globalCompositeOperation: string }
+    expect(c.globalCompositeOperation).toBe('source-over')
   })
 })

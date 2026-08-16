@@ -1,10 +1,17 @@
-/* ===========================================================================
-   src/lib/exporter.ts — FASE 5
-   Pipeline de exportação MP4 real (1080×1920) usando Canvas + MediaRecorder.
-   Renderiza frame a frame: vídeo bruto → cortes da timeline → fundo →
-   B-roll do bloco ativo → artes → vídeo de reação → título.
-   Sem simulações: gera um Blob de vídeo válido para download.
-   =========================================================================== */
+/* =============================================================================
+   LUMEN Studio — Exportador MP4 (Canvas → MediaRecorder)
+   -----------------------------------------------------------------------------
+   REGRA OBRIGATÓRIA: cada frame do MP4 é renderizado por `composeFrame` — a
+   MESMA função usada pelo preview (StudioStage). NÃO existe lógica duplicada
+   de fundo, split, crop, blur, artes, reação, título ou legendas aqui. Toda a
+   renderização vive no compositor único (`studio-compositor.ts`).
+
+   O exportador é responsável apenas por:
+     - carregar o vídeo bruto e as mídias complementares (caches de <img>/<video>)
+     - montar um `StudioComposition` por frame e chamar `composeFrame`
+     - gerenciar MediaRecorder, AudioContext, segmentos da timeline, progresso
+     - cleanup seguro de recursos (abort/desmonte)
+   ========================================================================== */
 
 import type {
   BackgroundConfig,
@@ -20,20 +27,26 @@ import type {
   StageLayout,
   TimelineState,
   TitleConfig,
+  CameraConfigLike,
 } from '@/types/studio'
 import type {
   AdjustmentsState,
-  CaptionCue,
-  CaptionStyle,
   CaptionTrack,
   EffectsState,
   EditorAudioState,
 } from '@/components/studio/editor-types'
+import { adjustmentsToCssFilter, effectsToCssFilter } from '@/components/studio/editor-types'
 import {
-  CAPTION_PRESETS,
-  adjustmentsToCssFilter,
-  effectsToCssFilter,
-} from '@/components/studio/editor-types'
+  composeFrame,
+  DEFAULT_CAMERA_CROP,
+  type CameraCrop,
+  type SplitMediaLayer,
+  type ArtLayer,
+  type BRollLayer,
+  type AssignmentLayer,
+  type ReactionLayer,
+  type StudioComposition,
+} from '@/lib/studio-compositor'
 
 /** Canvas alvo 1080×1920 (9:16). */
 export const EXPORT_W = 1080
@@ -66,13 +79,17 @@ export interface ExportOptions {
   artsByBlock: Record<string, BlockArt[]>
   /** B-roll por blockId. */
   brollByBlock: Record<string, BlockBRoll | null>
-  /** Vídeo de reação (opcional). */
+  /** Vídeo de reação (opcional, modelo legado). */
   reaction?: ReactionVideo | null
   /** Configuração completa do vídeo de reação (novo modelo). */
   reactionConfig?: ReactionConfig | null
   /** FPS alvo (padrão 30). */
   fps?: number
-  /** Desfoque de fundo aplicado ao vídeo (0 a 20px). Padrão 0 (sem blur). */
+  /**
+   * Legado — desfoque de fundo aplicado ao vídeo (0 a 20px). Substituído por
+   * `background.blurAmount` (0–100%) no compositor único. Mantido no tipo para
+   * compatibilidade com chamadas existentes; NÃO é mais usado na renderização.
+   */
   backgroundBlur?: number
   /**
    * NOVO (split screen) — Layout do palco da gravação. Quando é 'split-top'
@@ -86,6 +103,8 @@ export interface ExportOptions {
   splitMediaType?: 'image' | 'video'
   /** NOVO (split screen) — Proporção (0–1) da altura da câmera. Padrão 0.6. */
   splitCameraRatio?: number
+  /** Zoom digital + pan (1–4x) aplicado ao vídeo da câmera. Padrão 1x. */
+  cameraCrop?: CameraCrop
   /** Nome base do projeto para o arquivo. */
   projectName: string
   /** Callback de progresso. */
@@ -195,691 +214,6 @@ function loadImageElement(url: string): Promise<HTMLImageElement> {
   })
 }
 
-/** Desenha o fundo no canvas conforme a configuração. */
-async function drawBackground(
-  ctx: CanvasRenderingContext2D,
-  bg: BackgroundConfig,
-  w: number,
-  h: number,
-  videoEl: HTMLVideoElement | null,
-  cachedBgImage: HTMLImageElement | null,
-): Promise<HTMLImageElement | null> {
-  if (bg.type === 'none') {
-    // Fundo padrão preto.
-    ctx.fillStyle = '#0B0B10'
-    ctx.fillRect(0, 0, w, h)
-    return cachedBgImage
-  }
-  if (bg.type === 'blur' && videoEl) {
-    // Desenha o frame do vídeo desfocado como fundo.
-    ctx.save()
-    ctx.filter = `blur(${(bg.blurAmount ?? 12) * 1.5}px) brightness(0.6)`
-    ctx.drawImage(videoEl, 0, 0, w, h)
-    ctx.restore()
-    return cachedBgImage
-  }
-  if (bg.type === 'preset') {
-    ctx.fillStyle = bg.presetColor || '#1E3A5F'
-    ctx.fillRect(0, 0, w, h)
-    return cachedBgImage
-  }
-  if (bg.type === 'image') {
-    if (bg.imageDataUrl) {
-      let img = cachedBgImage
-      if (!img || img.src !== bg.imageDataUrl) {
-        try {
-          img = await loadImageElement(bg.imageDataUrl!)
-        } catch {
-          img = null
-        }
-      }
-      if (img) {
-        ctx.drawImage(img, 0, 0, w, h)
-        return img
-      }
-    }
-    ctx.fillStyle = '#0B0B10'
-    ctx.fillRect(0, 0, w, h)
-    return cachedBgImage
-  }
-  ctx.fillStyle = '#0B0B10'
-  ctx.fillRect(0, 0, w, h)
-  return cachedBgImage
-}
-
-/** Desenha o frame do vídeo bruto com enquadramento cover. */
-/** Desenha o frame do vídeo bruto com enquadramento cover em um retângulo. */
-function drawVideoCover(
-  ctx: CanvasRenderingContext2D,
-  video: HTMLVideoElement,
-  w: number,
-  h: number,
-  cover: number,
-  mirror: boolean,
-): void {
-  const vw = video.videoWidth
-  const vh = video.videoHeight
-  if (!vw || !vh) return
-  const scale = Math.max(w / vw, h / vh) * (1 + cover)
-  const dw = vw * scale
-  const dh = vh * scale
-  const dx = (w - dw) / 2
-  const dy = (h - dh) / 2
-  ctx.save()
-  if (mirror) {
-    ctx.translate(w, 0)
-    ctx.scale(-1, 1)
-    ctx.drawImage(video, w - dx - dw, dy, dw, dh)
-  } else {
-    ctx.drawImage(video, dx, dy, dw, dh)
-  }
-  ctx.restore()
-}
-
-/** Desenha o frame do vídeo bruto em cover dentro de um retângulo arbitrário. */
-function drawVideoCoverRect(
-  ctx: CanvasRenderingContext2D,
-  video: HTMLVideoElement,
-  rect: { x: number; y: number; w: number; h: number },
-  mirror: boolean,
-): void {
-  const vw = video.videoWidth
-  const vh = video.videoHeight
-  if (!vw || !vh) return
-  const scale = Math.max(rect.w / vw, rect.h / vh)
-  const dw = vw * scale
-  const dh = vh * scale
-  const dx = rect.x + (rect.w - dw) / 2
-  const dy = rect.y + (rect.h - dh) / 2
-  ctx.save()
-  if (mirror) {
-    // Espelha horizontalmente dentro do retângulo (origem no canto sup. esq.).
-    ctx.translate(rect.x + rect.w, rect.y)
-    ctx.scale(-1, 1)
-    // Após a transformação, x=0 corresponde a rect.x+rect.w; desenhamos o
-    // vídeo espelhado dentro do retângulo.
-    const mx = rect.w - (dx - rect.x) - dw
-    ctx.drawImage(video, mx, dy - rect.y, dw, dh)
-  } else {
-    ctx.drawImage(video, dx, dy, dw, dh)
-  }
-  ctx.restore()
-}
-
-/** Desenha B-roll do bloco ativo. */
-function drawBRoll(
-  ctx: CanvasRenderingContext2D,
-  broll: BlockBRoll | null | undefined,
-  w: number,
-  h: number,
-  cachedBrollImage: HTMLImageElement | null,
-): void {
-  if (!broll || !broll.url || !cachedBrollImage) return
-  // Desenha a imagem/vídeo do B-roll sobre o canvas, cobrindo a área toda.
-  ctx.save()
-  ctx.globalAlpha = 1
-  drawImageCover(ctx, cachedBrollImage, 0, 0, w, h)
-  ctx.restore()
-}
-
-/** Desenha as artes do bloco ativo. */
-function drawArts(
-  ctx: CanvasRenderingContext2D,
-  arts: BlockArt[] | undefined,
-  w: number,
-  h: number,
-  cachedArts: Map<string, HTMLImageElement>,
-): void {
-  if (!arts || arts.length === 0) return
-  for (const art of arts) {
-    let img = cachedArts.get(art.id)
-    if (!img) {
-      // Carregamento assíncrono seria ideal, mas no pipeline frame-a-frame
-      // usamos apenas as artes já carregadas para não travar o render.
-      continue
-    }
-    const maxW = w * 0.8
-    const maxH = h * 0.8
-    const ratio = Math.min(maxW / img.width, maxH / img.height)
-    const dw = img.width * ratio
-    const dh = img.height * ratio
-    const dx = (w - dw) / 2
-    const dy = (h - dh) / 2
-    ctx.drawImage(img, dx, dy, dw, dh)
-  }
-}
-
-/**
- * Desenha o vídeo de reação em um canto (ou split).
- * Aceita tanto o modelo legado (ReactionVideo) quanto o novo (ReactionConfig).
- * O elemento <video> deve estar pré-carregado e em reprodução para que
- * drawImage capture o frame atual.
- */
-function drawReaction(
-  ctx: CanvasRenderingContext2D,
-  reaction: ReactionVideo | null | undefined,
-  w: number,
-  h: number,
-  reactionConfig?: ReactionConfig | null,
-  reactionVideoEl?: HTMLVideoElement | null,
-): void {
-  // Modelo novo: ReactionConfig + elemento <video> pré-carregado.
-  if (reactionConfig && reactionConfig.enabled && reactionVideoEl) {
-    const vw = reactionVideoEl.videoWidth
-    const vh = reactionVideoEl.videoHeight
-    if (!vw || !vh) return
-    const scale = reactionConfig.scale
-    const boxW = w * scale
-    const boxH = boxW // quadrado (canto)
-    const offset = Math.round(w * 0.015) // ~16px em canvas 1080
-    let x = 0
-    let y = 0
-    switch (reactionConfig.position) {
-      case 'top-left':
-        x = offset
-        y = offset
-        break
-      case 'top-right':
-        x = w - boxW - offset
-        y = offset
-        break
-      case 'bottom-left':
-        x = offset
-        y = h - boxH - offset
-        break
-      case 'split': {
-        // Metade inferior do canvas.
-        const splitH = h * 0.5
-        ctx.save()
-        ctx.beginPath()
-        ctx.rect(0, h - splitH, w, splitH)
-        ctx.clip()
-        drawVideoCoverRect(
-          ctx,
-          reactionVideoEl,
-          {
-            x: 0,
-            y: h - splitH,
-            w,
-            h: splitH,
-          },
-          false,
-        )
-        ctx.restore()
-        return
-      }
-      case 'bottom-right':
-      default:
-        x = w - boxW - offset
-        y = h - boxH - offset
-    }
-    ctx.save()
-    // Clip com cantos arredondados.
-    const r = Math.min(reactionConfig.borderRadius, boxW / 2, boxH / 2)
-    if (r > 0) {
-      roundRectPath(ctx, x, y, boxW, boxH, r)
-      ctx.clip()
-    }
-    // Desenha o vídeo em cover dentro da caixa.
-    drawVideoCoverRect(ctx, reactionVideoEl, { x, y, w: boxW, h: boxH }, false)
-    ctx.restore()
-    // Borda (após o vídeo, sem clip).
-    if (reactionConfig.borderWidth > 0) {
-      ctx.save()
-      ctx.strokeStyle = reactionConfig.borderColor
-      ctx.lineWidth = reactionConfig.borderWidth
-      if (r > 0) {
-        roundRectPath(ctx, x, y, boxW, boxH, r)
-        ctx.stroke()
-      } else {
-        ctx.strokeRect(x, y, boxW, boxH)
-      }
-      ctx.restore()
-    }
-    return
-  }
-
-  // Modelo legado (placeholder).
-  if (!reaction || !reaction.dataUrl) return
-  const sizePct = reaction.size
-  const boxW = w * sizePct
-  const boxH = boxW * (16 / 9)
-  let x = 0
-  let y = 0
-  switch (reaction.corner) {
-    case 'top-left':
-      x = w * 0.02
-      y = h * 0.02
-      break
-    case 'top-right':
-      x = w - boxW - w * 0.02
-      y = h * 0.02
-      break
-    case 'bottom-left':
-      x = w * 0.02
-      y = h - boxH - h * 0.02
-      break
-    case 'bottom-right':
-    default:
-      x = w - boxW - w * 0.02
-      y = h - boxH - h * 0.02
-  }
-  ctx.save()
-  ctx.fillStyle = 'rgba(0,0,0,0.5)'
-  ctx.fillRect(x, y, boxW, boxH)
-  ctx.strokeStyle = 'rgba(255,255,255,0.2)'
-  ctx.lineWidth = 4
-  ctx.strokeRect(x, y, boxW, boxH)
-  ctx.restore()
-}
-
-/**
- * NOVO (split screen) — Calcula os retângulos (área da câmera e área da mídia
- * secundária) dentro do canvas 1080×1920 conforme o layout dividido.
- * Retorna null quando o layout NÃO é dividido.
- */
-function computeSplitRects(
-  layout: StageLayout | undefined,
-  ratio: number | undefined,
-  w: number,
-  h: number,
-): {
-  camera: { x: number; y: number; w: number; h: number }
-  media: { x: number; y: number; w: number; h: number }
-} | null {
-  const isSplit = layout === 'split-top' || layout === 'split-bottom' || layout === 'split'
-  if (!isSplit) return null
-  const r = Math.min(0.9, Math.max(0.2, ratio ?? 0.6))
-  const camH = Math.round(h * r)
-  const medH = h - camH
-  if (layout === 'split-bottom') {
-    // mídia em cima, câmera embaixo
-    return {
-      media: { x: 0, y: 0, w, h: medH },
-      camera: { x: 0, y: medH, w, h: camH },
-    }
-  }
-  // split-top (e legado 'split'): câmera em cima, mídia embaixo
-  return {
-    camera: { x: 0, y: 0, w, h: camH },
-    media: { x: 0, y: camH, w, h: medH },
-  }
-}
-
-/** Desenha uma imagem com cover dentro de um retângulo. */
-function drawImageCover(
-  ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-) {
-  const iw = img.naturalWidth || img.width
-  const ih = img.naturalHeight || img.height
-  if (!iw || !ih) return
-  const scale = Math.max(w / iw, h / ih)
-  const dw = iw * scale
-  const dh = ih * scale
-  const dx = x + (w - dw) / 2
-  const dy = y + (h - dh) / 2
-  ctx.drawImage(img, dx, dy, dw, dh)
-}
-
-/** NOVO (split screen) — Desenha a mídia secundária (imagem) na metade não-câmera. */
-function drawSplitMediaImage(
-  ctx: CanvasRenderingContext2D,
-  rect: { x: number; y: number; w: number; h: number },
-  img: HTMLImageElement | null,
-) {
-  ctx.save()
-  ctx.fillStyle = '#0B0B10'
-  ctx.fillRect(rect.x, rect.y, rect.w, rect.h)
-  ctx.restore()
-  if (img) drawImageCover(ctx, img, rect.x, rect.y, rect.w, rect.h)
-}
-
-/** Resolve o CaptionStyle a partir do preset da track ou da cue. */
-function resolveCaptionStyle(
-  track: CaptionTrack | null | undefined,
-  cue: CaptionCue,
-): CaptionStyle {
-  const presetId = cue.style || track?.preset || 'clean-center'
-  const preset = CAPTION_PRESETS.find((p) => p.id === presetId)
-  return preset ? { ...preset.style } : { ...CAPTION_PRESETS[0].style }
-}
-
-/** Quebra o texto em linhas respeitando o maxWidth (px). */
-function wrapCaptionText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  maxWidthPx: number,
-): string[] {
-  const words = text.split(/\s+/).filter(Boolean)
-  const lines: string[] = []
-  let line = ''
-  for (const word of words) {
-    const test = line ? line + ' ' + word : word
-    if (ctx.measureText(test).width > maxWidthPx && line) {
-      lines.push(line)
-      line = word
-    } else {
-      line = test
-    }
-  }
-  if (line) lines.push(line)
-  return lines
-}
-
-/** Calcula a posição Y (topo do bloco de texto) conforme o alinhamento vertical. */
-function captionVerticalY(style: CaptionStyle, blockHeight: number, h: number): number {
-  switch (style.vertical) {
-    case 'top':
-      return h * 0.06
-    case 'middle':
-      return (h - blockHeight) / 2
-    case 'bottom':
-    default:
-      return h - blockHeight - h * 0.1
-  }
-}
-
-/**
- * Desenha as legendas no canvas. Percorre as cues da CaptionTrack e desenha
- * aquela cujo intervalo [startTime, endTime] contém o tempo resultante atual.
- * Aplica estilo (fonte, cor, fundo, contorno, sombra), animação e posição.
- */
-function drawCaptions(
-  ctx: CanvasRenderingContext2D,
-  track: CaptionTrack | null | undefined,
-  resultTime: number,
-  w: number,
-  h: number,
-): void {
-  if (!track || !track.cues || track.cues.length === 0) return
-  // Usa o tempo resultante (do vídeo editado) — as cues do CaptionPanel são
-  // timeline-space; como o editor só tem um clipe principal, resultTime ≈ raw.
-  const cue = track.cues.find((c) => resultTime >= c.startTime && resultTime <= c.endTime)
-  if (!cue) return
-
-  const style = resolveCaptionStyle(track, cue)
-  const animation = cue.animation || track.preset || 'fade'
-  const pos = cue.position // {x,y} normalizado ou undefined
-
-  // Progresso dentro da cue para animações.
-  const cueDur = Math.max(0.01, cue.endTime - cue.startTime)
-  const cueProgress = Math.max(0, Math.min(1, (resultTime - cue.startTime) / cueDur))
-
-  // Fonte
-  const fontPx = (style.fontSize / 1080) * w
-  const weight = style.fontWeight
-  const family = style.fontFamily || 'Inter'
-  ctx.save()
-  ctx.font = `${weight} ${fontPx}px ${family}, Arial, sans-serif`
-  ctx.textBaseline = 'top'
-  ctx.textAlign = style.align as CanvasTextAlign
-
-  // Texto (caixa alta opcional)
-  let text = cue.text || ''
-  if (style.uppercase) text = text.toUpperCase()
-
-  // Largura máxima
-  const maxWidthPx = (style.maxWidth / 100) * w
-  const lines = wrapCaptionText(ctx, text, maxWidthPx).slice(0, style.lines || 2)
-  const lineHeight = fontPx * (style.lineHeight || 1.2)
-  const blockHeight = lines.length * lineHeight
-
-  // Posição X/Y (normalizada). Default: centralizado horizontalmente e base.
-  const cx = pos ? pos.x : 0.5
-  let cyN = pos ? pos.y : undefined
-  if (cyN === undefined) {
-    // usa vertical preset
-    const topY = captionVerticalY(style, blockHeight, h)
-    cyN = (topY + blockHeight / 2) / h
-  }
-
-  // Alvo Y do centro do bloco
-  const centerY = cyN * h
-  const topY = centerY - blockHeight / 2
-
-  // Animações — calculam alpha/offset/scale.
-  let alpha = Math.min(1, style.opacity / 100)
-  let offsetY = 0
-  let scale = 1
-  if (animation === 'fade') {
-    const fade = 0.12
-    if (cueProgress < fade) alpha *= cueProgress / fade
-    else if (cueProgress > 1 - fade) alpha *= (1 - cueProgress) / fade
-  } else if (animation === 'pop') {
-    const p = Math.min(1, cueProgress / 0.15)
-    scale = 0.7 + 0.3 * p
-  } else if (animation === 'bounce') {
-    const p = cueProgress
-    offsetY = Math.sin(p * Math.PI) * fontPx * 0.3
-  } else if (animation === 'slide') {
-    const p = Math.min(1, cueProgress / 0.18)
-    offsetY = (1 - p) * fontPx * 0.6
-    alpha *= p
-  } else if (animation === 'typewriter') {
-    const total = text.length
-    const visible = Math.floor(cueProgress * total)
-    if (visible < total) text = text.slice(0, visible)
-  }
-  alpha = Math.max(0, Math.min(1, alpha))
-
-  ctx.globalAlpha = alpha
-  ctx.translate(0, offsetY)
-  if (scale !== 1) {
-    ctx.translate(cx * w, centerY)
-    ctx.scale(scale, scale)
-    ctx.translate(-cx * w, -centerY)
-  }
-
-  // Posição X do texto conforme alinhamento.
-  let xAnchor: number
-  if (style.align === 'left') {
-    xAnchor = cx * w - maxWidthPx / 2
-  } else if (style.align === 'right') {
-    xAnchor = cx * w + maxWidthPx / 2
-  } else {
-    xAnchor = cx * w
-  }
-
-  const pad = (style.padding / 1080) * w
-  const radius = (style.borderRadius / 1080) * w
-
-  // Desenha cada linha
-  let y = topY
-  for (let i = 0; i < lines.length; i++) {
-    const ln = lines[i]
-    const metrics = ctx.measureText(ln)
-    const tw = metrics.width
-
-    // Fundo
-    if (style.background && style.background !== 'transparent') {
-      let bgX: number
-      if (style.align === 'left') bgX = xAnchor - pad
-      else if (style.align === 'right') bgX = xAnchor - tw - pad
-      else bgX = xAnchor - tw / 2 - pad
-      const bgY = y - pad / 2
-      const bgW = tw + pad * 2
-      const bgH = lineHeight + pad
-      ctx.fillStyle = style.background
-      if (radius > 0) {
-        roundRectPath(ctx, bgX, bgY, bgW, bgH, radius)
-        ctx.fill()
-      } else {
-        ctx.fillRect(bgX, bgY, bgW, bgH)
-      }
-    }
-
-    // Sombra
-    if (style.shadow) {
-      ctx.shadowColor = 'rgba(0,0,0,0.85)'
-      ctx.shadowBlur = fontPx * 0.18
-      ctx.shadowOffsetY = fontPx * 0.06
-    }
-
-    // Contorno
-    if (style.outline) {
-      ctx.lineWidth = Math.max(2, fontPx * 0.08)
-      ctx.strokeStyle = '#000000'
-      ctx.lineJoin = 'round'
-      ctx.miterLimit = 2
-      ctx.strokeText(ln, xAnchor, y)
-    }
-
-    // Texto — animação karaoke/highlight colore a palavra ativa.
-    if (animation === 'karaoke' || animation === 'highlight') {
-      const words = ln.split(' ')
-      const activeColor = style.activeColor || '#22D3EE'
-      const baseColor = style.color || '#FFFFFF'
-      // palavra ativa global baseada no tempo
-      const activeWordIdx = (() => {
-        const cw = cue.words || []
-        for (let wi = 0; wi < cw.length; wi++) {
-          if (resultTime >= cw[wi].start && resultTime < cw[wi].end) return wi
-        }
-        // destaca até a última palavra já falada
-        let last = -1
-        for (let wi = 0; wi < cw.length; wi++) {
-          if (resultTime >= cw[wi].start) last = wi
-        }
-        return last
-      })()
-      // mede cada palavra e desenha com cor apropriada
-      let cursorX = xAnchor
-      if (style.align === 'center') {
-        // centraliza o bloco de linha
-        cursorX = xAnchor - tw / 2
-      } else if (style.align === 'right') {
-        cursorX = xAnchor - tw
-      }
-      const spaceW = ctx.measureText(' ').width
-      // conta offset de palavras já desenhadas nas linhas anteriores
-      let globalWordIdx = 0
-      for (let li = 0; li < i; li++) globalWordIdx += lines[li].split(' ').length
-      ctx.textAlign = 'left'
-      for (let wi = 0; wi < words.length; wi++) {
-        const word = words[wi]
-        const isKaraoke = animation === 'karaoke'
-        const isActive = isKaraoke
-          ? globalWordIdx + wi === activeWordIdx
-          : globalWordIdx + wi <= activeWordIdx
-        ctx.fillStyle = isActive ? activeColor : baseColor
-        ctx.fillText(word, cursorX, y)
-        cursorX += ctx.measureText(word).width + spaceW
-      }
-      ctx.textAlign = style.align as CanvasTextAlign
-    } else {
-      ctx.fillStyle = style.color
-      ctx.fillText(ln, xAnchor, y)
-    }
-
-    ctx.shadowColor = 'transparent'
-    ctx.shadowBlur = 0
-    ctx.shadowOffsetY = 0
-    y += lineHeight
-  }
-
-  ctx.restore()
-}
-
-/** Caminho de retângulo arredondado (para fundos de legenda/título). */
-function roundRectPath(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-) {
-  const rr = Math.min(r, h / 2, w / 2)
-  ctx.beginPath()
-  ctx.moveTo(x + rr, y)
-  ctx.arcTo(x + w, y, x + w, y + h, rr)
-  ctx.arcTo(x + w, y + h, x, y + h, rr)
-  ctx.arcTo(x, y + h, x, y, rr)
-  ctx.arcTo(x, y, x + w, y, rr)
-  ctx.closePath()
-}
-
-/** Desenha o título conforme a configuração. */
-function drawTitle(
-  ctx: CanvasRenderingContext2D,
-  title: TitleConfig,
-  w: number,
-  h: number,
-  elapsedSeconds: number,
-): void {
-  if (!title.enabled || !title.text) return
-  // Respeita duração limitada.
-  if (title.duration === 'seconds' && elapsedSeconds > title.durationSeconds) {
-    return
-  }
-  const fontSize = (title.fontSize / 1080) * w // escala relativa ao canvas
-  const fontStack =
-    title.font === 'Anton'
-      ? `${fontSize}px Anton, Impact, sans-serif`
-      : title.font === 'Montserrat'
-        ? `${fontSize}px Montserrat, Arial, sans-serif`
-        : `${fontSize}px Caveat, cursive`
-  ctx.save()
-  ctx.font = fontStack
-  ctx.textAlign = title.alignment as CanvasTextAlign
-  ctx.textBaseline = 'middle'
-  const boxW = (title.width / 100) * w
-  const x =
-    title.alignment === 'left'
-      ? title.normalizedX * w
-      : title.alignment === 'right'
-        ? title.normalizedX * w + boxW
-        : title.normalizedX * w + boxW / 2
-  const y = title.normalizedY * h
-  // Quebra em linhas para caber na largura.
-  const words = title.text.split(' ')
-  const lines: string[] = []
-  let line = ''
-  for (const word of words) {
-    const test = line ? line + ' ' + word : word
-    if (ctx.measureText(test).width > boxW && line) {
-      lines.push(line)
-      line = word
-    } else {
-      line = test
-    }
-  }
-  if (line) lines.push(line)
-  const lineHeight = fontSize * 1.1
-  const totalH = lines.length * lineHeight
-  let startY = y - totalH / 2 + lineHeight / 2
-  for (const ln of lines) {
-    if (title.bgEnabled && title.bgColor !== 'transparent') {
-      const metrics = ctx.measureText(ln)
-      const tw = metrics.width
-      const bx =
-        title.alignment === 'left'
-          ? x - 8
-          : title.alignment === 'right'
-            ? x - tw - 8
-            : x - tw / 2 - 8
-      ctx.fillStyle = title.bgColor
-      ctx.fillRect(bx, startY - lineHeight / 2, tw + 16, lineHeight)
-    }
-    ctx.fillStyle = title.color
-    // sombra sutil para legibilidade (sempre aplicada)
-    ctx.shadowColor = 'rgba(0,0,0,0.8)'
-    ctx.shadowBlur = 8
-    ctx.shadowOffsetY = 2
-    ctx.fillText(ln, x, startY)
-    ctx.shadowColor = 'transparent'
-    ctx.shadowBlur = 0
-    ctx.shadowOffsetY = 0
-    startY += lineHeight
-  }
-  ctx.restore()
-}
-
 /** Identifica o bloco ativo em um determinado tempo do vídeo bruto. */
 function findActiveBlock(blocks: ScriptBlock[], rawTime: number): ScriptBlock | null {
   if (blocks.length === 0) return null
@@ -889,55 +223,6 @@ function findActiveBlock(blocks: ScriptBlock[], rawTime: number): ScriptBlock | 
   const perBlock = totalEst / blocks.length
   const idx = Math.min(blocks.length - 1, Math.max(0, Math.floor(rawTime / perBlock)))
   return blocks[idx]
-}
-
-/** PROMPT 3 — Desenha uma atribuição de mídia (BlockMediaAssignment) no canvas. */
-function drawBlockMediaAssignment(
-  ctx: CanvasRenderingContext2D,
-  assignment: BlockMediaAssignment,
-  img: HTMLImageElement,
-  w: number,
-  h: number,
-  rect?: { x: number; y: number; w: number; h: number },
-): void {
-  const target = rect ?? { x: 0, y: 0, w, h }
-  // Fundo configurável da atribuição.
-  ctx.save()
-  ctx.fillStyle = assignment.backgroundColor || '#000000'
-  ctx.fillRect(target.x, target.y, target.w, target.h)
-  ctx.restore()
-
-  const iw = img.naturalWidth || img.width
-  const ih = img.naturalHeight || img.height
-  if (!iw || !ih) return
-
-  const scale = assignment.scale
-  let dw: number
-  let dh: number
-  if (assignment.fit === 'cover') {
-    const s = Math.max(target.w / iw, target.h / ih) * scale
-    dw = iw * s
-    dh = ih * s
-  } else if (assignment.fit === 'fill') {
-    dw = target.w * scale
-    dh = target.h * scale
-  } else {
-    // contain
-    const s = Math.min(target.w / iw, target.h / ih) * scale
-    dw = iw * s
-    dh = ih * s
-  }
-  const cx = target.x + target.w * assignment.positionX
-  const cy = target.y + target.h * assignment.positionY
-  const dx = cx - dw / 2
-  const dy = cy - dh / 2
-  ctx.save()
-  // Recorta ao retângulo alvo para não vazar em layouts divididos.
-  ctx.beginPath()
-  ctx.rect(target.x, target.y, target.w, target.h)
-  ctx.clip()
-  ctx.drawImage(img, dx, dy, dw, dh)
-  ctx.restore()
 }
 
 /* ===========================================================================
@@ -1067,7 +352,8 @@ export function exportVideo(opts: ExportOptions): Promise<ExportResult> {
  *  2. Cria um canvas 1080×1920 e captura seu stream via captureStream().
  *  3. Cria MediaRecorder sobre o stream do canvas.
  *  4. Percorre os segmentos efetivos, posicionando o vídeo bruto e
- *     desenhando cada frame no canvas com requestAnimationFrame.
+ *     desenhando cada frame no canvas via `composeFrame` (mesma função do
+ *     preview) com requestAnimationFrame.
  *  5. Reporta progresso e permite cancelamento seguro.
  *
  * @returns Blob URL do vídeo final + metadados.
@@ -1085,11 +371,11 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
     reaction,
     reactionConfig,
     fps = 30,
-    backgroundBlur = 0,
     stageLayout,
     splitMediaUrl,
     splitMediaType,
     splitCameraRatio,
+    cameraCrop,
     projectName,
     onProgress,
     shouldCancel,
@@ -1100,9 +386,9 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
     blockAssignments,
     mediaAssets,
   } = opts
-  const splitRects = computeSplitRects(stageLayout, splitCameraRatio, EXPORT_W, EXPORT_H)
 
-  // CSS filter combinado (ajustes + efeitos) — aplicado ao drawImage do vídeo.
+  // CSS filter combinado (ajustes + efeitos) — repassado ao compositor como
+  // `cameraFilterOverride`. O compositor aplica ao desenhar a câmera (pessoa).
   const videoFilterCss = [
     adjustments ? adjustmentsToCssFilter(adjustments) : '',
     effects ? effectsToCssFilter(effects) : '',
@@ -1175,17 +461,10 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
     }
     void blockId
   }
-  let cachedBgImage: HTMLImageElement | null = null
-  if (background.type === 'image' && background.imageDataUrl) {
-    try {
-      cachedBgImage = await loadImageElement(background.imageDataUrl)
-    } catch {
-      cachedBgImage = null
-    }
-  }
+
   // Pré-carrega a mídia secundária do split screen (apenas imagem).
   let cachedSplitImage: HTMLImageElement | null = null
-  if (splitRects && splitMediaType === 'image' && splitMediaUrl) {
+  if (splitMediaUrl && splitMediaType === 'image') {
     try {
       cachedSplitImage = await loadImageElement(splitMediaUrl)
     } catch {
@@ -1297,6 +576,28 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
   }
 
   const filename = `LUMEN_${sanitizeFilename(projectName)}_1080x1920.${mimeToExtension(mimeType)}`
+
+  // Configuração de câmera mínima para o compositor. O filtro CSS combinado
+  // (ajustes + efeitos do Editor) é repassado via `cameraFilterOverride`; a
+  // vinheta vem do estado de ajustes. Assim o compositor aplica os mesmos
+  // efeitos do preview, sem duplicar a lógica de renderização.
+  const compositorCamera: CameraConfigLike = {
+    brightness: 100,
+    contrast: 100,
+    beautySmooth: 0,
+    vignette: adjustments?.vignette ?? 0,
+  }
+  const compositorCrop: CameraCrop = cameraCrop ?? DEFAULT_CAMERA_CROP
+  const isSplit =
+    stageLayout === 'split-top' || stageLayout === 'split-bottom' || stageLayout === 'split'
+  const splitLayer: SplitMediaLayer | null =
+    isSplit && splitMediaUrl
+      ? {
+          url: splitMediaUrl,
+          type: splitMediaType || 'image',
+          cameraRatio: splitCameraRatio ?? 0.6,
+        }
+      : null
 
   return new Promise<ExportResult>((resolve, reject) => {
     let currentSegmentIndex = 0
@@ -1425,6 +726,7 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
       const rms = Math.sqrt(sum / buf.length)
       return rms > 0.04 // limiar aproximado de fala
     }
+    void isVoiceActive
 
     const renderFrame = () => {
       if (resources.cancelled) return
@@ -1455,7 +757,6 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
 
       // Atualiza áudio (fades / ducking).
       updateAudioGain(resultTime)
-      void isVoiceActive
 
       // Se passamos do fim do segmento, avança para o próximo.
       if (rawTime >= seg.end - 0.01) {
@@ -1485,98 +786,92 @@ async function runExport(opts: ExportOptions, resources: ExporterResources): Pro
         }
       }
 
-      // Desenha o frame.
-      drawBackground(ctx, background, EXPORT_W, EXPORT_H, videoEl, cachedBgImage)
-
-      // Aplica o CSS filter de ajustes+efeitos ao desenhar o vídeo.
-      const filterCss = videoFilterCss || undefined
-
-      if (splitRects) {
-        // Layout dividido: câmera numa fatia + mídia noutra fatia.
-        drawSplitMediaImage(ctx, splitRects.media, cachedSplitImage)
-        if (backgroundBlur > 0 || filterCss) {
-          ctx.save()
-          ctx.filter = [backgroundBlur > 0 ? `blur(${backgroundBlur}px)` : '', filterCss]
-            .filter(Boolean)
-            .join(' ')
-          drawVideoCoverRect(ctx, videoEl, splitRects.camera, true)
-          ctx.restore()
-        } else {
-          drawVideoCoverRect(ctx, videoEl, splitRects.camera, true)
-        }
-        ctx.save()
-        ctx.fillStyle = 'rgba(0,0,0,0.6)'
-        const divY = splitRects.camera.y + splitRects.camera.h
-        ctx.fillRect(0, divY - 1, EXPORT_W, 2)
-        ctx.restore()
-      } else {
-        // Layout cheio: vídeo cobre todo o canvas.
-        if (backgroundBlur > 0 || filterCss) {
-          ctx.save()
-          ctx.filter = [backgroundBlur > 0 ? `blur(${backgroundBlur}px)` : '', filterCss]
-            .filter(Boolean)
-            .join(' ')
-          drawVideoCover(ctx, videoEl, EXPORT_W, EXPORT_H, 0, true)
-          ctx.restore()
-        } else {
-          drawVideoCover(ctx, videoEl, EXPORT_W, EXPORT_H, 0, true)
-        }
-      }
-
-      // Transição dissolve: escurece o frame no fim do segmento (crossfade simples).
-      if (transitionAlpha > 0) {
-        ctx.save()
-        ctx.fillStyle = `rgba(0,0,0,${transitionAlpha.toFixed(3)})`
-        ctx.fillRect(0, 0, EXPORT_W, EXPORT_H)
-        ctx.restore()
-      }
-
+      // === Renderização do frame ===
+      // Cada frame do MP4 é desenhado EXATAMENTE por `composeFrame` — a mesma
+      // função do preview. Nenhuma lógica de fundo/split/crop/blur/arte/reação/
+      // título/legenda é duplicada aqui. O MP4 é pixel-idêntico ao preview.
       const activeBlock = findActiveBlock(blocks, rawTime)
+
+      // Camada de arte do bloco ativo (primeira arte com imagem carregada).
+      let artLayer: ArtLayer | null = null
       if (activeBlock) {
         const arts = artsByBlock[activeBlock.id] || []
-        drawArts(ctx, arts, EXPORT_W, EXPORT_H, cachedArts)
-        const broll = brollByBlock[activeBlock.id] || null
-        drawBRoll(ctx, broll, EXPORT_W, EXPORT_H, cachedBrollImages.get(activeBlock.id) || null)
-
-        // PROMPT 3 — Desenha as atribuições de mídia (BlockMediaAssignment) do bloco ativo.
-        if (blockAssignments && blockAssignments.length > 0) {
-          const blockAssigns = blockAssignments
-            .filter((a) => a.blockId === activeBlock.id && a.enabled)
-            .sort((a, b) => a.order - b.order)
-          for (const a of blockAssigns) {
-            const img = cachedAssignmentImages.get(a.assetId)
-            if (!img) continue
-            // Posiciona conforme o layout: full = overlay total; split = área complementar.
-            if (splitRects) {
-              drawBlockMediaAssignment(ctx, a, img, EXPORT_W, EXPORT_H, splitRects.media)
-            } else {
-              drawBlockMediaAssignment(ctx, a, img, EXPORT_W, EXPORT_H)
+        for (const art of arts) {
+          const img = cachedArts.get(art.id)
+          if (img) {
+            artLayer = {
+              asset: undefined,
+              imageEl: img,
+              fit: 'contain',
+              positionX: 0.5,
+              positionY: 0.5,
+              scale: 1,
+              backgroundColor: '#000000',
             }
+            break
           }
         }
       }
-      drawReaction(ctx, reaction, EXPORT_W, EXPORT_H, reactionConfig, reactionVideoEl)
-      drawTitle(ctx, title, EXPORT_W, EXPORT_H, resultTime)
-      drawCaptions(ctx, captions, resultTime, EXPORT_W, EXPORT_H)
 
-      // Vinheta (overlay) — quando ajuste > 0.
-      if (adjustments && adjustments.vignette > 0) {
-        ctx.save()
-        const v = adjustments.vignette
-        const grad = ctx.createRadialGradient(
-          EXPORT_W / 2,
-          EXPORT_H / 2,
-          Math.min(EXPORT_W, EXPORT_H) * (1 - v / 100) * 0.5,
-          EXPORT_W / 2,
-          EXPORT_H / 2,
-          Math.max(EXPORT_W, EXPORT_H) * 0.7,
-        )
-        grad.addColorStop(0, 'rgba(0,0,0,0)')
-        grad.addColorStop(1, `rgba(0,0,0,${(v / 100).toFixed(3)})`)
-        ctx.fillStyle = grad
-        ctx.fillRect(0, 0, EXPORT_W, EXPORT_H)
-        ctx.restore()
+      // Camada de B-roll do bloco ativo.
+      let brollLayer: BRollLayer | null = null
+      if (activeBlock) {
+        const brollImg = cachedBrollImages.get(activeBlock.id) || null
+        if (brollImg) brollLayer = { imageEl: brollImg }
       }
+
+      // Atribuições de mídia do bloco ativo (overlays ordenados).
+      let assignmentLayers: AssignmentLayer[] = []
+      if (activeBlock && blockAssignments && blockAssignments.length > 0) {
+        assignmentLayers = blockAssignments
+          .filter((a) => a.blockId === activeBlock.id && a.enabled)
+          .sort((a, b) => a.order - b.order)
+          .map((a) => ({
+            imageEl: cachedAssignmentImages.get(a.assetId) || null,
+            fit: a.fit,
+            positionX: a.positionX,
+            positionY: a.positionY,
+            scale: a.scale,
+            backgroundColor: a.backgroundColor,
+          }))
+          .filter((a) => a.imageEl)
+      }
+
+      // Camada de reação (modelo novo com <video> pré-carregado).
+      let reactionLayer: ReactionLayer | null = null
+      if (reactionConfig && reactionConfig.enabled && reactionVideoEl) {
+        reactionLayer = {
+          video: reactionVideoEl,
+          scale: reactionConfig.scale,
+          position: reactionConfig.position,
+          borderRadius: reactionConfig.borderRadius,
+          borderWidth: reactionConfig.borderWidth,
+          borderColor: reactionConfig.borderColor,
+        }
+      }
+      // Modelo legado (ReactionVideo com dataUrl) não possui <video> pré-carregado
+      // aqui; o compositor só suporta o modelo novo. Mantemos `reaction` no tipo
+      // para compatibilidade, mas sem renderização duplicada.
+      void reaction
+
+      const composition: StudioComposition = {
+        layout: stageLayout ?? 'full',
+        background,
+        camera: compositorCamera,
+        cameraCrop: compositorCrop,
+        cameraVideo: videoEl,
+        cameraFilterOverride: videoFilterCss || undefined,
+        split: splitLayer,
+        splitMediaEl: cachedSplitImage,
+        art: artLayer,
+        broll: brollLayer,
+        assignments: assignmentLayers.length > 0 ? assignmentLayers : null,
+        reaction: reactionLayer,
+        title,
+        captions: captions ?? null,
+        transitionAlpha,
+      }
+      composeFrame(ctx, EXPORT_W, EXPORT_H, composition, resultTime * 1000)
 
       // Progresso.
       const done = resultTime
