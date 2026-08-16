@@ -302,7 +302,7 @@ export default function ClaraWidget() {
           case 'broll': {
             const suggestions = suggestBRoll(text)
             result = { kind: 'broll', suggestions }
-            intro = '🎬 Sugestões de B-roll (termos de busca para Pexels) por bloco:'
+            intro = 'Sugestões de B-roll (termos de busca para Pexels) por bloco:'
             break
           }
           case 'shorts': {

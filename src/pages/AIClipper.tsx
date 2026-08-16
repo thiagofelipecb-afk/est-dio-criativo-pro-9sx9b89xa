@@ -130,7 +130,7 @@ export default function AIClipper() {
           id: 'clip-1',
           title: 'O Maior Erro dos Criadores de Conteúdo em 2026',
           description:
-            'Descubra a estratégia secreta para dobrar a retenção nos primeiros 3 segundos do seu Reels/TikTok! 🔥',
+            'Estratégia para aumentar a retenção nos primeiros 3 segundos de Reels e TikTok.',
           hashtags: ['#MarketingDigital', '#CriadoresDeConteudo', '#Visualizacoes', '#ReelsViral'],
           startTime: 12,
           endTime: 72,
@@ -215,7 +215,7 @@ export default function AIClipper() {
       setClips(generated)
       setActiveClipId(generated[0].id)
       setIsProcessing(false)
-      toast.success('🎉 3 Clipes Virais extraídos e formatados em 9:16!')
+      toast.success('3 clipes virais extraídos e formatados em 9:16!')
     }, 7500)
   }
 
@@ -264,7 +264,7 @@ export default function AIClipper() {
           clearInterval(interval)
           setIsBatchExporting(false)
           setClips((prev) => prev.map((c) => ({ ...c, isExported: true })))
-          toast.success('🚀 Lote exportado com sucesso em MP4 1080p (9:16)!')
+          toast.success('Lote exportado com sucesso em MP4 1080p (9:16).')
           return 100
         }
         return p + 20
@@ -493,7 +493,7 @@ export default function AIClipper() {
                   {/* Badge de Efeitos Escolhidos pela IA */}
                   <div className="relative z-10 self-start bg-black/60 backdrop-blur-md border border-white/10 rounded-lg px-2 py-1 text-[9px] text-white flex flex-col gap-0.5 max-w-[150px]">
                     <span className="text-[#22D3EE] font-extrabold uppercase tracking-wide">
-                      ✨ Overlays IA
+                      Overlays IA
                     </span>
                     {(activeClip.appliedOverlay ?? []).map((oid) => {
                       const ov = getOverlayById(oid)
@@ -504,7 +504,7 @@ export default function AIClipper() {
                       )
                     })}
                     <span className="text-[#FBBF24] font-extrabold uppercase tracking-wide mt-0.5">
-                      🔊 SFX IA
+                      SFX IA
                     </span>
                     {(activeClip.appliedSfx ?? []).map((sid) => {
                       const sfx = getSfxById(sid)
@@ -520,7 +520,7 @@ export default function AIClipper() {
                         : undefined
                       return (
                         <span className="text-[#7C5CFC] font-extrabold uppercase tracking-wide mt-0.5 truncate">
-                          🎵 {track ? `${track.title} (${track.genre})` : activeClip.appliedMusic}
+                          {track ? `${track.title} (${track.genre})` : activeClip.appliedMusic}
                         </span>
                       )
                     })()}

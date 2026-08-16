@@ -20,7 +20,7 @@ import {
   Type,
   Image as ImageIcon,
   Shapes,
-  Smile,
+  Sparkles,
   Square,
   Circle,
   Minus,
@@ -35,7 +35,7 @@ import type {
   CarouselElement,
   CarouselSticker,
 } from '@/types/library'
-import { CAROUSEL_EMOJIS, CAROUSEL_FONTS } from '@/lib/libraryData'
+import { CAROUSEL_FONTS, DECOR_ELEMENTS } from '@/lib/libraryData'
 
 const STORAGE_KEY = 'lumen_carousels_v2'
 
@@ -252,12 +252,12 @@ export default function Carrossel() {
     updateSlide((s) => ({ ...s, elements: [...s.elements, newEl] }))
   }
 
-  // --- Adicionar sticker ---
-  const addSticker = (emoji: string) => {
-    const newStk: CarouselSticker = {
+  // --- Adicionar overlay profissional (SVG vetorial) ---
+  const addOverlay = (svg: string) => {
+    const newStk = {
       id: uid('stk'),
-      emoji,
-      size: 48,
+      emoji: svg, // armazena o markup SVG vetorial (não emoji)
+      size: 160,
       x: 50,
       y: 50,
     }
@@ -427,7 +427,7 @@ export default function Carrossel() {
               </span>
               <span className="absolute bottom-1 right-1 flex gap-0.5">
                 {slide.texts.length > 0 && <Type className="w-2.5 h-2.5 text-white" />}
-                {slide.stickers.length > 0 && <Smile className="w-2.5 h-2.5 text-white" />}
+                {slide.stickers.length > 0 && <Sparkles className="w-2.5 h-2.5 text-white" />}
               </span>
             </button>
           ))}
@@ -554,7 +554,7 @@ export default function Carrossel() {
               </div>
             ))}
 
-            {/* Stickers */}
+            {/* Overlays profissionais (SVG vetorial) */}
             {currentSlide.stickers.map((st) => (
               <div
                 key={st.id}
@@ -563,12 +563,12 @@ export default function Carrossel() {
                 style={{
                   left: `${st.x}%`,
                   top: `${st.y}%`,
-                  fontSize: st.size,
+                  width: st.size,
+                  height: st.size,
                   transform: 'translate(-50%, -50%)',
                 }}
-              >
-                {st.emoji}
-              </div>
+                dangerouslySetInnerHTML={{ __html: st.emoji }}
+              />
             ))}
           </div>
 
@@ -691,17 +691,23 @@ export default function Carrossel() {
             </div>
           </div>
 
-          {/* Emojis */}
+          {/* Overlays profissionais */}
           <div className="space-y-2 pt-2 border-t border-white/5">
-            <span className="text-[11px] text-[#9494A8]">Stickers</span>
-            <div className="grid grid-cols-5 gap-1">
-              {CAROUSEL_EMOJIS.map((emoji) => (
+            <span className="text-[11px] text-[#9494A8] flex items-center gap-1">
+              <Sparkles className="w-3 h-3 text-[#7C5CFC]" /> Overlays Profissionais
+            </span>
+            <div className="grid grid-cols-3 gap-1.5">
+              {DECOR_ELEMENTS.map((el) => (
                 <button
-                  key={emoji}
-                  onClick={() => addSticker(emoji)}
-                  className="aspect-square rounded-lg bg-[#1C1C27] border border-white/10 hover:border-[#7C5CFC]/40 text-lg flex items-center justify-center"
+                  key={el.id}
+                  onClick={() => addOverlay(el.svg || '')}
+                  title={el.name}
+                  className="aspect-square rounded-lg bg-[#0B0B10] border border-white/10 hover:border-[#7C5CFC]/50 flex items-center justify-center p-1.5 transition-colors"
                 >
-                  {emoji}
+                  <div
+                    className="w-full h-full"
+                    dangerouslySetInnerHTML={{ __html: el.svg || '' }}
+                  />
                 </button>
               ))}
             </div>
@@ -804,7 +810,9 @@ export default function Carrossel() {
                   className="rounded-lg bg-[#1C1C27] border border-white/10 p-2 space-y-2"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-lg">{st.emoji}</span>
+                    <span className="text-[10px] text-[#F59E0B] font-bold uppercase">
+                      Overlay SVG
+                    </span>
                     <button
                       onClick={() => deleteSticker(st.id)}
                       className="text-red-400 hover:bg-red-500/10 p-1 rounded"
@@ -814,8 +822,8 @@ export default function Carrossel() {
                   </div>
                   <input
                     type="range"
-                    min={24}
-                    max={120}
+                    min={60}
+                    max={320}
                     value={st.size}
                     onChange={(e) => updateSticker(st.id, { size: Number(e.target.value) })}
                     className="w-full accent-[#F59E0B]"
@@ -911,16 +919,16 @@ export default function Carrossel() {
                 {slide.stickers.map((st) => (
                   <div
                     key={st.id}
-                    className="absolute"
+                    className="absolute cursor-move select-none"
                     style={{
                       left: `${st.x}%`,
                       top: `${st.y}%`,
-                      fontSize: st.size,
+                      width: st.size,
+                      height: st.size,
                       transform: 'translate(-50%, -50%)',
                     }}
-                  >
-                    {st.emoji}
-                  </div>
+                    dangerouslySetInnerHTML={{ __html: st.emoji }}
+                  />
                 ))}
               </div>
             ))}

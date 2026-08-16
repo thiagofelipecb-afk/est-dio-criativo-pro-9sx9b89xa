@@ -11,13 +11,13 @@ import type { StudioMode } from '@/types/studio'
 
 describe('useStudioMode — funções puras', () => {
   it('modeLabel retorna rótulo amigável em pt-BR', () => {
-    expect(modeLabel('prepare')).toBe('⚙️ Preparando')
-    expect(modeLabel('recording')).toBe('🔴 Gravando')
-    expect(modeLabel('paused')).toBe('⏸️ Pausado')
-    expect(modeLabel('processing')).toBe('⚙️ Processando')
-    expect(modeLabel('prompter')).toBe('🎥 Câmera Pronta')
-    expect(modeLabel('recovering')).toBe('🛟 Recuperando')
-    expect(modeLabel('error')).toBe('⚠️ Erro')
+    expect(modeLabel('prepare')).toBe('Preparando')
+    expect(modeLabel('recording')).toBe('Gravando')
+    expect(modeLabel('paused')).toBe('Pausado')
+    expect(modeLabel('processing')).toBe('Processando')
+    expect(modeLabel('prompter')).toBe('Câmera Pronta')
+    expect(modeLabel('recovering')).toBe('Recuperando')
+    expect(modeLabel('error')).toBe('Erro')
   })
 
   it('allowedActions retorna o conjunto correto por estado', () => {

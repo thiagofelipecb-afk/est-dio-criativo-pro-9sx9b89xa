@@ -68,15 +68,15 @@ const BLOCKED_MESSAGES: Record<StudioMode, string> = {
   error: 'Resolva o erro de câmera antes de continuar.',
 }
 
-/** Rótulo amigável (pt-BR) com emoji, para badge no canvas. */
+/** Rótulo amigável (pt-BR), para badge no canvas. */
 const MODE_LABELS: Record<StudioMode, string> = {
-  prepare: '⚙️ Preparando',
-  prompter: '🎥 Câmera Pronta',
-  recording: '🔴 Gravando',
-  paused: '⏸️ Pausado',
-  processing: '⚙️ Processando',
-  recovering: '🛟 Recuperando',
-  error: '⚠️ Erro',
+  prepare: 'Preparando',
+  prompter: 'Câmera Pronta',
+  recording: 'Gravando',
+  paused: 'Pausado',
+  processing: 'Processando',
+  recovering: 'Recuperando',
+  error: 'Erro',
 }
 
 /**

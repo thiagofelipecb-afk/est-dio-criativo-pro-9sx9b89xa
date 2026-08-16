@@ -5,7 +5,14 @@ import { toast } from 'sonner'
 import { DECOR_ELEMENTS } from '@/lib/libraryData'
 import type { DecorElement } from '@/types/library'
 
-const CATEGORIES = ['Todos', 'Formas', 'Ícones', 'Molduras', 'Efeitos', 'Tipografia'] as const
+const CATEGORIES = [
+  'Todos',
+  'Formas',
+  'Molduras',
+  'Luz & Textura',
+  'Lower Thirds',
+  'Transições',
+] as const
 
 export default function Elementos() {
   const [category, setCategory] = useState<(typeof CATEGORIES)[number]>('Todos')
@@ -17,9 +24,7 @@ export default function Elementos() {
 
   const handleCopy = async (el: DecorElement) => {
     try {
-      if (el.render === 'emoji' && el.emoji) {
-        await navigator.clipboard.writeText(el.emoji)
-      } else if (el.svg) {
+      if (el.svg) {
         await navigator.clipboard.writeText(el.svg)
       }
       setCopiedId(el.id)
@@ -32,7 +37,7 @@ export default function Elementos() {
 
   const handleUse = (el: DecorElement) => {
     const map = JSON.parse(localStorage.getItem('lumen_project_elements') || '[]')
-    map.push({ id: el.id, name: el.name, emoji: el.emoji, svg: el.svg, color: el.color })
+    map.push({ id: el.id, name: el.name, svg: el.svg, color: el.color, category: el.category })
     localStorage.setItem('lumen_project_elements', JSON.stringify(map))
     toast.success(`"${el.name}" vinculado ao projeto atual`)
   }
@@ -44,7 +49,8 @@ export default function Elementos() {
           <Shapes className="w-7 h-7 text-[#7C5CFC]" /> Elementos
         </h1>
         <p className="text-xs sm:text-sm text-[#9494A8] mt-1">
-          Overlays gráficos: formas, ícones, molduras, efeitos e tipografia para seus designs.
+          Overlays gráficos vetoriais: formas, molduras, luz & textura, lower thirds e transições —
+          prontos para 1080×1920.
         </p>
       </div>
 
@@ -72,14 +78,8 @@ export default function Elementos() {
             key={el.id}
             className="group rounded-2xl bg-[#14141C] border border-white/10 hover:border-[#7C5CFC]/40 transition-all overflow-hidden flex flex-col"
           >
-            <div className="aspect-square flex items-center justify-center bg-[#0B0B10] p-6 relative">
-              {el.render === 'emoji' ? (
-                <span className="text-5xl" style={{ color: el.color }}>
-                  {el.emoji}
-                </span>
-              ) : (
-                <div className="w-full h-full" dangerouslySetInnerHTML={{ __html: el.svg || '' }} />
-              )}
+            <div className="aspect-square flex items-center justify-center bg-[#0B0B10] p-4 relative">
+              <div className="w-full h-full" dangerouslySetInnerHTML={{ __html: el.svg || '' }} />
               <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-black/60 text-[9px] font-bold text-white">
                 {el.category}
               </span>

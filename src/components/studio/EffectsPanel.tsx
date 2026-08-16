@@ -7,6 +7,7 @@ import {
   EffectPresetId,
   EffectsState,
   TransitionType,
+  effectsToCssFilter,
   editorKey,
   saveEditorState,
 } from '@/components/studio/editor-types'
@@ -87,23 +88,35 @@ export function EffectsPanel({ projectId, effects, onChange }: EffectsPanelProps
       <div className="space-y-2">
         <h4 className="text-xs font-bold text-white">Filtros visuais</h4>
         <div className="grid grid-cols-2 gap-1.5">
-          {EFFECT_PRESETS.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => toggleFilter(p.id)}
-              className={`p-2 rounded-lg text-left transition-colors border ${
-                effects.activeFilters.includes(p.id)
-                  ? 'border-[#7C5CFC] bg-[#7C5CFC]/10'
-                  : 'border-white/5 bg-[#1C1C27] hover:border-white/20'
-              }`}
-            >
-              <span className="block text-[11px] font-bold text-white">{p.label}</span>
-              <span className="block text-[9px] text-[#9494A8] leading-tight mt-0.5">
-                {p.description}
-              </span>
-            </button>
-          ))}
+          {EFFECT_PRESETS.map((p) => {
+            const active = effects.activeFilters.includes(p.id)
+            return (
+              <button
+                key={p.id}
+                onClick={() => toggleFilter(p.id)}
+                className={`p-2 rounded-lg text-left transition-colors border ${
+                  active
+                    ? 'border-[#7C5CFC] bg-[#7C5CFC]/10'
+                    : 'border-white/5 bg-[#1C1C27] hover:border-white/20'
+                }`}
+              >
+                <span className="block text-[11px] font-bold text-white">{p.label}</span>
+                <span className="block text-[9px] text-[#9494A8] leading-tight mt-0.5">
+                  {p.description}
+                </span>
+                <span className="block text-[8px] text-[#22D3EE] font-mono leading-tight mt-1 truncate">
+                  {p.filter || 'sliders'}
+                </span>
+              </button>
+            )
+          })}
         </div>
+        {effects.activeFilters.length > 0 && (
+          <p className="text-[9px] text-[#9494A8]/70 leading-relaxed pt-1">
+            CSS filter aplicado na exportação:{' '}
+            <span className="font-mono text-[#7C5CFC]">{effectsToCssFilter(effects) || '—'}</span>
+          </p>
+        )}
       </div>
 
       {/* Transições */}

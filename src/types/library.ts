@@ -174,13 +174,13 @@ export interface MediaLibraryItem {
   demo?: boolean
 }
 
-/** Elemento decorativo da biblioteca (mockado, rota /elementos). */
+/** Elemento decorativo da biblioteca (mockado, rota /elementos).
+ *  Todos os elementos são SVG vetoriais ou gradientes CSS puros — nunca emojis. */
 export interface DecorElement {
   id: string
   name: string
-  category: 'Formas' | 'Ícones' | 'Molduras' | 'Efeitos' | 'Tipografia'
-  render: 'svg' | 'emoji'
+  category: 'Formas' | 'Molduras' | 'Luz & Textura' | 'Lower Thirds' | 'Transições'
+  render: 'svg'
   svg?: string
-  emoji?: string
   color: string
 }

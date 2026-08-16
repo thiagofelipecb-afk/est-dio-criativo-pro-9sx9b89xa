@@ -222,11 +222,11 @@ export function ScriptPanel() {
     }
     setIsAiGenerating(true)
     setTimeout(() => {
-      const generated = `🔥 HOOK PODEROSO: Se você quer multiplicar seus resultados em vídeo, pare de cometer este erro agora mesmo!
+      const generated = `Você está cometendo este erro que reduz a retenção dos seus vídeos. A solução é mais simples do que parece.
 
-💡 O SEGREDO: A maioria das pessoas tenta improvisar na frente da câmera. Mas os criadores de topo usam roteiros estruturados em 3 partes.
+O problema: a maioria das pessoas tenta improvisar na frente da câmera, sem estrutura. Mas os criadores de topo usam roteiros organizados em três partes — gancho, desenvolvimento e chamada.
 
-🚀 AÇÃO IMEDIATA: Teste o LUMEN Studio hoje mesmo e grave com o teleprompter inteligente em menos de 2 minutos. Clique no link e comece!`
+A prática: escreva seu roteiro em blocos, ensaie com o teleprompter e grave com pausas curtas entre cada parte. Isso mantém o ritmo e facilita a edição.`
 
       setGravadoraScript(generated)
       setIsAiGenerating(false)
