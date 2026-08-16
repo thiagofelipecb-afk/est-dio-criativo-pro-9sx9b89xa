@@ -138,6 +138,13 @@ export interface CompositionInputs {
   cameraCrop: CameraCrop
   /** Vídeo da webcam (elemento <video> com srcObject = stream). */
   cameraVideo: HTMLVideoElement | null
+  /**
+   * Fonte de câmera pré-processada (pipeline WebGL de retoque facial). Quando
+   * fornecida, o compositor desenha ESTA fonte no lugar do `<video>` cru —
+   * assim os efeitos WebGL aparecem tanto no preview quanto na gravação.
+   * Pode ser um HTMLCanvasElement (saída do pipeline) ou o próprio vídeo.
+   */
+  cameraSource?: CanvasImageSource | null
   split?: SplitMediaLayer | null
   splitMediaEl?: HTMLImageElement | HTMLVideoElement | null
   art?: ArtLayer | null
@@ -194,6 +201,51 @@ function drawMediaFit(
   ctx.drawImage(el, x, y, w, h)
 }
 
+/**
+ * Desenha a fonte da câmera (vídeo cru ou canvas WebGL pré-processado) aplicando
+ * zoom/pan/espelhamento. Aceita tanto HTMLVideoElement quanto HTMLCanvasElement
+ * como fonte — quando é um canvas do pipeline de retoque, os efeitos já estão
+ * aplicados e o `ctx.filter` global (brilho/contraste/etc.) é aplicado por cima.
+ */
+function drawCameraSource(
+  ctx: CanvasRenderingContext2D,
+  source: CanvasImageSource,
+  srcW: number,
+  srcH: number,
+  dx: number,
+  dy: number,
+  dw: number,
+  dh: number,
+  crop: CameraCrop,
+  filter: string,
+) {
+  if (!srcW || !srcH) return
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(dx, dy, dw, dh)
+  ctx.clip()
+
+  const zoom = Math.max(1, crop.zoom)
+  // Região de origem (crop) centralizada + pan.
+  const baseW = srcW / zoom
+  const baseH = srcH / zoom
+  const maxPanX = (srcW - baseW) / 2
+  const maxPanY = (srcH - baseH) / 2
+  const sx = srcW / 2 - baseW / 2 + crop.panX * maxPanX
+  const sy = srcH / 2 - baseH / 2 + crop.panY * maxPanY
+
+  ctx.filter = filter || 'none'
+  if (crop.mirror) {
+    ctx.translate(dx + dw, dy)
+    ctx.scale(-1, 1)
+    ctx.drawImage(source, sx, sy, baseW, baseH, 0, 0, dw, dh)
+  } else {
+    ctx.drawImage(source, sx, sy, baseW, baseH, dx, dy, dw, dh)
+  }
+  ctx.filter = 'none'
+  ctx.restore()
+}
+
 /** Desenha o vídeo da câmera aplicando zoom/pan/espelhamento. */
 function drawCamera(
   ctx: CanvasRenderingContext2D,
@@ -208,30 +260,7 @@ function drawCamera(
   const vw = video.videoWidth
   const vh = video.videoHeight
   if (!vw || !vh) return
-  ctx.save()
-  ctx.beginPath()
-  ctx.rect(dx, dy, dw, dh)
-  ctx.clip()
-
-  const zoom = Math.max(1, crop.zoom)
-  // Região de origem (crop) centralizada + pan.
-  const baseW = vw / zoom
-  const baseH = vh / zoom
-  const maxPanX = (vw - baseW) / 2
-  const maxPanY = (vh - baseH) / 2
-  const sx = vw / 2 - baseW / 2 + crop.panX * maxPanX
-  const sy = vh / 2 - baseH / 2 + crop.panY * maxPanY
-
-  ctx.filter = filter || 'none'
-  if (crop.mirror) {
-    ctx.translate(dx + dw, dy)
-    ctx.scale(-1, 1)
-    ctx.drawImage(video, sx, sy, baseW, baseH, 0, 0, dw, dh)
-  } else {
-    ctx.drawImage(video, sx, sy, baseW, baseH, dx, dy, dw, dh)
-  }
-  ctx.filter = 'none'
-  ctx.restore()
+  drawCameraSource(ctx, video, vw, vh, dx, dy, dw, dh, crop, filter)
 }
 
 /** Desenha um retângulo arredondado. */
@@ -381,11 +410,22 @@ function drawCameraArea(
   let camDy = dy
   let camDw = dw
   let camDh = dh
-  if (contain && input.cameraVideo && input.cameraVideo.videoWidth) {
-    const vw = input.cameraVideo.videoWidth
-    const vh = input.cameraVideo.videoHeight
+  // Quando há uma fonte pré-processada (WebGL beauty), usamos suas dimensões
+  // reais; caso contrário, usamos o <video> cru.
+  const srcVideo = input.cameraVideo
+  const src = input.cameraSource ?? srcVideo
+  const srcEl = src as HTMLVideoElement
+  const srcW =
+    (srcEl as HTMLVideoElement).videoWidth ||
+    (src as HTMLCanvasElement).width ||
+    (srcVideo?.videoWidth ?? 0)
+  const srcH =
+    (srcEl as HTMLVideoElement).videoHeight ||
+    (src as HTMLCanvasElement).height ||
+    (srcVideo?.videoHeight ?? 0)
+  if (contain && srcW && srcH) {
     const targetRatio = dw / dh
-    const srcRatio = vw / vh
+    const srcRatio = srcW / srcH
     if (srcRatio > targetRatio) {
       // vídeo mais largo → encaixa largura, altura menor
       camDh = dw / srcRatio
@@ -395,10 +435,12 @@ function drawCameraArea(
       camDx = dx + (dw - camDw) / 2
     }
   }
-  if (input.cameraVideo && input.cameraVideo.videoWidth) {
-    drawCamera(
+  if (src && srcW && srcH) {
+    drawCameraSource(
       ctx,
-      input.cameraVideo,
+      src,
+      srcW,
+      srcH,
       camDx,
       camDy,
       camDw,

@@ -27,6 +27,7 @@ import {
   Eye,
   EyeOff,
   Layers,
+  CheckCircle2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Slider } from '@/components/ui/slider'
@@ -35,7 +36,7 @@ import { Badge } from '@/components/ui/badge'
 import { ScriptPanel } from '@/components/ScriptPanel'
 import { BackgroundPanel } from '@/components/studio/BackgroundPanel'
 import { MediaPanel } from '@/components/studio/MediaPanel'
-import type { ScriptBlock } from '@/types/studio'
+import type { ScriptBlock, FaceStatus } from '@/types/studio'
 import {
   CAMERA_PRESETS,
   BEAUTY_PRESETS,
@@ -119,9 +120,16 @@ export interface StudioAccordionPanelProps {
   }
   setBeauty: (u: Partial<StudioAccordionPanelProps['beauty']>) => void
   faceDetected: boolean
+  faceStatus: FaceStatus
   mediapipeLoading: boolean
   mediapipeAvailable: boolean
   webglAvailable: boolean
+  /** Master toggle de todos os efeitos faciais. */
+  beautyEnabled: boolean
+  onBeautyEnabledChange: (v: boolean) => void
+  /** Botão "Comparar" — mostra o frame sem efeitos enquanto pressionado. */
+  compareBefore: boolean
+  onCompareBeforeChange: (v: boolean) => void
   onLoadMediapipe: () => void
   // Áudio
   mics: MediaDeviceInfo[]
@@ -183,7 +191,6 @@ export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
   const [splitProcessing, setSplitProcessing] = useState(false)
   const [cameraPreset, setCameraPreset] = useState<CameraPresetId>('natural')
   const [beautyPreset, setBeautyPreset] = useState<BeautyPresetId>('off')
-  const [showBefore, setShowBefore] = useState(false)
 
   const stats = useMemo(() => estimateScriptStats(props.gravadoraScript), [props.gravadoraScript])
 
@@ -736,11 +743,49 @@ export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
                           de imagem acima são aplicados ao vídeo.
                         </p>
                       </div>
+                      {/* Toggle master de efeitos faciais + botão Comparar */}
+                      <div className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-[#1C1C27] px-2.5 py-2">
+                        <div>
+                          <p className="text-[10px] font-semibold text-white">Retoque facial</p>
+                          <p className="text-[9px] text-[#9494A8]">
+                            {props.beautyEnabled ? 'Ativado (WebGL)' : 'Desativado'}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => props.onBeautyEnabledChange(!props.beautyEnabled)}
+                          role="switch"
+                          aria-checked={props.beautyEnabled}
+                          className={`relative h-5 w-9 rounded-full transition-colors ${props.beautyEnabled ? 'bg-[#7C5CFC]' : 'bg-white/15'}`}
+                        >
+                          <span
+                            className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${props.beautyEnabled ? 'translate-x-4' : 'translate-x-0.5'}`}
+                          />
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => props.onCompareBeforeChange(!props.compareBefore)}
+                        className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-[#1C1C27] border border-white/10 text-[10px] font-semibold text-white hover:border-[#7C5CFC]/50"
+                      >
+                        {props.compareBefore ? (
+                          <Eye className="w-3 h-3" />
+                        ) : (
+                          <EyeOff className="w-3 h-3" />
+                        )}{' '}
+                        {props.compareBefore ? 'Ver depois' : 'Comparar antes/depois'}
+                      </button>
+
+                      {/* Indicador de status do pipeline facial */}
+                      <FaceStatusBadge
+                        status={props.faceStatus}
+                        webglAvailable={props.webglAvailable}
+                        mediapipeAvailable={props.mediapipeAvailable}
+                      />
+
                       {!props.mediapipeAvailable ? (
                         <div className="rounded-lg border border-white/10 bg-[#1C1C27] p-2.5 space-y-2">
                           <div className="flex items-center gap-2 text-[9px] text-[#9494A8]">
                             <Layers className="w-3.5 h-3.5" />
-                            <span>Modelo facial opcional (≈8MB)</span>
+                            <span>Modelo facial (detecção por região)</span>
                           </div>
                           <button
                             onClick={props.onLoadMediapipe}
@@ -756,19 +801,13 @@ export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
                           </button>
                           {!props.webglAvailable && (
                             <p className="text-[9px] text-amber-300/80 leading-relaxed">
-                              Seu navegador não suporta WebGL — apenas ajustes globais estarão
-                              disponíveis.
+                              Seu navegador não suporta WebGL — usando fallback de software (filtros
+                              globais).
                             </p>
                           )}
                         </div>
                       ) : (
                         <>
-                          {!props.faceDetected && (
-                            <div className="flex items-center gap-2 text-[9px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2 py-1.5">
-                              <AlertTriangle className="w-3 h-3" /> Nenhum rosto detectado — efeitos
-                              reduzidos.
-                            </div>
-                          )}
                           <BeautySlider
                             label="Suavização de pele"
                             value={props.beauty.skinSmooth}
@@ -818,7 +857,7 @@ export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
                             }}
                           />
                           <BeautySlider
-                            label="Sulco nasolabial"
+                            label="Sulco Nasolabial (Bigode Chinês)"
                             value={props.beauty.nasolabial}
                             onChange={(v) => {
                               props.setBeauty({ nasolabial: v })
@@ -861,17 +900,6 @@ export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
                             }}
                             suffix="%"
                           />
-                          <button
-                            onClick={() => setShowBefore((s) => !s)}
-                            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-[#1C1C27] border border-white/10 text-[10px] font-semibold text-white hover:border-[#7C5CFC]/50"
-                          >
-                            {showBefore ? (
-                              <Eye className="w-3 h-3" />
-                            ) : (
-                              <EyeOff className="w-3 h-3" />
-                            )}{' '}
-                            {showBefore ? 'Ver depois' : 'Comparar antes/depois'}
-                          </button>
                         </>
                       )}
                     </>
@@ -1101,6 +1129,60 @@ function BeautySlider({
       onChange={onChange}
       suffix="%"
     />
+  )
+}
+
+/** Badge de status do pipeline facial WebGL — feedback claro para o usuário. */
+function FaceStatusBadge({
+  status,
+  webglAvailable,
+  mediapipeAvailable,
+}: {
+  status: FaceStatus
+  webglAvailable: boolean
+  mediapipeAvailable: boolean
+}) {
+  const map: Record<FaceStatus, { text: string; cls: string; icon: React.ReactNode }> = {
+    detected: {
+      text: 'Rosto detectado — efeitos regionais ativos',
+      cls: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30',
+      icon: <CheckCircle2 className="w-3 h-3" />,
+    },
+    unstable: {
+      text: 'Detecção instável — intensidade reduzida',
+      cls: 'text-amber-300 bg-amber-500/10 border-amber-500/30',
+      icon: <AlertTriangle className="w-3 h-3" />,
+    },
+    'not-detected': {
+      text: 'Rosto não detectado',
+      cls: 'text-amber-300 bg-amber-500/10 border-amber-500/30',
+      icon: <AlertTriangle className="w-3 h-3" />,
+    },
+    'no-model': {
+      text: mediapipeAvailable
+        ? 'Modelo carregando…'
+        : 'Sem modelo facial — usando fallback de software',
+      cls: 'text-[#9494A8] bg-white/5 border-white/10',
+      icon: <Sparkles className="w-3 h-3" />,
+    },
+    'no-webgl': {
+      text: 'WebGL indisponível — usando fallback de software',
+      cls: 'text-amber-300 bg-amber-500/10 border-amber-500/30',
+      icon: <AlertTriangle className="w-3 h-3" />,
+    },
+    disabled: {
+      text: 'Retoque facial desligado',
+      cls: 'text-[#9494A8] bg-white/5 border-white/10',
+      icon: <EyeOff className="w-3 h-3" />,
+    },
+  }
+  void webglAvailable
+  const s = map[status] || map['no-model']
+  return (
+    <div className={`flex items-center gap-2 text-[9px] rounded-lg px-2 py-1.5 border ${s.cls}`}>
+      {s.icon}
+      <span>{s.text}</span>
+    </div>
   )
 }
 

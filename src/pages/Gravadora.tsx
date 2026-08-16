@@ -22,8 +22,9 @@ import {
   AlertCircle,
   Lock,
 } from 'lucide-react'
-import type { StageLayout } from '@/types/studio'
+import type { StageLayout, BeautyConfig, FaceStatus } from '@/types/studio'
 import { useStudio } from '@/context/StudioContext'
+import { BeautyPipeline, type BeautyRuntime } from '@/lib/beauty-pipeline'
 import { useMediaAssets } from '@/hooks/useMediaAssets'
 import { ScriptPanel } from '@/components/ScriptPanel'
 import { BackgroundPanel } from '@/components/studio/BackgroundPanel'
@@ -251,7 +252,7 @@ export default function Gravadora() {
 
   // Aparência (retoque facial) — estado local. MediaPipe/WebGL carregados
   // sob demanda; se indisponível, o painel mostra o aviso apropriado.
-  const [beauty, setBeautyState] = useState({
+  const [beauty, setBeautyState] = useState<BeautyConfig>({
     skinSmooth: 0,
     shineReduction: 0,
     toneUniformity: 0,
@@ -265,50 +266,47 @@ export default function Gravadora() {
     intensity: 0,
   })
   const setBeauty = useCallback(
-    (u: Partial<typeof beauty>) => setBeautyState((p) => ({ ...p, ...u })),
+    (u: Partial<BeautyConfig>) => setBeautyState((p) => ({ ...p, ...u })),
     [],
   )
   const [mediapipeAvailable, setMediapipeAvailable] = useState(false)
   const [mediapipeLoading, setMediapipeLoading] = useState(false)
   const [faceDetected, setFaceDetected] = useState(false)
-  const webglAvailable =
-    typeof window !== 'undefined' &&
-    (() => {
-      try {
-        return !!document.createElement('canvas').getContext('webgl')
-      } catch {
-        return false
-      }
-    })()
-  // Pipeline de aparência. Não usamos @mediapipe/tasks-vision (quebrava o build
-  // e adicionaria ~8MB). Em vez disso, tentamos a FaceDetector API nativa do
-  // navegador quando disponível para habilitar os controles faciais refinados;
-  // quando indisponível, os ajustes GLOBAIS de imagem (brilho, contraste,
-  // saturação, temperatura, suavização, vinheta) continuam 100% funcionais —
-  // eles são aplicados no compositor via ctx.filter e mudam visivelmente o
-  // preview e a gravação. O botão "Carregar modelo facial" apenas ativa a
-  // detecção opcional; os presets de aparência funcionam independentemente.
-  const faceDetectorRef = useRef<any>(null)
+  const [faceStatus, setFaceStatus] = useState<FaceStatus>('no-model')
+  // Master toggle de todos os efeitos e botão "Comparar" (antes/depois).
+  const [beautyEnabled, setBeautyEnabled] = useState(true)
+  const [compareBefore, setCompareBefore] = useState(false)
+  // Instância única do pipeline de retoque facial WebGL. Criada sob demanda e
+  // reutilizada por todos os frames (preview + gravação). O carregamento do
+  // modelo facial (MediaPipe/FaceDetector) é feito pelo botão do painel.
+  const beautyPipelineRef = useRef<BeautyPipeline | null>(null)
+  if (!beautyPipelineRef.current) {
+    beautyPipelineRef.current = new BeautyPipeline()
+  }
+  const webglAvailable = beautyPipelineRef.current.isWebGLAvailable
+  // Runtime do pipeline (lido pelo StudioStage a cada frame).
+  const beautyRuntimeRef = useRef<BeautyRuntime>({ enabled: beautyEnabled, compareBefore })
+  beautyRuntimeRef.current = { enabled: beautyEnabled, compareBefore }
+  // Callback de status facial vindo do StudioStage.
+  const handleFaceStatus = useCallback((status: FaceStatus) => {
+    setFaceStatus(status)
+    setFaceDetected(status === 'detected' || status === 'unstable')
+  }, [])
+  // Carrega o modelo facial (MediaPipe tasks-vision via dynamic import, com
+  // fallback para a Shape Detection API nativa). Tratamento de erro robusto:
+  // se ambos falharem, o pipeline opera em modo "no-model" e os ajustes GLOBAIS
+  // de imagem (brilho, contraste, saturação, etc.) continuam 100% funcionais
+  // via ctx.filter no compositor.
   const loadMediapipe = useCallback(async () => {
     setMediapipeLoading(true)
     try {
-      // Tenta a Shape Detection API (FaceDetector). Disponível em alguns
-      // Chromium-based browsers por trás de flag/experimentos.
-      const FD = (window as any).FaceDetector
-      if (typeof FD === 'function') {
-        faceDetectorRef.current = new FD({ fastMode: true, maxDetectedFaces: 1 })
-        // Probe rápido: se conseguir criar, consideramos disponível. A detecção
-        // real acontece no loop de composição; se não houver rosto, os controles
-        // globais continuam atuando.
-        setMediapipeAvailable(true)
-        toast.success('Detecção facial ativada. Ajustes de imagem já estão ativos.')
+      const ok = await beautyPipelineRef.current?.loadModel()
+      setMediapipeAvailable(!!ok)
+      if (ok) {
+        toast.success('Modelo facial carregado. Retoque facial WebGL ativado.')
       } else {
-        // Sem FaceDetector nativa: os ajustes globais de imagem continuam
-        // funcionando (são aplicados no compositor). Apenas os controles faciais
-        // refinados por região ficam limitados.
-        setMediapipeAvailable(false)
         toast.info(
-          'Ajustes de imagem globais ativos. Detecção facial por região não é suportada neste navegador.',
+          'Modelo facial indisponível neste navegador. Ajustes de imagem globais continuam ativos.',
         )
       }
     } catch {
@@ -316,6 +314,12 @@ export default function Gravadora() {
       toast.info('Ajustes de imagem globais ativos. Detecção facial indisponível.')
     } finally {
       setMediapipeLoading(false)
+    }
+  }, [])
+  // Cleanup do pipeline ao desmontar.
+  useEffect(() => {
+    return () => {
+      beautyPipelineRef.current?.dispose()
     }
   }, [])
 
@@ -1977,6 +1981,10 @@ export default function Gravadora() {
           title={titleConfig.enabled ? titleConfig : null}
           showGuides={!isRecording}
           className="w-full h-full"
+          beautyPipeline={beautyPipelineRef.current}
+          beauty={beauty}
+          beautyRuntime={beautyRuntimeRef.current}
+          onFaceStatus={handleFaceStatus}
         />
 
         {renderCameraGate()}
@@ -2194,9 +2202,14 @@ export default function Gravadora() {
             beauty={beauty}
             setBeauty={setBeauty}
             faceDetected={faceDetected}
+            faceStatus={faceStatus}
             mediapipeLoading={mediapipeLoading}
             mediapipeAvailable={mediapipeAvailable}
             webglAvailable={webglAvailable}
+            beautyEnabled={beautyEnabled}
+            onBeautyEnabledChange={setBeautyEnabled}
+            compareBefore={compareBefore}
+            onCompareBeforeChange={setCompareBefore}
             onLoadMediapipe={loadMediapipe}
             mics={mics}
             selectedMic={selectedMic}

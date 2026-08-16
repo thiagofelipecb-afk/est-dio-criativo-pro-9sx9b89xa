@@ -869,3 +869,52 @@ export interface CameraConfigLike {
   /** Vinheta (0–100, padrão 0). Overlay radial escuro nas bordas. */
   vignette?: number
 }
+
+/* ===========================================================================
+   LUMEN Studio — Pipeline de Retoque Facial WebGL (WebGL beauty)
+   Tipos aditivos para o pipeline de detecção facial + shaders regionais.
+   ========================================================================== */
+
+/**
+ * Configuração de retoque facial por região (WebGL). Cada valor é 0–100.
+ * Aplicada APENAS na região do rosto detectada; preserva poros, identidade
+ * e evita efeito plástico. Quando o rosto não é detectado ou o WebGL/GPU não
+ * suportam, o pipeline cai para os filtros CSS globais existentes.
+ */
+export interface BeautyConfig {
+  /** Suavização de pele (bilateral blur preservando bordas). */
+  skinSmooth: number
+  /** Redução de brilho/oleosidade (máscara na zona T). */
+  shineReduction: number
+  /** Uniformização de tonalidade da pele. */
+  toneUniformity: number
+  /** Redução de vermelhidão. */
+  rednessReduction: number
+  /** Suavização de rugas finas. */
+  wrinkleSmooth: number
+  /** Realce dos olhos. */
+  eyeEnhance: number
+  /** Suavização do sulco nasolabial ("bigode chinês"). */
+  nasolabial: number
+  /** Redução de olheiras (máscara regional). */
+  darkCircles: number
+  /** Iluminação facial (dodge/burn suave). */
+  facialLighting: number
+  /** Nitidez seletiva nos olhos e lábios. */
+  selectiveSharpness: number
+  /** Intensidade geral (0–100) — escala todos os efeitos regionais. */
+  intensity: number
+}
+
+/**
+ * Status da detecção facial reportado pelo pipeline WebGL. Usado para mostrar
+ * indicadores claros no painel de Aparência ("Rosto não detectado",
+ * "Usando fallback de software", etc.).
+ */
+export type FaceStatus =
+  | 'detected' // Rosto detectado, efeitos regionais ativos
+  | 'not-detected' // Nenhum rosto no frame — efeitos reduzidos
+  | 'unstable' // Detecção oscilando — intensidade reduzida automaticamente
+  | 'no-model' // Modelo facial não carregado — fallback de software (CSS)
+  | 'no-webgl' // GPU/navegador sem WebGL — fallback de software (CSS)
+  | 'disabled' // Efeitos desligados pelo toggle master

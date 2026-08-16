@@ -5,6 +5,14 @@
    usando `drawComposition` de `src/lib/studio-compositor.ts`. A gravação usa
    `canvas.captureStream()` do MESMO canvas — preview e arquivo são idênticos.
 
+   Integração do pipeline de retoque facial WebGL: a cada frame, se houver um
+   `BeautyPipeline` e uma configuração de retoque, o frame do vídeo é processado
+   pelo pipeline ANTES de ser desenhado no canvas de composição. O resultado
+   (HTMLCanvasElement WebGL) é passado ao compositor como `cameraSource`, então
+   os efeitos aparecem tanto no preview quanto na gravação/exportação. Em
+   fallback (sem WebGL, sem modelo, sem rosto), o compositor recebe o vídeo cru
+   e aplica os filtros CSS globais existentes.
+
    O HUD do teleprompter NÃO faz parte deste canvas (é um portal separado).
    ========================================================================== */
 
@@ -19,7 +27,15 @@ import {
   type ReactionLayer,
   type ArtLayer,
 } from '@/lib/studio-compositor'
-import type { BackgroundConfig, StageLayout, TitleConfig, CameraConfigLike } from '@/types/studio'
+import { BeautyPipeline, type BeautyRuntime } from '@/lib/beauty-pipeline'
+import type {
+  BackgroundConfig,
+  StageLayout,
+  TitleConfig,
+  CameraConfigLike,
+  BeautyConfig,
+  FaceStatus,
+} from '@/types/studio'
 
 export interface StudioStageHandle {
   /** Canvas usado para preview e gravação (captureStream). */
@@ -44,6 +60,19 @@ export interface StudioStageProps {
   className?: string
   /** Mostrar guias de segurança (apenas preview, não entram na gravação). */
   showGuides?: boolean
+  /**
+   * Pipeline de retoque facial WebGL. Quando fornecido junto com `beauty` e
+   * `beautyRuntime`, o frame é processado antes da composição. O pipeline é
+   * instanciado e gerenciado pela Gravadora (para que o status de detecção e
+   * o carregamento do modelo sejam compartilhados com o painel de Aparência).
+   */
+  beautyPipeline?: BeautyPipeline | null
+  /** Configuração de retoque facial (intensidades 0–100 por região). */
+  beauty?: BeautyConfig | null
+  /** Runtime do pipeline (master toggle + comparar antes/depois). */
+  beautyRuntime?: BeautyRuntime
+  /** Callback opcional com o status facial reportado a cada frame. */
+  onFaceStatus?: (status: FaceStatus) => void
 }
 
 export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(function StudioStage(
@@ -61,6 +90,10 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(funct
     title,
     className,
     showGuides = false,
+    beautyPipeline = null,
+    beauty = null,
+    beautyRuntime,
+    onFaceStatus,
   },
   ref,
 ) {
@@ -84,7 +117,16 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(funct
     title,
     className,
     showGuides,
+    beautyPipeline,
+    beauty,
+    beautyRuntime,
+    onFaceStatus,
   }
+
+  // Fonte pré-processada do último frame (canvas WebGL do pipeline). Atualizada
+  // assincronamente; o loop de composição usa o valor mais recente disponível.
+  const processedSourceRef = useRef<CanvasImageSource | null>(null)
+  const processingRef = useRef(false)
 
   useImperativeHandle(
     ref,
@@ -120,6 +162,33 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(funct
         return
       }
       const elapsed = (performance.now() - startRef.current) / 1000
+
+      // === Pipeline de retoque facial WebGL ===
+      // Processa o frame do vídeo assincronamente; se um processamento anterior
+      // ainda está em andamento, usa a última fonte processada disponível. O
+      // compositor desenha `cameraSource` quando presente (canvas WebGL) ou cai
+      // para o `<video>` cru (fallback CSS global).
+      const pipeline = p.beautyPipeline
+      const cfg = p.beauty
+      const rt = p.beautyRuntime
+      const video = p.cameraVideo
+      const ready = !!(video && (video as HTMLVideoElement).videoWidth)
+      if (pipeline && cfg && rt && ready && !processingRef.current) {
+        processingRef.current = true
+        pipeline
+          .processFrame(video as HTMLVideoElement, cfg, rt)
+          .then((out) => {
+            processedSourceRef.current = out.processed ? out.source : null
+            if (p.onFaceStatus) p.onFaceStatus(out.faceStatus)
+          })
+          .catch(() => {
+            /* erro no pipeline → fallback silencioso para o vídeo cru */
+          })
+          .finally(() => {
+            processingRef.current = false
+          })
+      }
+
       const input: CompositionInputs = {
         ctx,
         width: canvas.width,
@@ -129,6 +198,9 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(funct
         camera: p.camera,
         cameraCrop: p.cameraCrop,
         cameraVideo: p.cameraVideo,
+        // Quando o pipeline processou, passamos o canvas WebGL; senão null
+        // (o compositor usa o vídeo cru com filtros CSS globais).
+        cameraSource: processedSourceRef.current,
         split: p.split,
         splitMediaEl: p.splitMediaEl,
         art: p.art,
