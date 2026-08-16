@@ -707,7 +707,12 @@ function drawCameraArea(
       camDw,
       camDh,
       input.cameraCrop,
-      cameraCssFilter(input.camera),
+      // CORREÇÃO (Seção 19 — Cenários 7/8): o filtro de câmera (ajustes de
+      // aparência/efeitos do Editor, ex.: redução de brilho do preset Natural)
+      // deve ser aplicado também no caminho sem segmentação e no split — não
+      // apenas em drawPersonMask. Sem isto, o preview e a gravação ficariam
+      // sem o efeito facial sempre que a segmentação estivesse desligada.
+      input.cameraFilterOverride ?? cameraCssFilter(input.camera),
     )
   } else {
     ctx.fillStyle = '#0B0B10'
