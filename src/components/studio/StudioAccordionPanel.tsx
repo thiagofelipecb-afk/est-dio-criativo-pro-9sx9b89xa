@@ -72,7 +72,13 @@ import {
 
 /* ---------- Tipos de props (estado vindo da Gravadora) ---------- */
 
+export type StudioAccordionVariant = 'inline' | 'drawer' | 'fullscreen'
+
 export interface StudioAccordionPanelProps {
+  /** Modo de exibição: inline (desktop xl+), drawer (overlay lateral md–xl),
+   *  fullscreen (mobile <900px). Apenas ajusta layout/padding — sem mudança de
+   *  comportamento. */
+  variant?: StudioAccordionVariant
   projectId: string
   // Layout
   aspectRatio: AspectRatioOption
@@ -226,6 +232,7 @@ const ACCORDIONS: { id: AccordionId; label: string; icon: React.ReactNode }[] = 
 ]
 
 export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
+  const variant = props.variant ?? 'inline'
   // Só UM acordeão aberto por vez (null = todos fechados). Mudar de acordeão
   // NÃO apaga configurações — cada seção apenas é montada/desmontada.
   const [open, setOpen] = useState<AccordionId | null>('roteiro')
@@ -319,8 +326,12 @@ export function StudioAccordionPanel(props: StudioAccordionPanelProps) {
         </span>
       </div>
 
-      {/* Lista de acordeões com scroll próprio */}
-      <div className="flex-1 overflow-y-auto min-h-0 px-2 py-2 pb-24">
+      {/* Lista de acordeões com scroll próprio. No modo inline reservamos
+          padding inferior para o dock fixo; em drawer/fullscreen o painel
+          cobre a área do dock, então não precisamos do espaçamento extra. */}
+      <div
+        className={`flex-1 overflow-y-auto min-h-0 px-2 py-2 ${variant === 'inline' ? 'pb-24' : 'pb-4'}`}
+      >
         {ACCORDIONS.map((acc) => {
           const isOpen = open === acc.id
           return (

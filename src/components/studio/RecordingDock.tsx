@@ -33,6 +33,8 @@ import {
   CheckCircle2,
   Loader2,
   RotateCcw,
+  MoreHorizontal,
+  X,
 } from 'lucide-react'
 import {
   Dialog,
@@ -42,6 +44,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   type RecordingState,
   recordingStateLabel,
@@ -122,6 +125,7 @@ export function RecordingDock(props: RecordingDockProps) {
   } = props
 
   const [confirmReset, setConfirmReset] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   const enabled = dockButtonsEnabled(state)
   const colorKey = recordingStateColor(state)
@@ -159,13 +163,13 @@ export function RecordingDock(props: RecordingDockProps) {
         icon={micOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
       />
 
-      {/* 3. Testar áudio */}
+      {/* 3. Testar áudio (md+) */}
       <button
         onClick={onTestAudio}
         disabled={!enabled.test}
         title="Testar áudio"
         aria-label="Testar áudio"
-        className="flex items-center gap-1.5 px-2.5 h-9 rounded-lg bg-[#1C1C27] border border-white/10 text-[#9494A8] hover:text-white hover:border-[#7C5CFC]/50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+        className="hidden md:flex items-center gap-1.5 px-2.5 h-9 rounded-lg bg-[#1C1C27] border border-white/10 text-[#9494A8] hover:text-white hover:border-[#7C5CFC]/50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
       >
         <Activity className="w-4 h-4" />
         <span className="hidden md:inline text-[10px] font-semibold">Testar</span>
@@ -181,11 +185,11 @@ export function RecordingDock(props: RecordingDockProps) {
         </span>
       </button>
 
-      {/* 4. Separador */}
-      <span className="hidden sm:block w-px h-7 bg-white/10 mx-0.5" />
+      {/* 4. Separador (md+) */}
+      <span className="hidden md:block w-px h-7 bg-white/10 mx-0.5" />
 
-      {/* 5. Contagem regressiva */}
-      <div className="flex items-center bg-[#1C1C27] border border-white/10 rounded-lg h-9 overflow-hidden">
+      {/* 5. Contagem regressiva (md+) */}
+      <div className="hidden md:flex items-center bg-[#1C1C27] border border-white/10 rounded-lg h-9 overflow-hidden">
         {(
           [
             { v: 0, label: 'Off' },
@@ -207,21 +211,23 @@ export function RecordingDock(props: RecordingDockProps) {
         ))}
       </div>
 
-      {/* 6. GRAVAR / Retomar — 1.5x maior */}
+      {/* 6. GRAVAR / Retomar — 1.5x maior. No mobile o label some (só ícone +
+          countdown), mantendo o botão compacto. */}
       {isPaused ? (
         <button
           onClick={onResume}
           disabled={!enabled.record}
-          className="flex items-center gap-2 px-5 h-12 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold shadow-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          className="flex items-center gap-2 px-3 md:px-5 h-12 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold shadow-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed"
           title="Continuar gravação"
         >
-          <Play className="w-4 h-4 fill-current" /> Continuar
+          <Play className="w-4 h-4 fill-current" />
+          <span className="hidden md:inline">Continuar</span>
         </button>
       ) : (
         <button
           onClick={onRecord}
           disabled={!enabled.record && !isCountdown}
-          className={`relative flex items-center gap-2 px-6 h-12 rounded-xl text-white text-sm font-extrabold shadow-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+          className={`relative flex items-center gap-2 px-3 md:px-6 h-12 rounded-xl text-white text-sm font-extrabold shadow-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
             isRec
               ? 'bg-red-600 hover:bg-red-500 animate-rec-pulse ring-2 ring-red-400/60 ring-offset-2 ring-offset-black/70'
               : isCountdown
@@ -231,57 +237,176 @@ export function RecordingDock(props: RecordingDockProps) {
           title={isRec ? 'Gravando...' : isCountdown ? 'Contagem regressiva...' : 'Gravar take (R)'}
         >
           <Circle className="w-4 h-4 fill-current" />
-          {isCountdown
-            ? `${countdownValue ?? '...'}`
-            : isRec
-              ? 'GRAVANDO'
-              : state === 'saved'
-                ? 'NOVO TAKE'
-                : 'GRAVAR'}
+          {isCountdown ? (
+            `${countdownValue ?? '...'}`
+          ) : (
+            <span className="hidden md:inline">
+              {isRec ? 'GRAVANDO' : state === 'saved' ? 'NOVO TAKE' : 'GRAVAR'}
+            </span>
+          )}
         </button>
       )}
 
-      {/* 7. Pausar (só durante gravação) */}
+      {/* Mobile (<900px): menu "..." com controles secundários (testar áudio,
+          contagem regressiva, pausar, finalizar, reiniciar, marcador). Em
+          telas maiores esses controles aparecem inline (md+). */}
+      <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+        <PopoverTrigger asChild>
+          <button
+            className="md:hidden flex items-center justify-center w-9 h-9 rounded-lg bg-[#1C1C27] border border-white/10 text-[#9494A8] hover:text-white hover:border-[#7C5CFC]/50 transition-all"
+            title="Mais controles"
+            aria-label="Mais controles"
+          >
+            <MoreHorizontal className="w-4 h-4" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          side="top"
+          align="end"
+          className="w-64 p-2 bg-[#0E0E15] border-white/10 text-white rounded-xl"
+        >
+          <div className="flex items-center justify-between px-1 pb-1.5 border-b border-white/5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#9494A8]">
+              Controles
+            </span>
+            <button
+              onClick={() => setMenuOpen(false)}
+              className="p-1 rounded text-[#9494A8] hover:text-white"
+              aria-label="Fechar"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <div className="flex flex-col gap-1.5 pt-1.5">
+            {/* Testar áudio */}
+            <button
+              onClick={() => {
+                onTestAudio()
+              }}
+              disabled={!enabled.test}
+              className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-[#1C1C27] border border-white/10 text-[11px] text-[#9494A8] hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            >
+              <Activity className="w-4 h-4" /> Testar áudio ({micLevel}%)
+            </button>
+            {/* Contagem regressiva */}
+            <div className="flex items-center bg-[#1C1C27] border border-white/10 rounded-lg h-9 overflow-hidden">
+              {(
+                [
+                  { v: 0, label: 'Off' },
+                  { v: 3, label: '3s' },
+                  { v: 5, label: '5s' },
+                ] as { v: 3 | 5 | 0; label: string }[]
+              ).map((opt) => (
+                <button
+                  key={opt.v}
+                  onClick={() => onCountdownChange(opt.v)}
+                  disabled={!enabled.countdown}
+                  className={`flex-1 px-2 h-full text-[10px] font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                    countdown === opt.v
+                      ? 'bg-[#7C5CFC] text-white'
+                      : 'text-[#9494A8] hover:text-white'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            {/* Pausar (só durante gravação) */}
+            {isRec && (
+              <button
+                onClick={() => {
+                  onPause()
+                  setMenuOpen(false)
+                }}
+                disabled={!enabled.pause}
+                className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[11px] font-bold hover:bg-amber-500/30 transition-all"
+              >
+                <Pause className="w-4 h-4" /> Pausar
+              </button>
+            )}
+            {/* Finalizar (durante gravação ou pausa) */}
+            {(isRec || isPaused) && (
+              <button
+                onClick={() => {
+                  onStop()
+                  setMenuOpen(false)
+                }}
+                disabled={!enabled.stop}
+                className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-[#1C1C27] border border-white/10 text-white text-[11px] font-bold hover:border-red-500/50 hover:text-red-300 transition-all"
+              >
+                <Square className="w-4 h-4 fill-current" /> Finalizar
+              </button>
+            )}
+            {/* Marcador (durante gravação) */}
+            {isRec && (
+              <button
+                onClick={() => {
+                  onMarker()
+                  setMenuOpen(false)
+                }}
+                disabled={!enabled.marker}
+                className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-[#1C1C27] border border-white/10 text-[#22D3EE] text-[11px] font-bold hover:border-[#22D3EE]/50 transition-all"
+              >
+                <Flag className="w-3.5 h-3.5" /> Marcador
+              </button>
+            )}
+            {/* Reiniciar take (visível em saved/error) */}
+            {isSavedOrError && onResetTake && (
+              <button
+                onClick={() => {
+                  setMenuOpen(false)
+                  setConfirmReset(true)
+                }}
+                className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-[#1C1C27] border border-white/10 text-[#9494A8] text-[11px] font-bold hover:border-amber-500/50 hover:text-amber-300 transition-all"
+              >
+                <RotateCcw className="w-4 h-4" /> Reiniciar
+              </button>
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
+
+      {/* 7. Pausar (md+) */}
       {isRec && (
         <button
           onClick={onPause}
           disabled={!enabled.pause}
-          className="flex items-center gap-1.5 px-3 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[11px] font-bold hover:bg-amber-500/30 transition-all"
+          className="hidden md:flex items-center gap-1.5 px-3 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[11px] font-bold hover:bg-amber-500/30 transition-all"
           title="Pausar gravação (Espaço)"
         >
           <Pause className="w-4 h-4" /> Pausar
         </button>
       )}
 
-      {/* 8. Finalizar (durante gravação ou pausa) */}
+      {/* 8. Finalizar (md+) */}
       {(isRec || isPaused) && (
         <button
           onClick={onStop}
           disabled={!enabled.stop}
-          className="flex items-center gap-1.5 px-3 h-10 rounded-xl bg-[#1C1C27] border border-white/10 text-white text-[11px] font-bold hover:border-red-500/50 hover:text-red-300 transition-all"
+          className="hidden md:flex items-center gap-1.5 px-3 h-10 rounded-xl bg-[#1C1C27] border border-white/10 text-white text-[11px] font-bold hover:border-red-500/50 hover:text-red-300 transition-all"
           title="Finalizar gravação (Esc)"
         >
           <Square className="w-4 h-4 fill-current" /> Finalizar
         </button>
       )}
 
-      {/* 9. Reiniciar take (visível em saved/error) */}
+      {/* 9. Reiniciar take (md+) */}
       {isSavedOrError && onResetTake && (
         <button
           onClick={() => setConfirmReset(true)}
-          className="flex items-center gap-1.5 px-3 h-10 rounded-xl bg-[#1C1C27] border border-white/10 text-[#9494A8] text-[11px] font-bold hover:border-amber-500/50 hover:text-amber-300 transition-all"
+          className="hidden md:flex items-center gap-1.5 px-3 h-10 rounded-xl bg-[#1C1C27] border border-white/10 text-[#9494A8] text-[11px] font-bold hover:border-amber-500/50 hover:text-amber-300 transition-all"
           title="Reiniciar take"
         >
           <RotateCcw className="w-4 h-4" /> Reiniciar
         </button>
       )}
 
-      {/* 10. Marcador (durante gravação) */}
+      {/* 10. Marcador (md+) */}
       {isRec && (
         <button
           onClick={onMarker}
           disabled={!enabled.marker}
-          className="flex items-center gap-1.5 px-2.5 h-9 rounded-lg bg-[#1C1C27] border border-white/10 text-[#22D3EE] text-[10px] font-bold hover:border-[#22D3EE]/50 transition-all"
+          className="hidden md:flex items-center gap-1.5 px-2.5 h-9 rounded-lg bg-[#1C1C27] border border-white/10 text-[#22D3EE] text-[10px] font-bold hover:border-[#22D3EE]/50 transition-all"
           title="Adicionar marcador de tempo"
         >
           <Flag className="w-3.5 h-3.5" /> Marcador
@@ -306,8 +431,10 @@ export function RecordingDock(props: RecordingDockProps) {
         </span>
       </div>
 
-      {/* Indicador de estado */}
-      <div className={`flex items-center gap-1.5 px-2.5 h-9 rounded-lg border ${color.bg}`}>
+      {/* Indicador de estado (md+) */}
+      <div
+        className={`hidden md:flex items-center gap-1.5 px-2.5 h-9 rounded-lg border ${color.bg}`}
+      >
         {isProcessing ? (
           <Loader2 className={`w-3.5 h-3.5 animate-spin ${color.text}`} />
         ) : state === 'saved' ? (
@@ -337,6 +464,11 @@ export function RecordingDock(props: RecordingDockProps) {
           {lastTakeName}
         </span>
       )}
+      {/* Mobile: indicador compacto de estado (ponto colorido) */}
+      <span
+        className={`md:hidden w-2.5 h-2.5 rounded-full ${color.dot} ${isRec ? 'animate-pulse' : ''}`}
+        title={recordingStateLabel(state)}
+      />
 
       {/* Confirmação de reinício de take */}
       <Dialog open={confirmReset} onOpenChange={setConfirmReset}>

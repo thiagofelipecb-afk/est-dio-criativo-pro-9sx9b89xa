@@ -21,6 +21,7 @@ import {
   Loader2,
   AlertCircle,
   Lock,
+  PanelRight,
 } from 'lucide-react'
 import type { StageLayout, BeautyConfig, FaceStatus } from '@/types/studio'
 import { useStudio } from '@/context/StudioContext'
@@ -130,6 +131,9 @@ export default function Gravadora() {
 
   // Tab selecionada no painel de configuração
   const [activeTab, setActiveTab] = useState('roteiro')
+
+  // Drawer retrátil do inspetor (breakpoint md–xl: 900–1279px)
+  const [inspectorDrawerOpen, setInspectorDrawerOpen] = useState(false)
 
   // Dispositivos
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([])
@@ -2125,10 +2129,89 @@ export default function Gravadora() {
     )
   }
 
+  // === Inspector reutilizável: inline (xl+) e drawer retrátil (md–xl) ===
+  const renderInspector = (variant: 'inline' | 'drawer' = 'inline') => (
+    <StudioAccordionPanel
+      variant={variant}
+      projectId={activeProjectId || 'temp'}
+      aspectRatio={aspectRatio}
+      onAspectRatioChange={setAspectRatio}
+      splitMode={splitMode}
+      onSplitModeChange={setSplitMode}
+      splitCameraRatio={stageConfig.splitCameraRatio ?? 0.6}
+      onSplitCameraRatioChange={(v) => updateStageConfig({ splitCameraRatio: v })}
+      margin={margin}
+      onMarginChange={setMargin}
+      spacing={spacing}
+      onSpacingChange={setSpacing}
+      borderRadius={borderRadiusVal}
+      onBorderRadiusChange={setBorderRadiusVal}
+      borderWidth={borderWidthVal}
+      onBorderWidthChange={setBorderWidthVal}
+      cameras={cameras}
+      selectedCamera={selectedCamera}
+      onSelectCamera={(id) => {
+        setSelectedCamera(id)
+        saveDevicePreference(id, selectedMic)
+      }}
+      hardwareCapabilities={hardwareCapabilities}
+      requestedResolution={cameraConfig.requestedResolution}
+      requestedFrameRate={cameraConfig.requestedFrameRate}
+      deliveredWidth={deliveredWidth}
+      deliveredHeight={deliveredHeight}
+      deliveredFrameRate={deliveredFrameRate}
+      camStatus={camStatus}
+      camError={camError || applyConstraintsError}
+      onRetryCamera={handleActivateCamera}
+      onRequestResolution={handleRequestResolution}
+      onRequestFrameRate={handleRequestFrameRate}
+      zoom={cameraCrop.zoom}
+      panX={cameraCrop.panX}
+      panY={cameraCrop.panY}
+      onZoomChange={handleZoomChange}
+      onPanChange={handlePanChange}
+      onCenterFace={handleCenterFace}
+      onResetCrop={handleResetCrop}
+      hardware={cameraConfig.hardware}
+      onUpdateHardware={handleUpdateHardware}
+      mirror={cameraCrop.mirror}
+      onMirrorChange={handleMirrorChange}
+      cameraConfig={cameraConfig}
+      updateCameraConfig={updateCameraConfig}
+      onRestoreDefaults={handleRestoreCameraDefaults}
+      beauty={beauty}
+      setBeauty={setBeauty}
+      faceDetected={faceDetected}
+      faceStatus={faceStatus}
+      mediapipeLoading={mediapipeLoading}
+      mediapipeAvailable={mediapipeAvailable}
+      webglAvailable={webglAvailable}
+      beautyEnabled={beautyEnabled}
+      onBeautyEnabledChange={setBeautyEnabled}
+      compareBefore={compareBefore}
+      onCompareBeforeChange={setCompareBefore}
+      onLoadMediapipe={loadMediapipe}
+      mics={mics}
+      selectedMic={selectedMic}
+      onSelectMic={(id) => {
+        setSelectedMic(id)
+        saveDevicePreference(selectedCamera, id)
+      }}
+      audioConfig={audioConfig}
+      updateAudioConfig={updateAudioConfig}
+      micLevel={micLevel}
+      recordingSettings={recordingSettings}
+      setRecordingSettings={(u) => setRecordingSettings((p) => ({ ...p, ...u }))}
+      gravadoraScript={gravadoraScript}
+      setGravadoraScript={useStudioSetGravadoraScript}
+      setScriptBlocks={useStudioSetScriptBlocks}
+    />
+  )
+
   // MODO FOCO TOTAL
   if (isFocusMode) {
     return (
-      <div className="relative w-screen h-screen bg-[#000000] overflow-hidden flex flex-col justify-between p-6 select-none">
+      <div className="relative w-screen h-[100dvh] bg-[#000000] overflow-hidden flex flex-col justify-between p-6 select-none">
         {/* Portal Prompter HUD no topo — apenas quando há roteiro */}
         {hasScript && <PrompterHUD />}
 
@@ -2206,7 +2289,7 @@ export default function Gravadora() {
 
   // MODO PADRÃO
   return (
-    <div className="flex flex-col h-screen w-full bg-[#0B0B10] overflow-hidden">
+    <div className="flex flex-col h-[100dvh] w-full bg-[#0B0B10] overflow-hidden">
       {/* Prompter HUD Renderizado Via Portal — apenas quando há roteiro */}
       {hasScript && <PrompterHUD />}
 
@@ -2271,7 +2354,7 @@ export default function Gravadora() {
       {/* Main Container Dual-Column Layout — altura reserva para o dock (~64px) */}
       <div className="flex-1 flex min-h-0 overflow-hidden relative pb-16">
         {/* Esquerda (62% Desktop / Full Mobile): Palco & Canvas 9:16 */}
-        <div className="flex-1 lg:w-[62%] flex flex-col items-center justify-center p-4 bg-[#0B0B10] relative overflow-hidden gap-3">
+        <div className="flex-1 xl:w-[62%] flex flex-col items-center justify-center p-4 bg-[#0B0B10] relative overflow-hidden gap-3">
           {/* Palco 9:16 com split screen */}
           {renderStage()}
 
@@ -2293,102 +2376,56 @@ export default function Gravadora() {
           </div>
         </div>
 
-        {/* Direita (38% Desktop): Painel em Acordeões (Módulo 4) */}
-        <div className="hidden lg:block lg:w-[38%] border-l border-white/5 bg-[#0E0E15] h-full">
-          <StudioAccordionPanel
-            projectId={activeProjectId || 'temp'}
-            aspectRatio={aspectRatio}
-            onAspectRatioChange={setAspectRatio}
-            splitMode={splitMode}
-            onSplitModeChange={setSplitMode}
-            splitCameraRatio={stageConfig.splitCameraRatio ?? 0.6}
-            onSplitCameraRatioChange={(v) => updateStageConfig({ splitCameraRatio: v })}
-            margin={margin}
-            onMarginChange={setMargin}
-            spacing={spacing}
-            onSpacingChange={setSpacing}
-            borderRadius={borderRadiusVal}
-            onBorderRadiusChange={setBorderRadiusVal}
-            borderWidth={borderWidthVal}
-            onBorderWidthChange={setBorderWidthVal}
-            cameras={cameras}
-            selectedCamera={selectedCamera}
-            onSelectCamera={(id) => {
-              setSelectedCamera(id)
-              saveDevicePreference(id, selectedMic)
-            }}
-            hardwareCapabilities={hardwareCapabilities}
-            requestedResolution={cameraConfig.requestedResolution}
-            requestedFrameRate={cameraConfig.requestedFrameRate}
-            deliveredWidth={deliveredWidth}
-            deliveredHeight={deliveredHeight}
-            deliveredFrameRate={deliveredFrameRate}
-            camStatus={camStatus}
-            camError={camError || applyConstraintsError}
-            onRetryCamera={handleActivateCamera}
-            onRequestResolution={handleRequestResolution}
-            onRequestFrameRate={handleRequestFrameRate}
-            zoom={cameraCrop.zoom}
-            panX={cameraCrop.panX}
-            panY={cameraCrop.panY}
-            onZoomChange={handleZoomChange}
-            onPanChange={handlePanChange}
-            onCenterFace={handleCenterFace}
-            onResetCrop={handleResetCrop}
-            hardware={cameraConfig.hardware}
-            onUpdateHardware={handleUpdateHardware}
-            mirror={cameraCrop.mirror}
-            onMirrorChange={handleMirrorChange}
-            cameraConfig={cameraConfig}
-            updateCameraConfig={updateCameraConfig}
-            onRestoreDefaults={handleRestoreCameraDefaults}
-            beauty={beauty}
-            setBeauty={setBeauty}
-            faceDetected={faceDetected}
-            faceStatus={faceStatus}
-            mediapipeLoading={mediapipeLoading}
-            mediapipeAvailable={mediapipeAvailable}
-            webglAvailable={webglAvailable}
-            beautyEnabled={beautyEnabled}
-            onBeautyEnabledChange={setBeautyEnabled}
-            compareBefore={compareBefore}
-            onCompareBeforeChange={setCompareBefore}
-            onLoadMediapipe={loadMediapipe}
-            mics={mics}
-            selectedMic={selectedMic}
-            onSelectMic={(id) => {
-              setSelectedMic(id)
-              saveDevicePreference(selectedCamera, id)
-            }}
-            audioConfig={audioConfig}
-            updateAudioConfig={updateAudioConfig}
-            micLevel={micLevel}
-            recordingSettings={recordingSettings}
-            setRecordingSettings={(u) => setRecordingSettings((p) => ({ ...p, ...u }))}
-            gravadoraScript={gravadoraScript}
-            setGravadoraScript={useStudioSetGravadoraScript}
-            setScriptBlocks={useStudioSetScriptBlocks}
-          />
+        {/* Direita (38% Desktop xl+): Painel em Acordeões (Módulo 4) */}
+        <div className="hidden xl:block xl:w-[38%] border-l border-white/5 bg-[#0E0E15] h-full">
+          {renderInspector('inline')}
         </div>
 
-        {/* Mobile / Tablet (<1180px) Drawer de Configuração */}
-        <div className="lg:hidden absolute bottom-20 right-4 z-40">
+        {/* Tablet (900–1279px): Drawer retrátil do inspetor com backdrop */}
+        {!inspectorDrawerOpen && (
+          <button
+            onClick={() => setInspectorDrawerOpen(true)}
+            className="hidden md:flex xl:hidden absolute top-1/2 right-0 -translate-y-1/2 z-40 items-center gap-1 px-2 py-4 rounded-l-xl bg-[#7C5CFC] hover:bg-[#6A48E0] text-white shadow-lg transition-all"
+            title="Abrir painel de estúdio"
+            aria-label="Abrir painel de estúdio"
+          >
+            <PanelRight className="w-4 h-4" />
+          </button>
+        )}
+        {inspectorDrawerOpen && (
+          <>
+            <div
+              className="hidden md:block xl:hidden absolute inset-0 z-40 bg-black/40"
+              onClick={() => setInspectorDrawerOpen(false)}
+            />
+            <div className="hidden md:block xl:hidden absolute top-0 right-0 bottom-0 z-[60] w-[400px] max-w-[85vw] bg-[#0E0E15] border-l border-white/5 shadow-2xl">
+              <button
+                onClick={() => setInspectorDrawerOpen(false)}
+                className="absolute top-2 right-2 z-10 p-1.5 rounded-lg bg-[#1C1C27] border border-white/10 text-[#9494A8] hover:text-white transition-all"
+                aria-label="Fechar painel de estúdio"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              {renderInspector('drawer')}
+            </div>
+          </>
+        )}
+
+        {/* Mobile (<900px): Drawer fullscreen de Configuração */}
+        <div className="md:hidden absolute bottom-20 right-4 z-40">
           <Sheet>
             <SheetTrigger asChild>
               <button className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-[#7C5CFC] text-white text-xs font-bold shadow-xl">
                 <Settings2 className="w-4 h-4" /> Configurações
               </button>
             </SheetTrigger>
-            <SheetContent
-              side="right"
-              className="w-[85vw] sm:w-[400px] p-0 bg-[#0E0E15] border-white/10"
-            >
+            <SheetContent side="right" className="w-full p-0 bg-[#0E0E15] border-white/10">
               <SheetHeader className="px-4 py-3 border-b border-white/5">
                 <SheetTitle className="text-xs font-bold text-white uppercase">
                   Painel de Estúdio
                 </SheetTitle>
               </SheetHeader>
-              <div className="h-[calc(100vh-60px)]">
+              <div className="h-[calc(100dvh-60px)]">
                 {/* Mobile reutiliza as tabs legadas para não duplicar a árvore */}
                 {renderConfigTabs()}
               </div>
